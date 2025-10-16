@@ -10,9 +10,7 @@ import SessionsByType from "../../components/charts/SessionsByType.jsx";
 export default function Sessions() {
   /**
    * Sessions page with server-side search and pagination.
-   * - Debounced search (300ms) across the entire dataset via backend query param `q`.
-   * - Keeps existing pagination using server-provided meta.total and page/limit.
-   * - Minimal loading and error states shown within the table and above toolbar.
+   * Debounced search (300ms) across the dataset via backend query param `q`.
    */
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -20,16 +18,13 @@ export default function Sessions() {
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // Details modal state (session details; unrelated to deprecated "View All" costs modal)
+  // Details modal state
   const [selectedSession, setSelectedSession] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  // Lock to prevent race conditions when multiple loads are inflight (e.g., debounce vs pagination)
   const activeRequestRef = useRef(0);
-  // Remember the last known sort so search/debounced reloads preserve sort order across pages
   const lastSortRef = useRef({ key: "", dir: "asc" });
 
-  // Allowed and ordered fields (column visibility)
   const allowedOrdered = useMemo(
     () => ["task_id", "tenant_id", "organization_name", "service_type"],
     []
@@ -46,9 +41,6 @@ export default function Sessions() {
   // PUBLIC_INTERFACE
   function buildRestrictedColumns(rows = []) {
     /** Build DataTable columns strictly from the allowed list, preserving order. */
-    const presentKeys = new Set();
-    (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
-
     return allowedOrdered.map((k) => {
       return {
         key: k,
@@ -68,10 +60,6 @@ export default function Sessions() {
   const [byType, setByType] = useState([]); // [{ session_type, session_count }]
 
   async function loadAggregates(qStr = "") {
-    /**
-     * Fetch sessions data across multiple pages (capped) and build client-side aggregates
-     * for charts: by organization_name and by session_type.
-     */
     setAggLoading(true);
     setAggError("");
     try {
@@ -128,12 +116,7 @@ export default function Sessions() {
 
   // PUBLIC_INTERFACE
   async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
-    /**
-     * Load sessions from server with pagination, optional query string, and server-driven sorting.
-     * When sortKey is provided, pass `sort` using:
-     *  - asc: field
-     *  - desc: -field
-     */
+    /** Load sessions from server with pagination and server-side sort. */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError("");
@@ -151,7 +134,6 @@ export default function Sessions() {
       }
       const res = await listSessions(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      // If a newer request started after this one, ignore late response
       if (requestId !== activeRequestRef.current) return;
 
       setItems(arr);
@@ -160,7 +142,6 @@ export default function Sessions() {
         limit: res?.meta?.limit || limit,
         total: res?.meta?.total ?? (Array.isArray(arr) ? arr.length : 0),
       });
-      // Update columns dynamically based on currently returned data
       setColumns(buildRestrictedColumns(arr));
     } catch (e) {
       if (requestId !== activeRequestRef.current) return;
@@ -185,16 +166,14 @@ export default function Sessions() {
     const handle = setTimeout(() => {
       const q = (query || "").trim();
       const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-      // Reset to first page when searching and preserve sort across dataset
       load(1, meta.limit || 10, q, key, dir);
-      // Sync charts to the same query
       loadAggregates(q);
     }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
-  // Toggle global dimming class while modal is open (align with user modal UX)
+  // Toggle global dimming class while modal is open
   useEffect(() => {
     if (detailsOpen) {
       document.body.classList.add("modal-open");
@@ -204,17 +183,7 @@ export default function Sessions() {
     return () => document.body.classList.remove("modal-open");
   }, [detailsOpen]);
 
-  // Row click -> open modal
   const handleRowClick = (row) => {
-    if (process.env.NODE_ENV !== "production") {
-      try {
-        const keys = Object.keys(row || {});
-        // eslint-disable-next-line no-console
-        console.debug("[Sessions] Row clicked -> opening details modal with keys:", keys);
-      } catch {
-        // ignore logging errors
-      }
-    }
     setSelectedSession(row);
     setDetailsOpen(true);
   };
@@ -261,7 +230,7 @@ export default function Sessions() {
         </Card>
       </div>
 
-      {/* Existing table card remains below charts */}
+      {/* Table */}
       <Card title="Session Tracking" subtitle="Search across the full dataset">
         <div className="toolbar" aria-label="Sessions toolbar">
           <input
@@ -282,12 +251,10 @@ export default function Sessions() {
           columns={columns}
           data={items}
           loading={loading}
-<<<<<<< HEAD
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
           fetchPage={async (page, limit, sortKey, sortDir) => {
-            // Remember current sort so external triggers (search) keep ordering consistent
             if (sortKey) {
               lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
             } else if (!lastSortRef.current) {
@@ -297,11 +264,6 @@ export default function Sessions() {
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
-=======
-          error={error ? (error.includes("Network") || error.includes("network")) ? "Connectivity issue: unable to reach the API." : error : ""}
-          emptyMessage="No sessions found"
-          onDelete={onDelete}
->>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
         />
       </Card>
     </div>

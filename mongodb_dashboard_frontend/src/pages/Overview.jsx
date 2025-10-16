@@ -1,5 +1,5 @@
-import React from 'react';
-import DashboardOverview from './dashboard/Overview.jsx';
+import React from "react";
+import DashboardOverview from "./dashboard/Overview.jsx";
 
 /**
  * PUBLIC_INTERFACE

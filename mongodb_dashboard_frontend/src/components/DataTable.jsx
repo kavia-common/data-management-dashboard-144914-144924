@@ -21,7 +21,6 @@ export default function DataTable({
   columns,
   data,
   loading,
-<<<<<<< HEAD
   onEdit,
   onDelete,
   onRowClick,
@@ -31,38 +30,16 @@ export default function DataTable({
   autoWidth = true,
   minColWidth = 56,
   maxColWidth = 420,
-  // Optional override for scroll height
-  maxBodyHeight, // if provided, will override CSS default via inline style
-  // PUBLIC_INTERFACE
-  // forceHorizontalScroll: when true, ensures a min table width larger than wrapper to always show an X scrollbar.
+  maxBodyHeight, // override body max height if needed
   forceHorizontalScroll = false,
-  // PUBLIC_INTERFACE
-  serverTotal, // optional: pass total item count from server to compute total pages in server mode
-  // PUBLIC_INTERFACE
-  fetchPage, // optional: async function (page, pageSize, sortKey, sortDir) => void to load data from server on page change
-  // PUBLIC_INTERFACE
-  paginationTitle = "Pages", // optional title beside pagination controls to improve visibility
+  serverTotal, // total count when in server mode
+  fetchPage, // async (page, pageSize, sortKey, sortDir) => void
+  paginationTitle = "Pages",
 }) {
   /**
    * DataTable with sticky header and always-visible pagination.
-   * Body is contained in a scrollable region with vertical and horizontal scroll as needed.
-   * Improvements in this version:
-   * - Ensures horizontal scroll is always available when columns exceed wrapper width or when forceHorizontalScroll is true.
-   * - Pagination area is outside of the scrollable body and remains visible regardless of scroll position.
-   * - Slight visual affordances (shadow) appear on the header when the body content is scrolled.
-=======
-  error,
-  emptyMessage = "No data",
-  onEdit,
-  onDelete,
-}) {
-  /**
-   * A simple data grid component with client-side sorting and action column.
-   * Distinguishes between:
-   * - loading state
-   * - error state (shows connectivity/message row)
-   * - empty state (customizable message)
->>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
+   * - Client-side sort unless fetchPage/serverTotal provided (server mode).
+   * - Accessible keyboard navigation and ARIA labels.
    */
   const [sortKey, setSortKey] = useState("");
   const [sortDir, setSortDir] = useState("asc");
@@ -71,7 +48,6 @@ export default function DataTable({
   const bodyRef = useRef(null);
   const headerRef = useRef(null);
 
-  // Determine server mode up-front so we can control sorting and pagination behavior consistently.
   const isServerMode = typeof fetchPage === "function" && typeof serverTotal === "number";
 
   function getValue(row, path) {
@@ -86,7 +62,6 @@ export default function DataTable({
     }
   }
 
-  // In server mode, do not apply client-side sorting: trust server ordering for global sort correctness.
   const sorted = useMemo(() => {
     if (isServerMode) return data || [];
     if (!sortKey) return data || [];
@@ -104,14 +79,12 @@ export default function DataTable({
     return copy;
   }, [data, sortDir, sortKey, isServerMode]);
 
-  // Determine total and pagination mode
   const clientTotal = sorted?.length || 0;
   const total = isServerMode ? Math.max(0, serverTotal) : clientTotal;
 
   const totalPages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
   const currentPage = Math.min(Math.max(1, page), totalPages);
 
-  // In client mode slice locally; in server mode assume data already corresponds to current page (and is globally sorted by server)
   const start = (currentPage - 1) * Math.max(1, pageSize);
   const end = start + Math.max(1, pageSize);
   const pageRows = isServerMode ? (data || []) : sorted.slice(start, end);
@@ -120,23 +93,18 @@ export default function DataTable({
     const next = Math.min(Math.max(1, p), totalPages);
     setPage(next);
     if (typeof onPageChange === "function") onPageChange(next);
-
-    // If in server mode, ask parent to load data for the new page
     if (typeof fetchPage === "function") {
       try {
         await fetchPage(next, Math.max(1, pageSize), sortKey, sortDir);
       } catch {
-        // swallow; parent can own error UI
+        // allow parent to handle error UI
       }
     }
     if (bodyRef.current) {
       bodyRef.current.scrollTop = 0;
-      // Keep pagination visible; do not auto-reset horizontal scroll as users may be inspecting right-most columns.
-      // bodyRef.current.scrollLeft = 0;
     }
   }
 
-<<<<<<< HEAD
   async function toggleSort(key) {
     let nextDir = "asc";
     if (sortKey === key) {
@@ -147,23 +115,20 @@ export default function DataTable({
       nextDir = "asc";
       setSortDir("asc");
     }
-    // Reset to first page; in server mode fetch the page once here (avoid double fetch)
     if (typeof fetchPage === "function") {
       try {
         await fetchPage(1, Math.max(1, pageSize), key, nextDir);
       } catch {
-        // ignore errors; parent handles UI
+        // parent handles errors
       }
       setPage(1);
       if (typeof onPageChange === "function") onPageChange(1);
       if (bodyRef.current) bodyRef.current.scrollTop = 0;
       return;
     }
-    // Client mode: just update to first page; slicing/sorting handled locally
     setPageAndNotify(1);
   }
 
-  // Add a small shadow class to header when body is scrolled vertically to provide context separation.
   function onBodyScroll(e) {
     const target = e.currentTarget;
     const scrolled = target.scrollTop > 0;
@@ -234,63 +199,6 @@ export default function DataTable({
             >
               {p}
             </button>
-=======
-  return (
-    <div className="table-wrapper">
-      <table className="table">
-        <thead>
-          <tr>
-            {columns.map((c) => (
-              <th key={c.key} onClick={() => toggleSort(c.key)} role="button" className="th">
-                {c.label}
-                {sortKey === c.key && (sortDir === "asc" ? " ▲" : " ▼")}
-              </th>
-            ))}
-            {(onEdit || onDelete) && <th className="th">Actions</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {loading && (
-            <tr>
-              <td colSpan={columns.length + (onEdit || onDelete ? 1 : 0)}>
-                <div className="table-empty">Loading...</div>
-              </td>
-            </tr>
-          )}
-
-          {!loading && error && (
-            <tr>
-              <td colSpan={columns.length + (onEdit || onDelete ? 1 : 0)}>
-                <div className="error" role="alert">
-                  {error}
-                </div>
-              </td>
-            </tr>
-          )}
-
-          {!loading && !error && (!sorted || sorted.length === 0) && (
-            <tr>
-              <td colSpan={columns.length + (onEdit || onDelete ? 1 : 0)}>
-                <div className="table-empty">{emptyMessage}</div>
-              </td>
-            </tr>
-          )}
-
-          {!loading && !error && sorted && sorted.map((row) => (
-            <tr key={row._id || row.id || JSON.stringify(row)}>
-              {columns.map((c) => (
-                <td key={c.key} className="td">
-                  {c.render ? c.render(getValue(row, c.key), row) : String(getValue(row, c.key) ?? "")}
-                </td>
-              ))}
-              {(onEdit || onDelete) && (
-                <td className="td actions">
-                  {onEdit && <button className="btn btn-ghost" onClick={() => onEdit(row)}>Edit</button>}
-                  {onDelete && <button className="btn btn-danger" onClick={() => onDelete(row)}>Delete</button>}
-                </td>
-              )}
-            </tr>
->>>>>>> bf31c723ae348f04a9f00b974ed03a83749eaa69
           ))}
           {endPage < totalPages && (
             <button
@@ -321,7 +229,9 @@ export default function DataTable({
             »
           </button>
           <div style={{ marginLeft: 8, display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <label htmlFor="page-jump" className="muted" style={{ fontSize: 12 }}>Go to</label>
+            <label htmlFor="page-jump" className="muted" style={{ fontSize: 12 }}>
+              Go to
+            </label>
             <input
               id="page-jump"
               type="number"
@@ -373,7 +283,7 @@ export default function DataTable({
         const w = text ? measureTextWidth(text, fontCell) : headerW;
         if (w > maxW) maxW = w;
       });
-      maxW += 24 + 16;
+      maxW += 24 + 16; // padding + icon room
       widths[c.key] = Math.min(Math.max(maxW, minColWidth), maxColWidth);
     });
 
@@ -383,12 +293,13 @@ export default function DataTable({
     return widths;
   }, [columns, pageRows, autoWidth, minColWidth, maxColWidth, actionColIncluded]);
 
-  // If forced, set a minWidth on tables to ensure horizontal scrollbar appears even with a few columns.
-  const forcedMinWidth = forceHorizontalScroll ? Math.max(960, (columns?.length || 1) * 160 + (actionColIncluded ? 160 : 0)) : undefined;
+  const forcedMinWidth = forceHorizontalScroll
+    ? Math.max(960, (columns?.length || 1) * 160 + (actionColIncluded ? 160 : 0))
+    : undefined;
 
   return (
     <div className="table-wrapper" role="region" aria-label="Data table">
-      {/* Header area */}
+      {/* Header */}
       <div className="table-header" ref={headerRef}>
         <table className="table" aria-hidden="true" style={forcedMinWidth ? { minWidth: forcedMinWidth } : undefined}>
           <colgroup>
@@ -428,7 +339,7 @@ export default function DataTable({
         </table>
       </div>
 
-      {/* Scrollable body */}
+      {/* Body */}
       <div
         className="table-scroll"
         role="grid"
@@ -464,7 +375,9 @@ export default function DataTable({
                 <tr
                   className="tr"
                   key={row._id || row.id || JSON.stringify(row)}
-                  onClick={() => { if (typeof onRowClick === "function") onRowClick(row); }}
+                  onClick={() => {
+                    if (typeof onRowClick === "function") onRowClick(row);
+                  }}
                   onKeyDown={(e) => {
                     if (!onRowClick) return;
                     if (e.key === "Enter" || e.key === " ") {
@@ -499,41 +412,27 @@ export default function DataTable({
                       {onEdit && (
                         <button
                           className="btn btn-ghost"
-                          onClick={(e) => { e.stopPropagation(); onEdit(row); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onEdit(row);
+                          }}
                           aria-label="Edit row"
                           title="Edit"
                         >
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                            aria-hidden="true"
-                          >
-                            <circle cx="12" cy="5" r="2" />
-                            <circle cx="12" cy="12" r="2" />
-                            <circle cx="12" cy="19" r="2" />
-                          </svg>
+                          Edit
                         </button>
                       )}
                       {onDelete && (
                         <button
                           className="btn btn-danger"
-                          onClick={(e) => { e.stopPropagation(); onDelete(row); }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDelete(row);
+                          }}
                           aria-label="Delete row"
                           title="Delete"
                         >
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                            aria-hidden="true"
-                          >
-                            <circle cx="12" cy="5" r="2" />
-                            <circle cx="12" cy="12" r="2" />
-                            <circle cx="12" cy="19" r="2" />
-                          </svg>
+                          Delete
                         </button>
                       )}
                     </td>
@@ -553,7 +452,7 @@ export default function DataTable({
         </table>
       </div>
 
-      {/* Always visible pagination controls */}
+      {/* Pagination */}
       <PaginationControls />
     </div>
   );
