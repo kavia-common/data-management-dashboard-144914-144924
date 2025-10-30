@@ -1,9 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import KPIChart from "../../components/charts/KPIChart.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
+import Button from "../../components/ui/Button.jsx";
+import { Link } from "react-router-dom";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
-
+import { getAgentsAnalytics } from "../../api/analyticsAgents";
+import LoadingState from "../../components/common/LoadingState.jsx";
+import ErrorState from "../../components/common/ErrorState.jsx";
+import AgentsBar from "../../components/charts/AgentCostBarChart.jsx";
+import AgentsTable from "../../components/tables/AgentsUsageTable.jsx";
 
 // PUBLIC_INTERFACE
 export default function Overview() {
@@ -13,6 +19,11 @@ export default function Overview() {
   const [trend, setTrend] = useState([]);
   const [error, setError] = useState("");
   const [apiStatus, setApiStatus] = useState("checking");
+
+  // Agents section state
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [agentsError, setAgentsError] = useState("");
+  const [agentsItems, setAgentsItems] = useState([]);
 
   useEffect(() => {
     async function fetchData() {
@@ -66,6 +77,49 @@ export default function Overview() {
     };
   }, []);
 
+  // Fetch Agents analytics (defaults: last 30 days top 10)
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAgents() {
+      setAgentsLoading(true);
+      setAgentsError("");
+      try {
+        const now = new Date();
+        const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        const to = now.toISOString();
+        const { items } = await getAgentsAnalytics({ limit: 10, from, to });
+        if (!cancelled) {
+          setAgentsItems(items || []);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setAgentsError(e?.message || "Failed to load agents analytics.");
+        }
+      } finally {
+        if (!cancelled) setAgentsLoading(false);
+      }
+    }
+    loadAgents();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const compactChartItems = useMemo(() => {
+    // Normalize for chart component signature
+    const mapped = (agentsItems || []).map((it) => ({
+      agent_name: it.agent_name || it.agent,
+      total_cost: Number(it.total_cost || 0),
+    }));
+    // top-N already limited by API; keep as-is
+    return mapped;
+  }, [agentsItems]);
+
+  const compactTableItems = useMemo(() => {
+    // Reuse same items; table will handle sorting and display minimal columns
+    return (agentsItems || []).slice(0, 10);
+  }, [agentsItems]);
+
   return (
     <div className="grid">
       {/* KPI cards row — responsive spans handled by .kpi-card rules in App.css */}
@@ -94,6 +148,35 @@ export default function Overview() {
         </div>
       </Card>
 
+      {/* Agents group-by section */}
+      <div className="block-full" style={{ justifySelf: 'end', width: '100%' }}>
+        <Card
+          title="Agents"
+          subtitle="Top agents by total cost (last 30 days)"
+          className="w-full"
+          actions={
+            <Link to="/agents" aria-label="View all agents">
+              <Button variant="ghost" className="text-sm">View all</Button>
+            </Link>
+          }
+        >
+          {agentsError && !agentsLoading ? (
+            <ErrorState message={agentsError} />
+          ) : null}
+          {agentsLoading ? (
+            <LoadingState message="Loading agents summary…" height={180} />
+          ) : (
+            <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div>
+                <AgentsBar items={compactChartItems} loading={false} />
+              </div>
+              <div>
+                <AgentsTable items={compactTableItems} loading={false} />
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
 
       {/* Full-width trend row aligned to the right by spanning all columns */}
       <div className="block-full" style={{ justifySelf: 'end', width: '100%' }}>
@@ -108,9 +191,6 @@ export default function Overview() {
           )}
         </Card>
       </div>
-
-
-
     </div>
   );
 }
