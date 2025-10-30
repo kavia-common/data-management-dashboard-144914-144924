@@ -4,7 +4,7 @@ import KPIChart from "../../components/charts/KPIChart.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import Button from "../../components/ui/Button.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
-import { getAgentsAnalytics } from "../../api/analyticsAgents";
+import { getAgentsAnalytics } from "../../api/agentsAnalytics";
 import LoadingState from "../../components/common/LoadingState.jsx";
 import ErrorState from "../../components/common/ErrorState.jsx";
 import AgentsBar from "../../components/charts/AgentCostBarChart.jsx";
@@ -86,7 +86,7 @@ export default function Overview() {
         const now = new Date();
         const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const to = now.toISOString();
-        const { items } = await getAgentsAnalytics({ limit: 10, from, to });
+        const { items } = await getAgentsAnalytics({ limit: 10, from, to, grouping: 'department' });
         if (!cancelled) {
           setAgentsItems(items || []);
         }
