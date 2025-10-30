@@ -60,6 +60,17 @@ export default function AppRoutes() {
             </AppLayout>
           }
         />
+        {/* New Users routes under /users for module-level navigation */}
+        <Route
+          path="/users/*"
+          element={
+            <AppLayout>
+              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
+                {React.createElement(React.lazy(() => import("../pages/Users/index.jsx")))}
+              </Suspense>
+            </AppLayout>
+          }
+        />
         <Route
           path="/dashboard/sessions"
           element={
