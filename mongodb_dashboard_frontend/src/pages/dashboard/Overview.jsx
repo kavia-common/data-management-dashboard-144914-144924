@@ -3,7 +3,6 @@ import Card from "../../components/ui/Card.jsx";
 import KPIChart from "../../components/charts/KPIChart.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import Button from "../../components/ui/Button.jsx";
-import { Link } from "react-router-dom";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
 import { getAgentsAnalytics } from "../../api/analyticsAgents";
 import LoadingState from "../../components/common/LoadingState.jsx";
@@ -154,11 +153,6 @@ export default function Overview() {
           title="Agents"
           subtitle="Top agents by total cost (last 30 days)"
           className="w-full"
-          actions={
-            <Link to="/agents" aria-label="View all agents">
-              <Button variant="ghost" className="text-sm">View all</Button>
-            </Link>
-          }
         >
           {agentsError && !agentsLoading ? (
             <ErrorState message={agentsError} />
