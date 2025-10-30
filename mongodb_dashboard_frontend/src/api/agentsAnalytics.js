@@ -9,7 +9,7 @@ import { getApiClient } from './client';
  */
 export async function getAgentsAnalytics(params = {}) {
   const api = getApiClient();
-  const { data } = await api.get('/analytics/agents', {
+  const { data } = await api.get('/api/analytics/agents', {
     params: { grouping: 'agent', ...params },
   });
 

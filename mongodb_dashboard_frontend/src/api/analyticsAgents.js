@@ -7,7 +7,7 @@ import { getApiClient } from './client';
  */
 export async function getAgentsAggregation(params = {}) {
   const api = getApiClient();
-  const res = await api.get('/analytics/agents', {
+  const res = await api.get('/api/analytics/agents', {
     params: { grouping: 'agent', ...params },
   });
 
