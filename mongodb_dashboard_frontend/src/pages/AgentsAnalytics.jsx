@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import AgentCostBarChart from '../components/charts/AgentCostBarChart';
 import AgentsUsageTable from '../components/tables/AgentsUsageTable';
+import LoadingState from '../components/common/LoadingState';
+import ErrorState from '../components/common/ErrorState';
+import { getAgentsAnalytics } from '../api/agentsAnalytics';
 
 // PUBLIC_INTERFACE
 export default function AgentsAnalytics() {
@@ -17,48 +20,39 @@ export default function AgentsAnalytics() {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState('');
 
-  const queryString = useMemo(() => {
-    const params = new URLSearchParams();
-    if (filters.tenant_id) params.set('tenant_id', filters.tenant_id);
-    if (filters.project_id) params.set('project_id', filters.project_id);
-    // do not add dates here; let backend default to last 30 days unless user adds in future
-    params.set('limit', '100');
-    params.set('offset', '0');
-    return params.toString();
+  const queryParams = useMemo(() => {
+    return {
+      tenant_id: filters.tenant_id || undefined,
+      project_id: filters.project_id || undefined,
+      limit: 100,
+      offset: 0,
+    };
   }, [filters]);
 
-  useEffect(() => {
-    let isMounted = true;
+  const fetchData = async (params) => {
     setLoading(true);
     setErr('');
+    try {
+      const res = await getAgentsAnalytics(params);
+      setData(res || { items: [], total: 0, meta: {} });
+    } catch (e) {
+      setErr(e?.message || 'Failed to load agents analytics');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    fetch(`/api/analytics/agents?${queryString}`)
-      .then(r => {
-        if (!r.ok) throw new Error(`Failed to fetch: ${r.status}`);
-        return r.json();
-      })
-      .then(json => {
-        if (!isMounted) return;
-        setData(json);
-      })
-      .catch(e => {
-        if (!isMounted) return;
-        setErr(e.message || 'Failed to load agents analytics');
-      })
-      .finally(() => {
-        if (!isMounted) return;
-        setLoading(false);
-      });
-
-    return () => {
-      isMounted = false;
-    };
-  }, [queryString]);
+  useEffect(() => {
+    fetchData(queryParams);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queryParams.tenant_id, queryParams.project_id]);
 
   const onChange = (e) => {
     const { name, value } = e.target;
     setFilters(prev => ({ ...prev, [name]: value }));
   };
+
+  const onRetry = () => fetchData(queryParams);
 
   return (
     <div className="p-4">
@@ -90,17 +84,29 @@ export default function AgentsAnalytics() {
         </div>
       </div>
 
-      {err && <div className="mb-4 text-red-600">Error: {err}</div>}
+      {loading && !data.items?.length && !err ? (
+        <LoadingState message="Loading agents analytics..." height={160} />
+      ) : null}
 
-      <div className="mb-4 bg-white rounded-lg shadow-sm p-4">
-        <h3 className="text-base font-semibold mb-2">Cost by Agent</h3>
-        <AgentCostBarChart items={data.items || []} loading={loading} />
-      </div>
+      {err ? (
+        <div className="mb-4">
+          <ErrorState message={err} onRetry={onRetry} />
+        </div>
+      ) : null}
 
-      <div className="bg-white rounded-lg shadow-sm p-4">
-        <h3 className="text-base font-semibold mb-2">Usage & Sessions</h3>
-        <AgentsUsageTable items={data.items || []} loading={loading} />
-      </div>
+      {!err && (
+        <>
+          <div className="mb-4 bg-white rounded-lg shadow-sm p-4">
+            <h3 className="text-base font-semibold mb-2">Cost by Agent</h3>
+            <AgentCostBarChart items={data.items || []} loading={loading} />
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm p-4">
+            <h3 className="text-base font-semibold mb-2">Usage & Sessions</h3>
+            <AgentsUsageTable items={data.items || []} loading={loading} />
+          </div>
+        </>
+      )}
     </div>
   );
 }

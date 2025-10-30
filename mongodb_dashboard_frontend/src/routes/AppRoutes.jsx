@@ -11,6 +11,7 @@ const Deployments = lazy(() => import("../pages/dashboard/Deployments"));
 const Costs = lazy(() => import("../pages/dashboard/Costs"));
 
 const Login = lazy(() => import("../pages/Login"));
+const AgentsAnalytics = lazy(() => import("../pages/AgentsAnalytics"));
 
 /**
  * PUBLIC_INTERFACE
@@ -90,7 +91,16 @@ export default function AppRoutes() {
             </AppLayout>
           }
         />
-
+        <Route
+          path="/dashboard/agents"
+          element={
+            <AppLayout>
+              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={240} /></div>}>
+                <AgentsAnalytics />
+              </Suspense>
+            </AppLayout>
+          }
+        />
 
       </Route>
 
