@@ -87,11 +87,20 @@ export default function Overview() {
         const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const to = now.toISOString();
         const { items } = await getAgentsAggregation({ limit: 10, from, to, grouping: 'agent' });
+        // eslint-disable-next-line no-console
+        console.debug("[Overview] Agents aggregation items:", items);
         if (!cancelled) {
-          setAgentsItems(items || []);
+          const safeItems = Array.isArray(items) ? items : [];
+          setAgentsItems(safeItems);
+          if (safeItems.length === 0) {
+            // eslint-disable-next-line no-console
+            console.info("[Overview] No agents data available for the selected period.");
+          }
         }
       } catch (e) {
         if (!cancelled) {
+          // eslint-disable-next-line no-console
+          console.error("[Overview] Failed to load agents analytics:", e);
           setAgentsError(e?.message || "Failed to load agents analytics.");
         }
       } finally {

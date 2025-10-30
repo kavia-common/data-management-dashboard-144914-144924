@@ -4,26 +4,74 @@ import axios from "axios";
  * PUBLIC_INTERFACE
  * getApiClient
  * API client configured with base URL, adding Authorization and X-Active-Tenant headers from localStorage if present.
- * To configure deployment base URL, set REACT_APP_API_BASE_URL in environment.
+ * To configure deployment base URL, set REACT_APP_API_BASE_URL and optionally REACT_APP_API_PREFIX in environment.
+ *
+ * Normalization rules:
+ * - Base origin is taken from REACT_APP_API_BASE_URL if provided; otherwise from window.location (default port 3001).
+ * - API prefix defaults to "/api" and is included exactly once.
+ * - Final baseURL looks like: http(s)://host:port/api
  */
-const ENV_BASE = process.env.REACT_APP_API_BASE_URL || "";
-const ENV_PREFIX = process.env.REACT_APP_API_PREFIX || "/api";
+const ENV_BASE = (process.env.REACT_APP_API_BASE_URL || "").trim();
+const ENV_PREFIX = (process.env.REACT_APP_API_PREFIX || "/api").trim();
 
-// Build base: if ENV_BASE is absolute and includes prefix, use as-is.
-// If ENV_BASE is provided but lacks '/api', append ENV_PREFIX.
-// Else try window override, else default to '/api'.
-let computedBase = "";
+function normalizePrefix(p) {
+  const pref = p || "/api";
+  const withLead = pref.startsWith("/") ? pref : `/${pref}`;
+  return withLead.replace(/\/+$/, ""); // remove trailing slash
+}
+
+function getWindowOrigin() {
+  try {
+    const { protocol, hostname, port } = window.location;
+    // If app runs on 3000 (CRA), backend is on 3001 by convention
+    const finalPort = port || (protocol === "https:" ? "443" : "80");
+    const origin = `${protocol}//${hostname}${finalPort ? `:${finalPort}` : ""}`;
+    return origin;
+  } catch {
+    // Non-browser fallback for tests
+    return "http://localhost:3001";
+  }
+}
+
+// Build normalized base URL
+let API_BASE_URL = "";
+const prefix = normalizePrefix(ENV_PREFIX);
+
 if (ENV_BASE) {
   const trimmedBase = ENV_BASE.replace(/\/+$/, "");
-  // If base already ends with '/api' or a provided prefix, don't double-append
-  const alreadyHasApi = /\/api$/.test(trimmedBase);
-  computedBase = alreadyHasApi ? trimmedBase : `${trimmedBase}${ENV_PREFIX}`;
-} else if (window.__API_BASE_URL__) {
-  computedBase = String(window.__API_BASE_URL__).replace(/\/+$/, "") || "/api";
+  const hasApiSuffix = /\/api$/.test(trimmedBase);
+  API_BASE_URL = hasApiSuffix ? trimmedBase : `${trimmedBase}${prefix}`;
+} else if (typeof window !== "undefined" && window.__API_BASE_URL__) {
+  const winBase = String(window.__API_BASE_URL__).trim();
+  if (/^https?:\/\//i.test(winBase)) {
+    const trimmed = winBase.replace(/\/+$/, "");
+    const hasApiSuffix = /\/api$/.test(trimmed);
+    API_BASE_URL = hasApiSuffix ? trimmed : `${trimmed}${prefix}`;
+  } else {
+    // relative provided; join with current origin
+    const origin = getWindowOrigin();
+    const rel = winBase.startsWith("/") ? winBase : `/${winBase}`;
+    const trimmed = rel.replace(/\/+$/, "");
+    const hasApiSuffix = /\/api$/.test(trimmed);
+    API_BASE_URL = hasApiSuffix ? `${origin}${trimmed}` : `${origin}${prefix}`;
+  }
 } else {
-  computedBase = "/api";
+  // Default to current origin but ensure backend port 3001 if running on 3000
+  let origin = getWindowOrigin();
+  try {
+    const url = new URL(origin);
+    const port = url.port || (url.protocol === "https:" ? "443" : "80");
+    if (port === "3000") {
+      origin = `${url.protocol}//${url.hostname}:3001`;
+    }
+  } catch {
+    // ignore
+  }
+  API_BASE_URL = `${origin}${prefix}`;
 }
-const API_BASE_URL = computedBase;
+
+// eslint-disable-next-line no-console
+console.debug("[api] baseURL:", API_BASE_URL);
 
 const api = axios.create({
   baseURL: API_BASE_URL,

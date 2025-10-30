@@ -7,12 +7,14 @@ import { getApiClient } from './client';
  */
 export async function getAgentsAggregation(params = {}) {
   const api = getApiClient();
-  const res = await api.get('/api/analytics/agents', {
+  const res = await api.get('analytics/agents', {
     params: { grouping: 'agent', ...params },
   });
 
   // Normalize: support raw array or envelope
   const data = res?.data;
+  // eslint-disable-next-line no-console
+  console.debug("[api.analyticsAgents] getAgentsAggregation response:", data);
   if (Array.isArray(data)) return { items: data, total: data.length, meta: null };
   const items = Array.isArray(data?.items)
     ? data.items

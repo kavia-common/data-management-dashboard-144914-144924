@@ -9,9 +9,12 @@ import { getApiClient } from './client';
  */
 export async function getAgentsAnalytics(params = {}) {
   const api = getApiClient();
-  const { data } = await api.get('/api/analytics/agents', {
+  const { data } = await api.get('analytics/agents', {
     params: { grouping: 'agent', ...params },
   });
+
+  // eslint-disable-next-line no-console
+  console.debug("[api.agentsAnalytics] getAgentsAnalytics response:", data);
 
   // Normalize shapes: array or { items/data, meta }
   if (Array.isArray(data)) {
