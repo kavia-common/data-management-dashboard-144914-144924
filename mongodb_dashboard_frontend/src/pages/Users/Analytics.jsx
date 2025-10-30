@@ -11,7 +11,6 @@ import LoadingState from '../../components/common/LoadingState';
 import ErrorState from '../../components/common/ErrorState';
 import '../../styles/theme.css';
 import '../../styles/globals.css';
-import { useTheme } from '../../theme';
 import { format } from 'date-fns';
 import useDebouncedValue from '../../hooks/useDebouncedValue';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -80,7 +79,6 @@ function PieChart({ data = [], colors = ['#2563EB', '#F59E0B'], size = 180 }) {
 }
 
 function FilterPanel({ filters, setFilters }) {
-  const { theme } = useTheme();
   const [local, setLocal] = useState(filters);
 
   useEffect(() => setLocal(filters), [filters]);
@@ -94,8 +92,8 @@ function FilterPanel({ filters, setFilters }) {
 
   return (
     <div style={{
-      background: theme.surface,
-      border: `1px solid ${theme.border ?? '#e5e7eb'}`,
+      background: '#ffffff',
+      border: '1px solid #e5e7eb',
       borderRadius: 12,
       padding: 16,
       display: 'grid',
@@ -184,9 +182,15 @@ function toSearch(filters) {
 }
 
 export default function UsersAnalyticsPage() {
-  const { theme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
+  // Use existing app colors (revert to non-theme hook)
+  const appColors = {
+    text: '#111827',
+    primary: '#2563EB',
+    secondary: '#F59E0B',
+    surface: '#ffffff'
+  };
 
   // Initialize from URL to preserve filters across reloads
   const initial = useMemo(() => parseSearch(location.search), [location.search]);
@@ -261,7 +265,7 @@ export default function UsersAnalyticsPage() {
 
   return (
     <div style={{ padding: 16 }}>
-      <h1 style={{ color: theme.text, fontWeight: 600, fontSize: 22, marginBottom: 8 }}>Users Analytics</h1>
+      <h1 style={{ color: appColors.text, fontWeight: 600, fontSize: 22, marginBottom: 8 }}>Users Analytics</h1>
       <p style={{ color: '#6b7280', marginBottom: 16 }}>
         Insights into user activity, growth, and engagement across your organization.
       </p>
@@ -276,10 +280,10 @@ export default function UsersAnalyticsPage() {
 
       <div className="grid-4" style={{ marginTop: 16 }}>
         <Card title="Total Active Users" subtitle="" >
-          {loading && !kpis ? <LoadingState height={84} message="Loading KPIs..." /> : <Kpi title="Total Active Users" value={totalActive} accent={theme.primary} />}
+          {loading && !kpis ? <LoadingState height={84} message="Loading KPIs..." /> : <Kpi title="Total Active Users" value={totalActive} accent={appColors.primary} />}
         </Card>
         <Card title="New Users" subtitle="">
-          {loading && !kpis ? <LoadingState height={84} message="Loading KPIs..." /> : <Kpi title="New Users" value={newUsers} accent={theme.secondary} />}
+          {loading && !kpis ? <LoadingState height={84} message="Loading KPIs..." /> : <Kpi title="New Users" value={newUsers} accent={appColors.secondary} />}
         </Card>
         <Card title="Inactive Users" subtitle="">
           {loading && !kpis ? <LoadingState height={84} message="Loading KPIs..." /> : <Kpi title="Inactive Users" value={inactive} accent="#9CA3AF" />}
@@ -293,11 +297,11 @@ export default function UsersAnalyticsPage() {
         <Card title="DAU - Last 30 Days" subtitle="Distinct active users per day">
           {loading && dau.length === 0 ? <LoadingState height={180} message="Loading DAU..." /> : (
             <>
-              <LineChart color={theme.primary} data={dau} />
+              <LineChart color={appColors.primary} data={dau} />
               <div className="chart-legend">
                 {dau.slice(-5).map((d, i) => (
                   <span key={i} className="legend-item">
-                    <span className="dot" style={{ background: theme.primary }} />
+                    <span className="dot" style={{ background: appColors.primary }} />
                     {d.label || format(new Date(), 'MM/dd')}
                   </span>
                 ))}
@@ -308,7 +312,7 @@ export default function UsersAnalyticsPage() {
         <Card title="Active by Department" subtitle="Department-wise activity">
           {loading && byDept.length === 0 ? <LoadingState height={200} message="Loading department breakdown..." /> : (
             <>
-              <BarChart color={theme.secondary} data={byDept} />
+              <BarChart color={appColors.secondary} data={byDept} />
               <div className="tags">
                 {byDept.slice(0, 6).map((d, i) => (<span className="tag" key={i}>{d.label}: {d.value}</span>))}
               </div>
@@ -321,11 +325,11 @@ export default function UsersAnalyticsPage() {
         <Card title="Active vs Inactive" subtitle="Current user status breakdown">
           {loading && activePie.length === 0 ? <LoadingState height={200} message="Loading status breakdown..." /> : (
             <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-              <PieChart data={activePie} colors={[theme.primary, '#9CA3AF']} />
+              <PieChart data={activePie} colors={[appColors.primary, '#9CA3AF']} />
               <div>
                 {activePie.map((d, i) => (
                   <div key={i} className="legend-item">
-                    <span className="dot" style={{ background: i === 0 ? theme.primary : '#9CA3AF' }} />
+                    <span className="dot" style={{ background: i === 0 ? appColors.primary : '#9CA3AF' }} />
                     {d.label}: {d.value}
                   </div>
                 ))}

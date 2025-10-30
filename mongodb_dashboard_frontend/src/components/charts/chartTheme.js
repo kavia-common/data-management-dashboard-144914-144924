@@ -1,9 +1,8 @@
-//
+﻿//
 // PUBLIC_INTERFACE
 // getChartTheme
-// Dark-mode aware chart color tokens sourced from CSS variables with fallbacks to theme tokens.
+// Dark-mode aware chart color tokens sourced from CSS variables with fallbacks.
 //
-import { darkThemeTokens } from "../../theme/darkTheme";
 
 /**
  * Read a CSS variable from :root. If unavailable, return fallback.
@@ -50,14 +49,14 @@ export function withAlpha(hex, alpha, fallbackColor = "rgba(255,102,0,0.4)") {
 
 // PUBLIC_INTERFACE
 export function getChartTheme() {
-  // Pull from CSS variables first; fall back to dark theme tokens
-  const accent = getCssVar("--chart-primary", darkThemeTokens.accent || "#FF6600");
+  // Pull from CSS variables first; fall back to static defaults
+  const accent = getCssVar("--chart-primary", "#FF6600");
   const grid = getCssVar("--chart-grid", "rgba(234,234,234,0.12)");
   const axis = getCssVar("--chart-axis", "rgba(234,234,234,0.6)");
   const tooltipBg = getCssVar("--chart-tooltip-bg", "#1E1A18");
   const tooltipBorder = getCssVar("--chart-tooltip-border", "#3C3532");
-  const tooltipText = getCssVar("--color-text-primary", darkThemeTokens.text?.primary || "#EAEAEA");
-  const legendText = getCssVar("--color-text-secondary", darkThemeTokens.text?.secondary || "#B0A8A0");
+  const tooltipText = getCssVar("--color-text-primary", "#EAEAEA");
+  const legendText = getCssVar("--color-text-secondary", "#B0A8A0");
 
   // Slight variants for hover/active
   const primaryHover = getCssVar("--chart-primary-hover", "#ff7a1a");

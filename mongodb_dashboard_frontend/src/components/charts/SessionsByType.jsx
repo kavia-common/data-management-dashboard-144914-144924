@@ -11,7 +11,7 @@ import {
   Cell,
 } from "recharts";
 import { getChartTheme } from "./chartTheme";
-import getOceanColors from "../../theme/colors";
+
 import { getStatusColor } from "../../utils/statusColors";
 import { formatStatusLabel } from "../../utils/formatStatusLabel";
 
@@ -35,18 +35,18 @@ export default function SessionsByType({
   /** This component renders a responsive bar chart: X=session_type, Y=session_count. */
 
   const t = getChartTheme();
-  const oc = getOceanColors();
   const gridStroke = t.grid;
+  const palette = { primary: "#2563EB", secondary: "#F59E0B" };
 
   const rows = useMemo(() => {
     const arr = Array.isArray(data) ? data : [];
     return arr.map((d) => {
       const session_type = String(d?.session_type ?? "Unknown");
       const session_count = Number(d?.session_count || 0);
-      const fill = getStatusColor(session_type, oc);
+      const fill = getStatusColor(session_type, palette);
       return { ...d, session_type, session_count, fill };
     });
-  }, [data, oc]);
+  }, [data, palette]);
 
   function truncateLabel(label, max = 14) {
     const s = String(label ?? "");
