@@ -1,42 +1,29 @@
-import React from 'react';
-
-/**
- * PUBLIC_INTERFACE
- * useTheme
- * Minimal hook for compatibility. Returns a static palette used across the app.
- * This prevents runtime/bundle errors after removing the custom theme provider.
- */
-export function useTheme() {
-  return {
-    theme: {
-      primary: '#2563EB',
-      secondary: '#F59E0B',
-      success: '#10B981',
-      error: '#EF4444',
-      text: '#111827',
-      surface: '#ffffff',
-      border: '#E5E7EB',
-    }
-  };
-}
+import { applyDarkTheme, darkThemeTokens } from "./darkTheme";
+export { applyDarkTheme, darkThemeTokens };
 
 /**
  * PUBLIC_INTERFACE
  * setTheme
- * No-op to maintain compatibility where setTheme was previously called.
+ * Sets the current theme by name. Currently supports "dark" only.
+ * Returns the applied token set for optional use by components that need inline styles.
  */
-export function setTheme() {
-  // no-op: original app does not use dynamic theme switching
+export function setTheme(themeName = "dark") {
+  switch (themeName) {
+    case "dark":
+    default: {
+      return applyDarkTheme();
+    }
+  }
 }
 
 /**
  * PUBLIC_INTERFACE
- * ThemeProvider
- * Compatibility component that simply renders children without context.
+ * getCurrentTheme
+ * Reads the theme flag from the documentElement.
  */
-export function ThemeProvider({ children }) {
-  return <>{children}</>;
+export function getCurrentTheme() {
+  if (typeof document !== "undefined") {
+    return document.documentElement.getAttribute("data-theme") || "dark";
+  }
+  return "dark";
 }
-
-// Backward compat named exports (no longer provided)
-// getOceanTheme, getCategoricalPalette, getCategoryColorMap are intentionally removed.

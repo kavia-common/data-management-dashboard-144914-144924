@@ -6,7 +6,6 @@ import ProtectedRoute from "../components/common/ProtectedRoute";
 
 const Overview = lazy(() => import("../pages/dashboard/Overview"));
 const Users = lazy(() => import("../pages/dashboard/Users"));
-const UsersAnalytics = lazy(() => import("../pages/Users/Analytics"));
 const Sessions = lazy(() => import("../pages/dashboard/Sessions"));
 const Deployments = lazy(() => import("../pages/dashboard/Deployments"));
 const Costs = lazy(() => import("../pages/dashboard/Costs"));
@@ -57,16 +56,6 @@ export default function AppRoutes() {
             <AppLayout>
               <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
                 <Users />
-              </Suspense>
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/dashboard/users/analytics"
-          element={
-            <AppLayout>
-              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
-                <UsersAnalytics />
               </Suspense>
             </AppLayout>
           }

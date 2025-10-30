@@ -1,11 +1,15 @@
-export function getApiBaseUrl() {
-  // Use proxy in development; otherwise use relative base
-  // setupProxy.js handles /api -> backend in dev.
-  return window.location.origin;
+const apiBase =
+  
+  `${window.location.protocol}//${window.location.hostname}:3001/api`;
+
+/**
+ * PUBLIC_INTERFACE
+ * getApiBase
+ * Returns the base URL for backend API requests, preferring REACT_APP_API_BASE_URL
+ * and falling back to current host with port 3001.
+ */
+export function getApiBase() {
+  return apiBase;
 }
 
-// PUBLIC_INTERFACE
-export function getApiBase() {
-  /** Backward-compatible alias used elsewhere in the app */
-  return getApiBaseUrl();
-}
+export default { getApiBase };

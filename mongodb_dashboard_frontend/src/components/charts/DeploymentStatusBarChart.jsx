@@ -13,7 +13,7 @@ import {
   Cell,
 } from "recharts";
 import { getChartTheme } from "./chartTheme";
-
+import getOceanColors from "../../theme/colors";
 import LoadingState from "../common/LoadingState.jsx";
 import ErrorState from "../common/ErrorState.jsx";
 import Card from "../ui/Card.jsx";
@@ -45,9 +45,8 @@ export default function DeploymentStatusBarChart({
   onBarClick,
 }) {
   const t = getChartTheme();
+  const oc = getOceanColors();
   const auth = useAuth();
-  // Revert to original app color tokens (no custom theme/colors module)
-  const oc = { primary: "#2563EB", secondary: "#F59E0B" };
 
   const rows = useMemo(() => {
     const arr = Array.isArray(data) ? data : [];

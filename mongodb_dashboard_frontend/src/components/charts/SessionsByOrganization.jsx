@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { getChartTheme } from "./chartTheme";
-
+import getOceanColors from "../../theme/colors";
 
 /**
  * PUBLIC_INTERFACE
@@ -32,8 +32,8 @@ export default function SessionsByOrganization({
   /** This component renders a responsive bar chart: X=organization_name, Y=session_count. */
 
   const t = getChartTheme();
+  const oc = getOceanColors();
   const gridStroke = t.grid;
-  const primaryColor = "#2563EB";
 
   function truncateLabel(label, max = 14) {
     const s = String(label ?? "");
@@ -110,8 +110,8 @@ export default function SessionsByOrganization({
             <Bar
               dataKey="session_count"
               name="Sessions"
-              fill={primaryColor}
-              stroke={primaryColor}
+              fill={oc.primary}
+              stroke={oc.primary}
               aria-label="Sessions count"
               radius={[4, 4, 0, 0]}
             />
