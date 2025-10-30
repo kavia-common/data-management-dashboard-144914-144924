@@ -127,9 +127,9 @@ export default function Overview() {
     // Ensure each entry has expected fields for table
     return (agentsItems || []).slice(0, 10).map((it) => ({
       agent_name: it.agent_name || it.agent || 'Unknown',
-      total_cost: Number(it.total_cost || 0),
-      total_usage: typeof it.total_usage === 'number' ? it.total_usage : 0,
-      session_count: typeof it.session_count === 'number' ? it.session_count : 0,
+      total_cost: Number(it.total_cost ?? it.cost ?? 0),
+      total_usage: typeof it.total_usage === 'number' ? it.total_usage : Number(it.total_tokens ?? 0),
+      session_count: typeof it.session_count === 'number' ? it.session_count : Number(it.sessions ?? 0),
       source_breakdown: it.source_breakdown || {},
     }));
   }, [agentsItems]);
