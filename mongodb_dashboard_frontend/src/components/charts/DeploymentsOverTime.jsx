@@ -14,7 +14,7 @@ import Card from "../ui/Card.jsx";
 import Button from "../ui/Button.jsx";
 import Skeleton from "../ui/Skeleton.jsx";
 import { listDeployments } from "../../api";
-import { darkThemeTokens as tokens, getCurrentTheme } from "../../theme";
+
 
 /**
  * PUBLIC_INTERFACE
@@ -48,10 +48,11 @@ function DeploymentsOverTime({ height = 320, className = "" }) {
     return `rgba(${r}, ${g}, ${b}, ${a})`;
   }
 
-  const isDark = getCurrentTheme() === "dark";
-  const accent = tokens?.accent || "#FF6600";
+  // Revert to original static styling without custom theme
+  const isDark = false;
+  const accent = "#FF6600";
   const gridStroke = isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)";
-  const tickColor = isDark ? (tokens?.text?.secondary || "#B0A8A0") : "#4B5563";
+  const tickColor = isDark ? "#B0A8A0" : "#4B5563";
   const brushStroke = withAlpha(accent, 0.6);
   const brushTraveller = accent;
 
