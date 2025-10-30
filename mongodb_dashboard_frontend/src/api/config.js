@@ -1,6 +1,34 @@
-const apiBase =
-  
-  `${window.location.protocol}//${window.location.hostname}:3001/api`;
+/**
+ * Compute API base URL once, ensuring exactly one '/api' suffix.
+ */
+function computeApiBase() {
+  const envBase = (process.env.REACT_APP_API_BASE_URL || '').trim();
+  const prefix = '/api';
+
+  const ensureNoTrailingSlash = (s) => s.replace(/\/+$/, '');
+  const ensureLeadingSlash = (s) => (s.startsWith('/') ? s : `/${s}`);
+
+  if (envBase) {
+    const trimmed = ensureNoTrailingSlash(envBase);
+    return /\/api$/.test(trimmed) ? trimmed : `${trimmed}${prefix}`;
+  }
+
+  try {
+    const { protocol, hostname, port } = window.location;
+    let p = port;
+    // In CRA dev, backend usually runs on 3001 when frontend is 3000
+    if (!p && protocol === 'http:') p = '80';
+    if (!p && protocol === 'https:') p = '443';
+    let targetPort = p;
+    if (p === '3000') targetPort = '3001';
+    const origin = `${protocol}//${hostname}${targetPort ? `:${targetPort}` : ''}`;
+    return `${origin}${prefix}`;
+  } catch {
+    return 'http://localhost:3001/api';
+  }
+}
+
+const apiBase = computeApiBase();
 
 /**
  * PUBLIC_INTERFACE

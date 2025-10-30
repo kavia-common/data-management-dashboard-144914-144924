@@ -124,8 +124,14 @@ export default function Overview() {
   }, [agentsItems]);
 
   const compactTableItems = useMemo(() => {
-    // Reuse same items; table will handle sorting and display minimal columns
-    return (agentsItems || []).slice(0, 10);
+    // Ensure each entry has expected fields for table
+    return (agentsItems || []).slice(0, 10).map((it) => ({
+      agent_name: it.agent_name || it.agent || 'Unknown',
+      total_cost: Number(it.total_cost || 0),
+      total_usage: typeof it.total_usage === 'number' ? it.total_usage : 0,
+      session_count: typeof it.session_count === 'number' ? it.session_count : 0,
+      source_breakdown: it.source_breakdown || {},
+    }));
   }, [agentsItems]);
 
   return (
@@ -168,6 +174,10 @@ export default function Overview() {
           ) : null}
           {agentsLoading ? (
             <LoadingState message="Loading agents summary…" height={180} />
+          ) : agentsItems.length === 0 ? (
+            <div style={{ padding: 12, color: '#6b7280' }}>
+              No agent data available for the selected period.
+            </div>
           ) : (
             <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               <div>

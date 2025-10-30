@@ -7,6 +7,7 @@ import { getApiClient } from './client';
  */
 export async function getAgentsAggregation(params = {}) {
   const api = getApiClient();
+  // client baseURL already ends with /api; use relative path without leading slash
   const res = await api.get('analytics/agents', {
     params: { grouping: 'agent', ...params },
   });
@@ -39,7 +40,8 @@ export async function getAgentsAggregation(params = {}) {
  */
 export async function getDepartmentAggregation(params = {}) {
   const api = getApiClient();
-  const res = await api.get('/analytics/agents', {
+  // client baseURL already ends with /api; use relative path without leading slash
+  const res = await api.get('analytics/agents', {
     params: { grouping: 'department', ...params },
   });
 
