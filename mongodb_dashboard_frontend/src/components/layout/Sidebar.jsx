@@ -93,6 +93,12 @@ export default function Sidebar() {
           <NavLink to="/dashboard/users" className="nav-link">
             <span className="nav-label">Users</span>
           </NavLink>
+          {/* Nested Users sub-navigation */}
+          <nav aria-label="Users sub-navigation" className="sidebar-subnav" style={{ marginLeft: 16 }}>
+            <NavLink to="/users/analytics" className="nav-link">
+              <span className="nav-label">Analytics</span>
+            </NavLink>
+          </nav>
           <NavLink to="/dashboard/sessions" className="nav-link">
             <span className="nav-label">Session Tracking</span>
           </NavLink>
