@@ -4,7 +4,7 @@ import ActiveUsersTrendChart from "../../../components/charts/ActiveUsersTrendCh
 import Card from "../../../components/common/Card.jsx";
 import LoadingState from "../../../components/common/LoadingState.jsx";
 import ErrorState from "../../../components/common/ErrorState.jsx";
-import { fetchActiveUsersTrend, fetchTenantUsersSummary } from "../../../api/usersAnalytics";
+import { getActiveUsersTrend, getTenantUsersSummary } from "../../../api/usersAnalytics";
 
 function useDateRange(defaultDays = 30) {
   const [rangeDays, setRangeDays] = useState(defaultDays);
@@ -38,7 +38,7 @@ export default function UsersAnalyticsPanel() {
       setTrendLoading(true);
       setTrendError(null);
       try {
-        const resp = await fetchActiveUsersTrend({ from: fromIso, to: toIso, granularity: "day", status: "completed|active" });
+        const resp = await getActiveUsersTrend({ from: fromIso, to: toIso, granularity: "day", status: "completed|active" });
         if (!mounted) return;
         setTrendItems(resp?.items || []);
       } catch (e) {
@@ -59,7 +59,7 @@ export default function UsersAnalyticsPanel() {
       setSummaryLoading(true);
       setSummaryError(null);
       try {
-        const resp = await fetchTenantUsersSummary({ from: fromIso, to: toIso, includeInactive: false });
+        const resp = await getTenantUsersSummary({ from: fromIso, to: toIso, includeInactive: false });
         if (!mounted) return;
         setSummaryItems(resp?.items || []);
       } catch (e) {
