@@ -3,55 +3,46 @@ import { getApiBaseUrl } from './config';
 /**
  * Users Analytics API client
  * Wraps calls to /api/users/analytics endpoints with optional filters.
- * Filters supported: { from, to, organization, department, status }
+ * UI filters: { from, to, organization, department, status }
+ * Backend expects: organization_id, department, status, from, to (ISO)
+ * Engagement metrics default to active users when status not provided.
  */
 
 const API_BASE = getApiBaseUrl();
 
-// PUBLIC_INTERFACE
-export async function fetchUsersKpis(filters = {}) {
-  /** Fetch KPI summary: totalActiveUsers, newUsers, inactiveUsers, compliancePercent */
-  const url = buildUrl('/api/users/analytics/kpis', filters);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch KPIs: ${res.status}`);
-  return res.json();
-}
+/**
+ * Normalize UI filters to backend query params and apply defaults.
+ * - organization -> organization_id
+ * - status -> defaults to 'active' for engagement-type endpoints when not provided
+ */
+function toBackendParams(filters = {}, { defaultActive = false } = {}) {
+  const {
+    organization,
+    department,
+    status,
+    from,
+    to,
+    organization_id, // allow already-normalized
+  } = filters || {};
 
-// PUBLIC_INTERFACE
-export async function fetchDauTrend(filters = {}) {
-  /** Fetch DAU last 30 days time-series */
-  const url = buildUrl('/api/users/analytics/dau-trend', filters);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch DAU trend: ${res.status}`);
-  return res.json();
-}
+  const params = {
+    organization_id: organization_id ?? organization ?? '',
+    department: department ?? '',
+    from: from ?? '',
+    to: to ?? '',
+    status: (status ?? '').trim(),
+  };
 
-// PUBLIC_INTERFACE
-export async function fetchActiveByDepartment(filters = {}) {
-  /** Fetch active users grouped by department (bar) */
-  const url = buildUrl('/api/users/analytics/active-by-department', filters);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch active by department: ${res.status}`);
-  return res.json();
-}
+  // Default to active when requested for engagement widgets
+  if (defaultActive && !params.status) {
+    params.status = 'active';
+  }
 
-// PUBLIC_INTERFACE
-export async function fetchActiveVsInactive(filters = {}) {
-  /** Fetch active vs inactive breakdown (pie) */
-  const url = buildUrl('/api/users/analytics/active-vs-inactive', filters);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch active vs inactive: ${res.status}`);
-  return res.json();
-}
-
-// PUBLIC_INTERFACE
-export async function fetchTopActiveUsers(filters = {}) {
-  /** Fetch top 10 most active users table */
-  const params = { ...filters, limit: 10 };
-  const url = buildUrl('/api/users/analytics/top-active-users', params);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch top active users: ${res.status}`);
-  return res.json();
+  // Remove empty entries
+  Object.keys(params).forEach((k) => {
+    if (params[k] === '' || params[k] === undefined || params[k] === null) delete params[k];
+  });
+  return params;
 }
 
 function buildUrl(path, params) {
@@ -64,6 +55,52 @@ function buildUrl(path, params) {
   return url.toString();
 }
 
+// PUBLIC_INTERFACE
+export async function fetchUsersKpis(filters = {}) {
+  /** Fetch KPI summary: totalActiveUsers, newUsers, inactiveUsers, compliancePercent */
+  const url = buildUrl('/api/users/analytics/kpis', toBackendParams(filters, { defaultActive: true }));
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch KPIs: ${res.status}`);
+  return res.json();
+}
+
+// PUBLIC_INTERFACE
+export async function fetchDauTrend(filters = {}) {
+  /** Fetch DAU last 30 days time-series */
+  const url = buildUrl('/api/users/analytics/dau-trend', toBackendParams(filters, { defaultActive: true }));
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch DAU trend: ${res.status}`);
+  return res.json();
+}
+
+// PUBLIC_INTERFACE
+export async function fetchActiveByDepartment(filters = {}) {
+  /** Fetch active users grouped by department (bar) */
+  const url = buildUrl('/api/users/analytics/active-by-department', toBackendParams(filters, { defaultActive: true }));
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch active by department: ${res.status}`);
+  return res.json();
+}
+
+// PUBLIC_INTERFACE
+export async function fetchActiveVsInactive(filters = {}) {
+  /** Fetch active vs inactive breakdown (pie) */
+  const url = buildUrl('/api/users/analytics/active-vs-inactive', toBackendParams(filters, { defaultActive: true }));
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch active vs inactive: ${res.status}`);
+  return res.json();
+}
+
+// PUBLIC_INTERFACE
+export async function fetchTopActiveUsers(filters = {}) {
+  /** Fetch top 10 most active users table */
+  const params = { ...toBackendParams(filters, { defaultActive: true }), limit: 10 };
+  const url = buildUrl('/api/users/analytics/top-active-users', params);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch top active users: ${res.status}`);
+  return res.json();
+}
+
 /**
  * PUBLIC_INTERFACE
  * getTenantUsersSummary
@@ -71,7 +108,12 @@ function buildUrl(path, params) {
  * Accepts filters: { from, to, status, includeInactive }
  */
 export async function getTenantUsersSummary(filters = {}) {
-  const url = buildUrl('/api/users/tenant-summary', filters);
+  const normalized = toBackendParams(filters, { defaultActive: false });
+  // passthrough includeInactive if present
+  if (filters.includeInactive !== undefined) {
+    normalized.includeInactive = filters.includeInactive;
+  }
+  const url = buildUrl('/api/users/tenant-summary', normalized);
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch tenant users summary: ${res.status}`);
   return res.json();

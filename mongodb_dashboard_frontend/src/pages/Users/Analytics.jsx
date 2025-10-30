@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   fetchUsersKpis,
   fetchDauTrend,
@@ -7,10 +7,14 @@ import {
   fetchTopActiveUsers,
 } from '../../api/usersAnalytics';
 import Card from '../../components/common/Card';
+import LoadingState from '../../components/common/LoadingState';
+import ErrorState from '../../components/common/ErrorState';
 import '../../styles/theme.css';
 import '../../styles/globals.css';
 import { useTheme } from '../../theme';
 import { format } from 'date-fns';
+import useDebouncedValue from '../../hooks/useDebouncedValue';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 // Lightweight chart renderers using SVG to avoid adding dependencies
 function LineChart({ data = [], color = '#2563EB', height = 160 }) {
@@ -18,7 +22,6 @@ function LineChart({ data = [], color = '#2563EB', height = 160 }) {
   const w = 520;
   const h = height;
   const pad = 24;
-  const xs = data.map((d, i) => i);
   const ys = data.map(d => d.value ?? d.total ?? 0);
   const minY = 0;
   const maxY = Math.max(...ys, 1);
@@ -159,9 +162,40 @@ function toIsoDate(v) {
   }
 }
 
+function parseSearch(search) {
+  const usp = new URLSearchParams(search || '');
+  const from = usp.get('from') || defaultFrom();
+  const to = usp.get('to') || todayIso();
+  const organization = usp.get('org') || '';
+  const department = usp.get('dept') || '';
+  const status = usp.get('status') || '';
+  return { from, to, organization, department, status };
+}
+
+function toSearch(filters) {
+  const usp = new URLSearchParams();
+  if (filters.organization) usp.set('org', filters.organization);
+  if (filters.department) usp.set('dept', filters.department);
+  if (filters.status) usp.set('status', filters.status);
+  if (filters.from) usp.set('from', filters.from);
+  if (filters.to) usp.set('to', filters.to);
+  const s = usp.toString();
+  return s ? `?${s}` : '';
+}
+
 export default function UsersAnalyticsPage() {
   const { theme } = useTheme();
-  const [filters, setFilters] = useState({ from: defaultFrom(), to: todayIso(), organization: '', department: '', status: '' });
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Initialize from URL to preserve filters across reloads
+  const initial = useMemo(() => parseSearch(location.search), [location.search]);
+  const [filters, setFilters] = useState(initial);
+
+  // Debounce filters to avoid rapid calls
+  const debounced = useDebouncedValue(filters, 300);
+
+  // Per-widget loading and error states
   const [loading, setLoading] = useState(false);
   const [kpis, setKpis] = useState(null);
   const [dau, setDau] = useState([]);
@@ -169,42 +203,56 @@ export default function UsersAnalyticsPage() {
   const [activePie, setActivePie] = useState([]);
   const [topUsers, setTopUsers] = useState([]);
 
-  const hydratedFilters = useMemo(() => ({
-    from: filters.from,
-    to: filters.to,
-    organization: filters.organization,
-    department: filters.department,
-    status: filters.status,
-  }), [filters]);
+  const [error, setError] = useState(null);
 
+  // Sync URL when filters change (not debounced so users see URL stay in sync)
   useEffect(() => {
-    let ignore = false;
-    async function load() {
-      setLoading(true);
-      try {
-        const [kpiRes, dauRes, deptRes, pieRes, topRes] = await Promise.all([
-          fetchUsersKpis(hydratedFilters),
-          fetchDauTrend(hydratedFilters),
-          fetchActiveByDepartment(hydratedFilters),
-          fetchActiveVsInactive(hydratedFilters),
-          fetchTopActiveUsers(hydratedFilters),
-        ]);
-        if (ignore) return;
-        setKpis(kpiRes?.data || kpiRes || null);
-        setDau((dauRes?.items || dauRes || []).map(d => ({ label: d.date || d.label || '', value: d.total ?? d.value ?? 0 })));
-        setByDept((deptRes?.items || deptRes || []).map(d => ({ label: d.department || d.label || 'N/A', value: d.total ?? d.count ?? d.value ?? 0 })));
-        const pieItems = (pieRes?.items || pieRes || []);
-        setActivePie(pieItems.map(d => ({ label: d.status || d.label, value: d.count ?? d.value ?? 0 })));
-        setTopUsers((topRes?.items || topRes || []).slice(0, 10));
-      } catch (e) {
-        console.error('Failed to load analytics', e);
-      } finally {
-        if (!ignore) setLoading(false);
-      }
+    const next = toSearch(filters);
+    const current = location.search || '';
+    if (next !== current) {
+      navigate({ pathname: location.pathname, search: next }, { replace: false });
     }
-    load();
-    return () => { ignore = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters]);
+
+  const hydratedFilters = useMemo(() => ({
+    from: debounced.from,
+    to: debounced.to,
+    organization: debounced.organization,
+    department: debounced.department,
+    status: debounced.status,
+  }), [debounced]);
+
+  const reload = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const [kpiRes, dauRes, deptRes, pieRes, topRes] = await Promise.all([
+        fetchUsersKpis(hydratedFilters),
+        fetchDauTrend(hydratedFilters),
+        fetchActiveByDepartment(hydratedFilters),
+        fetchActiveVsInactive(hydratedFilters),
+        fetchTopActiveUsers(hydratedFilters),
+      ]);
+      setKpis(kpiRes?.data || kpiRes || null);
+      setDau((dauRes?.items || dauRes || []).map(d => ({ label: d.date || d.label || '', value: d.total ?? d.value ?? 0 })));
+      setByDept((deptRes?.items || deptRes || []).map(d => ({ label: d.department || d.label || 'N/A', value: d.total ?? d.count ?? d.value ?? 0 })));
+      const pieItems = (pieRes?.items || pieRes || []);
+      setActivePie(pieItems.map(d => ({ label: d.status || d.label, value: d.count ?? d.value ?? 0 })));
+      setTopUsers((topRes?.items || topRes || []).slice(0, 10));
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to load analytics', e);
+      setError(e?.message || 'Failed to load analytics data.');
+    } finally {
+      setLoading(false);
+    }
   }, [hydratedFilters]);
+
+  // Fetch on debounced filters
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   const totalActive = kpis?.totalActiveUsers ?? kpis?.active ?? 0;
   const newUsers = kpis?.newUsers ?? kpis?.new ?? 0;
@@ -220,79 +268,103 @@ export default function UsersAnalyticsPage() {
 
       <FilterPanel filters={filters} setFilters={setFilters} />
 
+      {error ? (
+        <div style={{ marginTop: 16 }}>
+          <ErrorState message={error} onRetry={reload} />
+        </div>
+      ) : null}
+
       <div className="grid-4" style={{ marginTop: 16 }}>
-        <Kpi title="Total Active Users" value={totalActive} accent={theme.primary} />
-        <Kpi title="New Users" value={newUsers} accent={theme.secondary} />
-        <Kpi title="Inactive Users" value={inactive} accent="#9CA3AF" />
-        <Kpi title="Compliance %" value={`${Number(compliance).toFixed(1)}%`} accent="#10B981" />
+        <Card title="Total Active Users" subtitle="" >
+          {loading && !kpis ? <LoadingState height={84} message="Loading KPIs..." /> : <Kpi title="Total Active Users" value={totalActive} accent={theme.primary} />}
+        </Card>
+        <Card title="New Users" subtitle="">
+          {loading && !kpis ? <LoadingState height={84} message="Loading KPIs..." /> : <Kpi title="New Users" value={newUsers} accent={theme.secondary} />}
+        </Card>
+        <Card title="Inactive Users" subtitle="">
+          {loading && !kpis ? <LoadingState height={84} message="Loading KPIs..." /> : <Kpi title="Inactive Users" value={inactive} accent="#9CA3AF" />}
+        </Card>
+        <Card title="Compliance %" subtitle="">
+          {loading && !kpis ? <LoadingState height={84} message="Loading KPIs..." /> : <Kpi title="Compliance %" value={`${Number(compliance).toFixed(1)}%`} accent="#10B981" />}
+        </Card>
       </div>
 
       <div className="grid-2" style={{ marginTop: 16 }}>
         <Card title="DAU - Last 30 Days" subtitle="Distinct active users per day">
-          <LineChart color={theme.primary} data={dau} />
-          <div className="chart-legend">
-            {dau.slice(-5).map((d, i) => (
-              <span key={i} className="legend-item">
-                <span className="dot" style={{ background: theme.primary }} />
-                {d.label || format(new Date(), 'MM/dd')}
-              </span>
-            ))}
-          </div>
+          {loading && dau.length === 0 ? <LoadingState height={180} message="Loading DAU..." /> : (
+            <>
+              <LineChart color={theme.primary} data={dau} />
+              <div className="chart-legend">
+                {dau.slice(-5).map((d, i) => (
+                  <span key={i} className="legend-item">
+                    <span className="dot" style={{ background: theme.primary }} />
+                    {d.label || format(new Date(), 'MM/dd')}
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
         </Card>
         <Card title="Active by Department" subtitle="Department-wise activity">
-          <BarChart color={theme.secondary} data={byDept} />
-          <div className="tags">
-            {byDept.slice(0, 6).map((d, i) => (<span className="tag" key={i}>{d.label}: {d.value}</span>))}
-          </div>
+          {loading && byDept.length === 0 ? <LoadingState height={200} message="Loading department breakdown..." /> : (
+            <>
+              <BarChart color={theme.secondary} data={byDept} />
+              <div className="tags">
+                {byDept.slice(0, 6).map((d, i) => (<span className="tag" key={i}>{d.label}: {d.value}</span>))}
+              </div>
+            </>
+          )}
         </Card>
       </div>
 
       <div className="grid-2" style={{ marginTop: 16 }}>
         <Card title="Active vs Inactive" subtitle="Current user status breakdown">
-          <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-            <PieChart data={activePie} colors={[theme.primary, '#9CA3AF']} />
-            <div>
-              {activePie.map((d, i) => (
-                <div key={i} className="legend-item">
-                  <span className="dot" style={{ background: i === 0 ? theme.primary : '#9CA3AF' }} />
-                  {d.label}: {d.value}
-                </div>
-              ))}
+          {loading && activePie.length === 0 ? <LoadingState height={200} message="Loading status breakdown..." /> : (
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+              <PieChart data={activePie} colors={[theme.primary, '#9CA3AF']} />
+              <div>
+                {activePie.map((d, i) => (
+                  <div key={i} className="legend-item">
+                    <span className="dot" style={{ background: i === 0 ? theme.primary : '#9CA3AF' }} />
+                    {d.label}: {d.value}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </Card>
         <Card title="Top 10 Most Active Users" subtitle="By sessions or activity count">
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>User</th>
-                  <th>Department</th>
-                  <th>Organization</th>
-                  <th>Activity</th>
-                  <th>Last Active</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(topUsers || []).map((u, i) => (
-                  <tr key={i}>
-                    <td>{u.user_name || u.user || u.email || u.userId || '—'}</td>
-                    <td>{u.department || '—'}</td>
-                    <td>{u.organization || u.tenant_id || '—'}</td>
-                    <td>{u.activity || u.sessions || u.count || 0}</td>
-                    <td>{u.last_active ? new Date(u.last_active).toLocaleDateString() : '—'}</td>
+          {loading && topUsers.length === 0 ? <LoadingState height={220} message="Loading top users..." /> : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Department</th>
+                    <th>Organization</th>
+                    <th>Activity</th>
+                    <th>Last Active</th>
                   </tr>
-                ))}
-                {(!topUsers || topUsers.length === 0) && (
-                  <tr><td colSpan="5" style={{ color: '#6b7280', textAlign: 'center' }}>No data</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {(topUsers || []).map((u, i) => (
+                    <tr key={i}>
+                      <td>{u.user_name || u.user || u.email || u.userId || '—'}</td>
+                      <td>{u.department || '—'}</td>
+                      <td>{u.organization || u.tenant_id || '—'}</td>
+                      <td>{u.activity || u.sessions || u.count || 0}</td>
+                      <td>{u.last_active ? new Date(u.last_active).toLocaleDateString() : '—'}</td>
+                    </tr>
+                  ))}
+                  {(!topUsers || topUsers.length === 0) && (
+                    <tr><td colSpan="5" style={{ color: '#6b7280', textAlign: 'center' }}>No data</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Card>
       </div>
-
-      {loading && <div style={{ marginTop: 12, color: '#6b7280' }}>Loading analytics…</div>}
     </div>
   );
 }

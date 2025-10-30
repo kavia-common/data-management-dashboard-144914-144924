@@ -1,3 +1,4 @@
+import React, { createContext, useContext, useMemo } from 'react';
 export { getOceanTheme, getCategoricalPalette, getCategoryColorMap } from './oceanTheme';
 
 /**
@@ -37,7 +38,7 @@ export function setTheme(mode = 'light') {
   root.style.setProperty('--card-brown-border', isDark ? '#1F2937' : '#E5E7EB');
 }
 
- // PUBLIC_INTERFACE
+// PUBLIC_INTERFACE
 export function getCurrentThemeMode() {
   /** Returns 'dark' or 'light' based on document tokens. */
   if (typeof document === 'undefined') return 'light';
@@ -106,9 +107,6 @@ export const darkThemeTokens = {
 };
 
 // Lightweight theme context for components that call useTheme from '../../theme'
-import React, { createContext, useContext, useMemo } from 'react';
-
-// PUBLIC_INTERFACE
 export const ThemeContext = createContext({ theme: lightThemeTokens });
 
 // PUBLIC_INTERFACE
