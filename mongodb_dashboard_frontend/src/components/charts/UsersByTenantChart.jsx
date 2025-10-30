@@ -11,7 +11,7 @@ import {
   ResponsiveContainer,
   LabelList,
 } from "recharts";
-import { getTenantUsersSummary } from "../../api/usersAnalytics";
+import { fetchUsersByOrganization } from "../../api/usersAnalytics";
 import { getChartTheme } from "./chartTheme";
 
 /**
@@ -52,19 +52,22 @@ export default function UsersByTenantChart({
       setLoading(true);
       setErr("");
       try {
-        const res = await getTenantUsersSummary({
+        const list = await fetchUsersByOrganization({
           from,
           to,
           status,
           includeInactive,
         });
         if (!mounted) return;
-        const items = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [];
-        // Sort desc by count
-        const sorted = [...items].sort(
-          (a, b) => (b?.user_count || 0) - (a?.user_count || 0)
-        );
-        setRows(sorted.slice(0, maxBars));
+        // list is [{ organization, count }]
+        const sorted = [...list].sort((a, b) => (b?.count || 0) - (a?.count || 0));
+        // Map back to expected internal row shape { tenant_name, tenant_id?, user_count }
+        const mapped = sorted.map((d) => ({
+          tenant_name: d.organization || "Unknown",
+          tenant_id: d.organization || "Unknown",
+          user_count: Number(d.count || 0),
+        }));
+        setRows(mapped.slice(0, maxBars));
       } catch (e) {
         if (!mounted) return;
         setRows([]);

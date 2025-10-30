@@ -51,3 +51,10 @@ export function resolveAuthEndpointUrl(path, baseUrl) {
   const joinedPath = safePath.startsWith('/') ? safePath : `/${safePath}`;
   return `${safeBase}${joinedPath}`;
 }
+
+// PUBLIC_INTERFACE
+export function withUrlOverrides(path) {
+  /** Build a final URL for API calls using REACT_APP_API_BASE_URL and special-case overrides. */
+  const base = process.env.REACT_APP_API_BASE_URL || '';
+  return resolveAuthEndpointUrl(path, base);
+}

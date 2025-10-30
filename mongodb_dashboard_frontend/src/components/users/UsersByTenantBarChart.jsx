@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
-import { getTenantUsersSummary } from "../../api/usersAnalytics";
+import { fetchUsersByOrganization } from "../../api/usersAnalytics";
 import "./../../App.css";
 
 /**
@@ -38,12 +38,16 @@ const UsersByTenantBarChart = ({
       setError(null);
       try {
         const params = { from, to, status, includeInactive };
-        // getTenantUsersSummary expected to return { items: [{ tenant_id, tenant_name, user_count }], total }
-        const res = await getTenantUsersSummary(params);
+        const list = await fetchUsersByOrganization(params);
         if (!mounted) return;
-        const data = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [];
-        // Sort by user_count desc by default
-        const sorted = [...data].sort((a, b) => (b?.user_count || 0) - (a?.user_count || 0));
+        const data = Array.isArray(list) ? list : [];
+        // Map to legacy shape for this component
+        const legacy = data.map((d) => ({
+          tenant_id: d.organization || "Unknown",
+          tenant_name: d.organization || "Unknown",
+          user_count: Number(d.count || 0),
+        }));
+        const sorted = legacy.sort((a, b) => (b?.user_count || 0) - (a?.user_count || 0));
         setItems(sorted);
       } catch (e) {
         console.error("Failed to load tenant users summary:", e);

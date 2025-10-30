@@ -1,163 +1,237 @@
-import { getApiClient } from './baseClient';
-
-const apiClient = getApiClient();
-
-/**
- * Users Analytics API wrapper for /api/users endpoints and related aggregates.
- * All functions accept a params object for filters and pass through to the backend.
- * Ensures we can safely evolve endpoints without touching component code.
- */
-
-// PUBLIC_INTERFACE
-export function fetchActiveTrend(params = {}) {
-  /** Fetches active users trend (DAU/WAU) from /api/users/active-trend */
-  return apiClient.get('/api/users/active-trend', { params }).then(res => res.data);
-}
-
-// PUBLIC_INTERFACE
-export function fetchNewUsersOverTime(params = {}) {
-  /** Fetches new users over time from /api/analytics/users/new-over-time */
-  return apiClient.get('/api/analytics/users/new-over-time', { params }).then(res => res.data);
-}
-
-// PUBLIC_INTERFACE
-export function fetchUsersList(params = {}) {
-  /** Fetches users list for search/filters support as a fallback */
-  return apiClient.get('/api/users', { params }).then(res => res.data);
-}
-
-// PUBLIC_INTERFACE
-export function fetchTenantSummary(params = {}) {
-  /** Fetches tenant (organization) summary for activity by organization */
-  return apiClient.get('/api/users/tenant-summary', { params }).then(res => res.data);
-}
-
-// PUBLIC_INTERFACE
-export function getTenantUsersSummary(params = {}) {
-  /** Backwards-compatible alias for fetchTenantSummary used by charts */
-  return fetchTenantSummary(params);
-}
-
-// PUBLIC_INTERFACE
-export function fetchReferralSources(params = {}) {
-  /** Top referral sources as optional supporting metric */
-  return apiClient.get('/api/users/referral-sources', { params }).then(res => res.data);
-}
+import baseClient from './baseClient';
+import { withUrlOverrides } from './urlOverrides';
 
 /**
- * The following endpoints are mentioned in the request but may not exist in backend spec:
- * - /api/users/kpi-summary, /api/users/by-department, /api/users/by-organization
- * We provide soft-fallbacks: if these calls 404, the caller should compute approximations from other endpoints.
+ * Utility to build query string from params (ignore undefined/null)
  */
+function toQuery(params = {}) {
+  const q = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v === undefined || v === null || v === '') return;
+    q.set(k, String(v));
+  });
+  return q.toString();
+}
 
 // PUBLIC_INTERFACE
-export async function fetchKpiSummarySafe(params = {}) {
-  /** Attempts to request /api/users/kpi-summary; if unavailable, derive KPIs using active trend and new users endpoints. */
+export async function fetchActiveTrend(params = {}) {
+  /** Fetch active users trend time series. Supports granularity, from/to, status, tenant_id */
+  const qs = toQuery({
+    granularity: params.granularity,
+    from: params.startDate,
+    to: params.endDate,
+    status: params.status,
+    tenant_id: params.organization_id || params.tenant_id,
+    department: params.department,
+    is_admin: params.is_admin,
+  });
+  const url = `/api/users/active-trend${qs ? `?${qs}` : ''}`;
   try {
-    const res = await apiClient.get('/api/users/kpi-summary', { params });
-    return res.data;
+    const res = await baseClient.get(withUrlOverrides(url));
+    // Normalize to { items: [{ date, total }], meta: {...} }
+    if (Array.isArray(res.data)) {
+      return { items: res.data, meta: {} };
+    }
+    return res.data || { items: [], meta: {} };
   } catch (err) {
-    // Soft fallback: compute minimal KPI values using available endpoints
-    // DAU/WAU/MAU approximations from active-trend with different windows
-    const now = new Date();
-    const dayAgo = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-    const formatIso = d => d.toISOString();
-
-    const [dauRes, wauRes, mauRes, newUsersRes] = await Promise.all([
-      fetchActiveTrend({ ...params, from: formatIso(dayAgo), to: formatIso(now), granularity: 'day' }),
-      fetchActiveTrend({ ...params, from: formatIso(weekAgo), to: formatIso(now), granularity: 'day' }),
-      fetchActiveTrend({ ...params, from: formatIso(monthAgo), to: formatIso(now), granularity: 'day' }),
-      fetchNewUsersOverTime({ ...params, start: formatIso(monthAgo), end: formatIso(now), granularity: 'day' })
-    ]);
-
-    const safeLast = arr => (Array.isArray(arr?.items) && arr.items.length ? arr.items[arr.items.length - 1] : null);
-
-    const dau = safeLast(dauRes)?.total ?? 0;
-    const wau = (Array.isArray(wauRes?.items) ? wauRes.items.slice(-7) : []).reduce((sum, d) => sum + (d.total || 0), 0);
-    const mau = (Array.isArray(mauRes?.items) ? mauRes.items.slice(-30) : []).reduce((sum, d) => sum + (d.total || 0), 0);
-    const newUsers = Array.isArray(newUsersRes) ? newUsersRes.reduce((s, d) => s + (d.count || d.total || 0), 0) : 0;
-
-    return {
-      dau,
-      wau,
-      mau,
-      newUsers,
-      termsAcceptedPct: null, // unable to compute without explicit endpoint; component should handle null gracefully
-      activeCount: null,
-      inactiveCount: null
-    };
+    // Graceful fallback: return empty structure for missing endpoint or errors
+    return { items: [], meta: { error: true, message: err?.message || 'Failed to load active trend' } };
   }
 }
 
 // PUBLIC_INTERFACE
-export async function fetchByOrganizationSafe(params = {}) {
-  /** Attempts /api/users/by-organization; if missing, uses tenant-summary as a proxy. */
+export async function fetchKpiSummary(params = {}) {
+  /** Fetch KPI summary for users analytics. Backend may expose /api/users/kpi-summary or similar. */
+  const qs = toQuery({
+    from: params.startDate,
+    to: params.endDate,
+    granularity: params.granularity,
+    tenant_id: params.organization_id || params.tenant_id,
+    department: params.department,
+    is_admin: params.is_admin,
+    status: params.status,
+  });
+
+  const candidates = [
+    `/api/users/kpi-summary`,
+    `/api/users/summary`,
+    `/api/analytics/users/kpi-summary`,
+  ];
+
+  for (const path of candidates) {
+    try {
+      const res = await baseClient.get(withUrlOverrides(`${path}${qs ? `?${qs}` : ''}`));
+      if (res?.data) {
+        // Expect shape like { totalUsers, activeUsers, newUsers, returningUsers }
+        return {
+          totalUsers: res.data.totalUsers ?? null,
+          activeUsers: res.data.activeUsers ?? null,
+          newUsers: res.data.newUsers ?? null,
+          returningUsers: res.data.returningUsers ?? null,
+          raw: res.data,
+        };
+      }
+    } catch (e) {
+      // try next candidate
+    }
+  }
+  return { totalUsers: null, activeUsers: null, newUsers: null, returningUsers: null, raw: null, empty: true };
+}
+
+// PUBLIC_INTERFACE
+export async function fetchUsersByDepartment(params = {}) {
+  /** Fetch users grouped by department for bar/pie chart. */
+  const qs = toQuery({
+    from: params.startDate,
+    to: params.endDate,
+    tenant_id: params.organization_id || params.tenant_id,
+    department: params.department,
+    is_admin: params.is_admin,
+    status: params.status,
+    granularity: params.granularity,
+  });
+
+  const candidates = [
+    `/api/users/by-department`,
+    `/api/analytics/users/by-department`,
+  ];
+  for (const path of candidates) {
+    try {
+      const res = await baseClient.get(withUrlOverrides(`${path}${qs ? `?${qs}` : ''}`));
+      if (res?.data) {
+        const items = Array.isArray(res.data.items) ? res.data.items : (Array.isArray(res.data) ? res.data : []);
+        return items.map((d) => ({
+          department: d.department || d._id || d.name || 'Unknown',
+          count: d.count ?? d.total ?? d.user_count ?? 0,
+        }));
+      }
+    } catch (e) {
+      // try next
+    }
+  }
+  return [];
+}
+
+// PUBLIC_INTERFACE
+export async function fetchUsersByOrganization(params = {}) {
+  /** Fetch users grouped by organization/tenant. Falls back to existing tenant-summary endpoint. */
+  const qs = toQuery({
+    from: params.startDate || params.from,
+    to: params.endDate || params.to,
+    tenant_id: params.organization_id || params.tenant_id,
+    includeInactive: params.includeInactive,
+    status: params.status,
+    granularity: params.granularity,
+  });
+
+  const candidates = [
+    `/api/users/by-organization`,
+    `/api/analytics/users/by-organization`,
+  ];
+  for (const path of candidates) {
+    try {
+      const res = await baseClient.get(withUrlOverrides(`${path}${qs ? `?${qs}` : ''}`));
+      if (res?.data) {
+        const items = Array.isArray(res.data.items) ? res.data.items : (Array.isArray(res.data) ? res.data : []);
+        return items.map((d) => ({
+          organization: d.tenant_name || d.organization_name || d.organization || d.tenant_id || 'Unknown',
+          count: d.count ?? d.total ?? d.user_count ?? 0,
+        }));
+      }
+    } catch (e) {
+      // try next
+    }
+  }
+
+  // Fallback to known endpoint in backend openapi: /api/users/tenant-summary
   try {
-    const res = await apiClient.get('/api/users/by-organization', { params });
-    return res.data;
-  } catch (err) {
-    const summary = await fetchTenantSummary(params);
-    const items = Array.isArray(summary?.items) ? summary.items : [];
-    return items.map(it => ({
-      organization_id: it.tenant_id,
-      organization_name: it.tenant_name || it.tenant_id,
-      activity: it.user_count || 0
+    const res = await baseClient.get(withUrlOverrides(`/api/users/tenant-summary${qs ? `?${qs}` : ''}`));
+    const items = res?.data?.items || [];
+    return items.map((d) => ({
+      organization: d.tenant_name || d.tenant_id || 'Unknown',
+      count: d.user_count ?? 0,
     }));
+  } catch (e) {
+    return [];
   }
 }
 
 // PUBLIC_INTERFACE
-export async function fetchByDepartmentSafe(params = {}) {
-  /** If backend does not provide department aggregation, fallback to users listing and group client-side by department field. */
-  try {
-    const res = await apiClient.get('/api/users/by-department', { params });
-    return res.data;
-  } catch (err) {
-    // Fallback: fetch up to a reasonable number of users and aggregate
-    const filter = {};
-    if (params?.organization_id) filter.organization_id = params.organization_id;
-    if (params?.status) filter.status = params.status;
-    if (params?.is_admin != null) filter.is_admin = params.is_admin;
-
-    const list = await fetchUsersList({
-      limit: 200, // soft limit for client aggregation
-      filter: JSON.stringify(filter),
-      sort: '-last_active'
-    });
-
-    const users = Array.isArray(list?.data) ? list.data : Array.isArray(list) ? list : [];
-    const map = new Map();
-    users.forEach(u => {
-      const dept = u.department || 'Unknown';
-      map.set(dept, (map.get(dept) || 0) + 1);
-    });
-    return Array.from(map.entries()).map(([department, count]) => ({ department, count }));
+export async function fetchLastActive(params = {}) {
+  /** Fetch last active list. */
+  const qs = toQuery({
+    from: params.startDate,
+    to: params.endDate,
+    tenant_id: params.organization_id || params.tenant_id,
+    department: params.department,
+    is_admin: params.is_admin,
+    status: params.status,
+  });
+  const candidates = [
+    `/api/users/last-active`,
+    `/api/analytics/users/last-active`,
+  ];
+  for (const path of candidates) {
+    try {
+      const res = await baseClient.get(withUrlOverrides(`${path}${qs ? `?${qs}` : ''}`));
+      const items = res?.data?.items || res?.data || [];
+      return Array.isArray(items) ? items : [];
+    } catch (e) {
+      // next
+    }
   }
+  return [];
 }
 
 // PUBLIC_INTERFACE
-export async function fetchTermsAcceptanceSafe(params = {}) {
-  /** Terms acceptance distribution; if no backend, approximate via users list. */
+export async function fetchJoinedTrend(params = {}) {
+  /** Fetch new users over time; fallback to backend /api/analytics/users/new-over-time defined in openapi. */
+  const qs = toQuery({
+    granularity: params.granularity === 'daily' ? 'day' : params.granularity === 'weekly' ? 'week' : (params.granularity === 'monthly' ? 'month' : params.granularity),
+    start: params.startDate,
+    end: params.endDate,
+    from: params.startDate,
+    to: params.endDate,
+    tenant_id: params.organization_id || params.tenant_id,
+  });
+
+  const candidates = [
+    `/api/users/joined-trend`,
+    `/api/analytics/users/joined-trend`,
+  ];
+  for (const path of candidates) {
+    try {
+      const res = await baseClient.get(withUrlOverrides(`${path}${qs ? `?${qs}` : ''}`));
+      if (res?.data) {
+        const items = Array.isArray(res.data.items) ? res.data.items : (Array.isArray(res.data) ? res.data : []);
+        return items.map((d) => ({
+          date: d.date || d.bucket || d._id || '',
+          total: d.total ?? d.count ?? 0,
+        }));
+      }
+    } catch (e) {
+      // try next
+    }
+  }
+
+  // Fallback to defined endpoint in backend spec
   try {
-    const res = await apiClient.get('/api/users/terms-acceptance', { params });
-    return res.data;
-  } catch (err) {
-    const list = await fetchUsersList({
-      limit: 200,
-      filter: JSON.stringify({
-        ...(params?.organization_id ? { organization_id: params.organization_id } : {})
-      })
-    });
-    const users = Array.isArray(list?.data) ? list.data : Array.isArray(list) ? list : [];
-    const accepted = users.filter(u => !!u.has_accepted_terms).length;
-    const total = users.length || 1;
-    return {
-      accepted,
-      notAccepted: total - accepted,
-      acceptedPct: Math.round((accepted / total) * 100)
-    };
+    const res = await baseClient.get(withUrlOverrides(`/api/analytics/users/new-over-time${qs ? `?${qs}` : ''}`));
+    const items = Array.isArray(res.data?.items) ? res.data.items : (Array.isArray(res.data) ? res.data : []);
+    return items.map((d) => ({
+      date: d.date || d.bucket || d._id || '',
+      total: d.total ?? d.count ?? 0,
+    }));
+  } catch (e) {
+    return [];
   }
 }
+
+export default {
+  fetchActiveTrend,
+  fetchKpiSummary,
+  fetchUsersByDepartment,
+  fetchUsersByOrganization,
+  fetchLastActive,
+  fetchJoinedTrend,
+};
