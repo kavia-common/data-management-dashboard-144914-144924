@@ -1,14 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import KPIChart from "../../components/charts/KPIChart.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
-import Button from "../../components/ui/Button.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
-import { getAgentsAggregation } from "../../api/analyticsAgents";
-import LoadingState from "../../components/common/LoadingState.jsx";
-import ErrorState from "../../components/common/ErrorState.jsx";
-import AgentCostBarChart from "../../components/analytics/AgentCostBarChart.jsx";
-import AgentsUsageTable from "../../components/analytics/AgentsUsageTable.jsx";
+
 
 // PUBLIC_INTERFACE
 export default function Overview() {
@@ -18,11 +13,6 @@ export default function Overview() {
   const [trend, setTrend] = useState([]);
   const [error, setError] = useState("");
   const [apiStatus, setApiStatus] = useState("checking");
-
-  // Agents section state
-  const [agentsLoading, setAgentsLoading] = useState(true);
-  const [agentsError, setAgentsError] = useState("");
-  const [agentsItems, setAgentsItems] = useState([]);
 
   useEffect(() => {
     async function fetchData() {
@@ -76,64 +66,6 @@ export default function Overview() {
     };
   }, []);
 
-  // Fetch Agents analytics (defaults: last 30 days top 10)
-  useEffect(() => {
-    let cancelled = false;
-    async function loadAgents() {
-      setAgentsLoading(true);
-      setAgentsError("");
-      try {
-        const now = new Date();
-        const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-        const to = now.toISOString();
-        const { items } = await getAgentsAggregation({ limit: 10, from, to, grouping: 'agent' });
-        // eslint-disable-next-line no-console
-        console.debug("[Overview] Agents aggregation items:", items);
-        if (!cancelled) {
-          const safeItems = Array.isArray(items) ? items : [];
-          setAgentsItems(safeItems);
-          if (safeItems.length === 0) {
-            // eslint-disable-next-line no-console
-            console.info("[Overview] No agents data available for the selected period.");
-          }
-        }
-      } catch (e) {
-        if (!cancelled) {
-          // eslint-disable-next-line no-console
-          console.error("[Overview] Failed to load agents analytics:", e);
-          setAgentsError(e?.message || "Failed to load agents analytics.");
-        }
-      } finally {
-        if (!cancelled) setAgentsLoading(false);
-      }
-    }
-    loadAgents();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const compactChartItems = useMemo(() => {
-    // Normalize for chart component signature
-    const mapped = (agentsItems || []).map((it) => ({
-      agent_name: it.agent_name || it.agent,
-      total_cost: Number(it.total_cost || 0),
-    }));
-    // top-N already limited by API; keep as-is
-    return mapped;
-  }, [agentsItems]);
-
-  const compactTableItems = useMemo(() => {
-    // Ensure each entry has expected fields for table
-    return (agentsItems || []).slice(0, 10).map((it) => ({
-      agent_name: it.agent_name || it.agent || 'Unknown',
-      total_cost: Number(it.total_cost ?? it.cost ?? 0),
-      total_usage: typeof it.total_usage === 'number' ? it.total_usage : Number(it.total_tokens ?? 0),
-      session_count: typeof it.session_count === 'number' ? it.session_count : Number(it.sessions ?? 0),
-      source_breakdown: it.source_breakdown || {},
-    }));
-  }, [agentsItems]);
-
   return (
     <div className="grid">
       {/* KPI cards row — responsive spans handled by .kpi-card rules in App.css */}
@@ -162,34 +94,6 @@ export default function Overview() {
         </div>
       </Card>
 
-      {/* Agents group-by section */}
-      <div className="block-full" style={{ justifySelf: 'end', width: '100%' }}>
-        <Card
-          title="Agents"
-          subtitle="Top agents by total cost (last 30 days)"
-          className="w-full"
-        >
-          {agentsError && !agentsLoading ? (
-            <ErrorState message={agentsError} />
-          ) : null}
-          {agentsLoading ? (
-            <LoadingState message="Loading agents summary…" height={180} />
-          ) : agentsItems.length === 0 ? (
-            <div style={{ padding: 12, color: '#6b7280' }}>
-              No agent data available for the selected period.
-            </div>
-          ) : (
-            <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-              <div>
-                <AgentCostBarChart data={compactChartItems} loading={false} />
-              </div>
-              <div>
-                <AgentsUsageTable data={compactTableItems} loading={false} />
-              </div>
-            </div>
-          )}
-        </Card>
-      </div>
 
       {/* Full-width trend row aligned to the right by spanning all columns */}
       <div className="block-full" style={{ justifySelf: 'end', width: '100%' }}>
@@ -204,6 +108,9 @@ export default function Overview() {
           )}
         </Card>
       </div>
+
+
+
     </div>
   );
 }

@@ -3,7 +3,7 @@ import AppLayout from '../../components/layout/AppLayout';
 import Card from '../../components/common/Card';
 import LoadingState from '../../components/common/LoadingState';
 import ErrorState from '../../components/common/ErrorState';
-import { getAgentsAnalytics } from '../../api/agentsAnalytics';
+import { getAgentsAnalytics } from '../../api/analyticsAgents';
 import AgentCostBarChart from '../../components/analytics/AgentCostBarChart';
 import AgentsUsageTable from '../../components/analytics/AgentsUsageTable';
 import TimeBucketFilter from '../../components/common/TimeBucketFilter';
