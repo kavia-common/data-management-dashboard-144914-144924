@@ -33,6 +33,7 @@ export default function UsersIndex() {
       <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
         <TabLink to="">Users</TabLink>
         <TabLink to="analytics">Analytics</TabLink>
+        <a href="/users/analytics" style={{ marginLeft: 'auto', fontSize: 13, color: '#2563EB', textDecoration: 'none' }}>Open full-page Analytics</a>
       </div>
       <Routes>
         <Route index element={<UsersDashboard />} />

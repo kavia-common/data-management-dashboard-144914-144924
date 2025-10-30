@@ -192,3 +192,9 @@
   /* Increase top margin for the first item to keep visual rhythm similar to previous group label spacing */
   margin-top: 12px;
 }
+
+/* Indent secondary nav entry like User Analytics under Users */
+.sidebar .nav-link + .nav-link[href="/users/analytics"] {
+  margin-left: 14px;
+  font-size: 0.95em;
+}

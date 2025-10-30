@@ -97,6 +97,11 @@ export default function Users() {
   return (
     <div>
 
+      {/* Quick access to Analytics */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+        <a href="/users/analytics" style={{ textDecoration: 'none', color: '#2563EB' }}>Open User Analytics →</a>
+      </div>
+
       {/* Users by Tenant chart above the table */}
       <div style={{ marginBottom: 12 }}>
         <div className="card">

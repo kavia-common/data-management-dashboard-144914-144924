@@ -93,6 +93,9 @@ export default function Sidebar() {
           <NavLink to="/dashboard/users" className="nav-link">
             <span className="nav-label">Users</span>
           </NavLink>
+          <NavLink to="/users/analytics" className="nav-link" style={{ marginLeft: 14, fontSize: '0.95em' }}>
+            <span className="nav-label">User Analytics</span>
+          </NavLink>
           <NavLink to="/dashboard/sessions" className="nav-link">
             <span className="nav-label">Session Tracking</span>
           </NavLink>
