@@ -125,6 +125,7 @@ const AnalyticsUsage = () => {
     <div className="px-4 md:px-6 lg:px-8 py-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold text-gray-800">Analytics Usage</h1>
+        <a href="/dashboard/analytics-usage" className="hidden md:inline text-sm text-blue-600 hover:underline">Open full page</a>
         <div className="flex items-center gap-3">
           <TimeBucketFilter
             loading={loading}

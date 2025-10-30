@@ -1,4 +1,4 @@
-import { getApiClient } from './baseClient';
+import { getApiClient } from './client';
 import { buildQueryString } from './util';
 
 /**

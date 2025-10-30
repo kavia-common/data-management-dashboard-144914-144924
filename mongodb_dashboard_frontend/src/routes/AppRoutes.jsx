@@ -91,6 +91,7 @@ export default function AppRoutes() {
             </AppLayout>
           }
         />
+        {/* Analytics Usage page at /dashboard/analytics-usage */}
         <Route
           path="/dashboard/analytics-usage"
           element={
