@@ -74,7 +74,7 @@ export default function Users() {
   }, [open]);
 
   const chartToolbar = (
-    <div className="toolbar" aria-label="Users by tenant filters" style={{ marginBottom: 8 }}>
+    <div className="toolbar" aria-label="Users by tenant filters" style={{ marginBottom: 8, display: "flex", gap: 8 }}>
       <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>Date range</span>
         <select
@@ -91,6 +91,24 @@ export default function Users() {
         </select>
       </label>
       <div className="spacer" />
+      {/* Local navigation into Users Analytics section without altering the main sidebar */}
+      <a
+        href="/users/analytics"
+        className="ui-button"
+        role="button"
+        style={{
+          textDecoration: "none",
+          padding: "6px 10px",
+          borderRadius: 6,
+          border: "1px solid var(--color-border, #e5e7eb)",
+          background: "var(--color-surface, #fff)",
+          color: "var(--color-text, #111827)",
+          fontSize: 14
+        }}
+        aria-label="Go to Users Analytics"
+      >
+        Analytics
+      </a>
     </div>
   );
 

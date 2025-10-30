@@ -10,6 +10,15 @@ const Sessions = lazy(() => import("../pages/dashboard/Sessions"));
 const Deployments = lazy(() => import("../pages/dashboard/Deployments"));
 const Costs = lazy(() => import("../pages/dashboard/Costs"));
 
+/** Users Analytics (route-level code-split wrapper to keep bundle lean)
+ * We import from the module barrel to avoid deep relative path fragility.
+ */
+const UsersAnalyticsPanel = lazy(() =>
+  import("../modules/users").then((m) => ({
+    default: m.UsersAnalyticsPanel || m.default || m,
+  }))
+);
+
 const Login = lazy(() => import("../pages/Login"));
 
 /**
@@ -60,6 +69,19 @@ export default function AppRoutes() {
             </AppLayout>
           }
         />
+
+        {/* Users Analytics route within Users module context */}
+        <Route
+          path="/users/analytics"
+          element={
+            <AppLayout>
+              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={320} /></div>}>
+                <UsersAnalyticsPanel />
+              </Suspense>
+            </AppLayout>
+          }
+        />
+
         <Route
           path="/dashboard/sessions"
           element={
@@ -90,8 +112,6 @@ export default function AppRoutes() {
             </AppLayout>
           }
         />
-
-
       </Route>
 
       {/* Fallback */}
