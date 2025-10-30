@@ -1,15 +1,23 @@
 import { getApiBaseUrl } from './util';
+import { getApiBase } from './utilBase';
 
 /**
  * Resolve a reliable API base URL.
  * Priority:
- * - util.getApiBaseUrl() which already includes '/api' when applicable
- * - Fallback relative '/api' (works with proxy/same-origin)
+ * - REACT_APP_API_BASE_URL via util.getApiBaseUrl()
+ * - Heuristic base via utilBase.getApiBase()
+ * - Fallback from window to http://localhost:3001
  */
 function resolveBase() {
   const envBase = (typeof getApiBaseUrl === 'function' && getApiBaseUrl()) || '';
   if (envBase) return String(envBase).replace(/\/*$/, '');
-  return '/api';
+  try {
+    const u = new URL(window.location.href);
+    return `${u.protocol}//${u.hostname}:3001`;
+  } catch {
+    const heur = (typeof getApiBase === 'function' && getApiBase()) || 'http://localhost:3001';
+    return String(heur).replace(/\/*$/, '');
+  }
 }
 
 async function fetchJson(url, { credentials = 'include' } = {}) {
