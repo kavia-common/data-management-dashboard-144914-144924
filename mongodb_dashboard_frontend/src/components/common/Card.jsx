@@ -1,4 +1,5 @@
 import React from "react";
+import "../ui/Card.css";
 
 /**
  * PUBLIC_INTERFACE

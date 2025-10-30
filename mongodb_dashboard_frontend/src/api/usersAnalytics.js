@@ -1,64 +1,87 @@
-import axios from "axios";
-import { getApiBase } from "./config";
+import { getApiBaseUrl } from './config';
 
 /**
- * PUBLIC_INTERFACE
- * getActiveUsersTrend
- * Fetch active users trend from backend.
- * @param {{ from?: string, to?: string, status?: string, tenant_id?: string, granularity?: 'day'|'week'|'month' }} params
- * @returns {Promise<{ items: Array<{ date: string, total: number }>, meta?: any }>}
+ * Users Analytics API client
+ * Wraps calls to /api/users/analytics endpoints with optional filters.
+ * Filters supported: { from, to, organization, department, status }
  */
-export async function getActiveUsersTrend(params = {}) {
-  const base = getApiBase();
-  const url = `${base}/users/active-trend`;
-  const res = await axios.get(url, { params });
-  return res.data;
+
+const API_BASE = getApiBaseUrl();
+
+// PUBLIC_INTERFACE
+export async function fetchUsersKpis(filters = {}) {
+  /** Fetch KPI summary: totalActiveUsers, newUsers, inactiveUsers, compliancePercent */
+  const url = buildUrl('/api/users/analytics/kpis', filters);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch KPIs: ${res.status}`);
+  return res.json();
+}
+
+// PUBLIC_INTERFACE
+export async function fetchDauTrend(filters = {}) {
+  /** Fetch DAU last 30 days time-series */
+  const url = buildUrl('/api/users/analytics/dau-trend', filters);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch DAU trend: ${res.status}`);
+  return res.json();
+}
+
+// PUBLIC_INTERFACE
+export async function fetchActiveByDepartment(filters = {}) {
+  /** Fetch active users grouped by department (bar) */
+  const url = buildUrl('/api/users/analytics/active-by-department', filters);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch active by department: ${res.status}`);
+  return res.json();
+}
+
+// PUBLIC_INTERFACE
+export async function fetchActiveVsInactive(filters = {}) {
+  /** Fetch active vs inactive breakdown (pie) */
+  const url = buildUrl('/api/users/analytics/active-vs-inactive', filters);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch active vs inactive: ${res.status}`);
+  return res.json();
+}
+
+// PUBLIC_INTERFACE
+export async function fetchTopActiveUsers(filters = {}) {
+  /** Fetch top 10 most active users table */
+  const params = { ...filters, limit: 10 };
+  const url = buildUrl('/api/users/analytics/top-active-users', params);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch top active users: ${res.status}`);
+  return res.json();
+}
+
+function buildUrl(path, params) {
+  const url = new URL(path, API_BASE);
+  Object.entries(params || {}).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') {
+      url.searchParams.set(k, v);
+    }
+  });
+  return url.toString();
 }
 
 /**
  * PUBLIC_INTERFACE
  * getTenantUsersSummary
- * Fetch aggregated users by tenant summary.
- *
- * Parameters:
- * - from?: string (ISO) - optional start date-time
- * - to?: string (ISO) - optional end date-time
- * - status?: string - optional status filter (default handled by backend)
- * - includeInactive?: boolean - whether to include inactive tenants
- *
- * Returns a normalized payload:
- * - { items: Array<{ tenant_id: string, tenant_name?: string|null, user_count: number }>, total?: number }
- *   or raw array fallback if backend returns array.
- *
- * Notes:
- * - Backend endpoint: GET /api/users/tenant-summary
+ * Fetch tenant-wise users summary (distinct active users per tenant).
+ * Accepts filters: { from, to, status, includeInactive }
  */
-export async function getTenantUsersSummary(params = {}) {
-  const base = getApiBase();
-  const url = `${base}/users/tenant-summary`;
-  try {
-    const res = await axios.get(url, { params });
-    const data = res?.data ?? res;
-
-    // Normalize shapes:
-    if (data && Array.isArray(data.items)) {
-      return { items: data.items, total: data.total ?? data.items.length };
-    }
-    if (Array.isArray(data)) {
-      return { items: data, total: data.length };
-    }
-    // Pass-through minimal object
-    if (data && typeof data === "object") {
-      const items = Array.isArray(data.data) ? data.data : Array.isArray(data.items) ? data.items : [];
-      return { items, total: data.total ?? items.length ?? 0 };
-    }
-    return { items: [], total: 0 };
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error("[UsersAnalyticsAPI] getTenantUsersSummary failed:", err);
-    // Surface a controlled error message; caller can show a toast or inline error
-    throw new Error(err?.message || "Failed to load tenant users summary");
-  }
+export async function getTenantUsersSummary(filters = {}) {
+  const url = buildUrl('/api/users/tenant-summary', filters);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch tenant users summary: ${res.status}`);
+  return res.json();
 }
 
-export default { getActiveUsersTrend, getTenantUsersSummary };
+export default {
+  fetchUsersKpis,
+  fetchDauTrend,
+  fetchActiveByDepartment,
+  fetchActiveVsInactive,
+  fetchTopActiveUsers,
+  getTenantUsersSummary,
+};
