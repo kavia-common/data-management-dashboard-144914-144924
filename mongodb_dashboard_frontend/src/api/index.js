@@ -1,11 +1,10 @@
 /**
  * PUBLIC_INTERFACE
  * API exports barrel.
- * This module re-exports named helpers from baseClient and other API utilities.
- * Note: baseClient does NOT have a default axios instance; use getApiClient() or
- * the provided named functions instead.
+ * Re-export stable API helpers and the configured axios client.
  */
-export { getApiClient, listUsers, listSessions, listDeployments, listLlmCosts, health } from './baseClient';
-export * from './baseClient';
-export * from './modulesClient';
+export { getApiClient } from './client';
+export { listUsers, listSessions, listDeployments, listLlmCosts, health } from './baseClient';
 export * from './agentsAnalytics';
+export * from './analyticsAgents';
+export * from './modulesClient';

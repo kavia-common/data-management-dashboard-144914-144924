@@ -7,8 +7,8 @@ import { listUsers, listSessions, listDeployments, health } from "../../api";
 import { getAgentsAggregation } from "../../api/analyticsAgents";
 import LoadingState from "../../components/common/LoadingState.jsx";
 import ErrorState from "../../components/common/ErrorState.jsx";
-import AgentsBar from "../../components/charts/AgentCostBarChart.jsx";
-import AgentsTable from "../../components/tables/AgentsUsageTable.jsx";
+import AgentCostBarChart from "../../components/analytics/AgentCostBarChart.jsx";
+import AgentsUsageTable from "../../components/analytics/AgentsUsageTable.jsx";
 
 // PUBLIC_INTERFACE
 export default function Overview() {
@@ -162,10 +162,10 @@ export default function Overview() {
           ) : (
             <div className="grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 16 }}>
               <div>
-                <AgentsBar items={compactChartItems} loading={false} />
+                <AgentCostBarChart data={compactChartItems} loading={false} />
               </div>
               <div>
-                <AgentsTable items={compactTableItems} loading={false} />
+                <AgentsUsageTable data={compactTableItems} loading={false} />
               </div>
             </div>
           )}

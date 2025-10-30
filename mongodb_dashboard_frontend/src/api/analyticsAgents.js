@@ -1,20 +1,60 @@
 import { getApiClient } from './client';
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * getAgentsAggregation
+ * Fetch agents aggregation grouped by agent.
+ */
 export async function getAgentsAggregation(params = {}) {
-  /** Fetch agents aggregation grouped by agent (default on server) */
   const api = getApiClient();
-  const res = await api.get('/analytics/agents', { params: { grouping: 'agent', ...params } });
-  return res?.data || { items: [], total: 0, meta: null };
+  const res = await api.get('/analytics/agents', {
+    params: { grouping: 'agent', ...params },
+  });
+
+  // Normalize: support raw array or envelope
+  const data = res?.data;
+  if (Array.isArray(data)) return { items: data, total: data.length, meta: null };
+  const items = Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data)
+    ? data
+    : [];
+  const total =
+    typeof data?.total === 'number'
+      ? data.total
+      : data?.meta && typeof data.meta.total === 'number'
+      ? data.meta.total
+      : items.length;
+  return { items, total, meta: data?.meta ?? null };
 }
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * getDepartmentAggregation
+ * Fetch costs grouped by department.
+ */
 export async function getDepartmentAggregation(params = {}) {
-  /**
-   * Fetch costs grouped by department.
-   * Params may include: tenant_id, project_id, from, to, limit, offset.
-   */
   const api = getApiClient();
-  const res = await api.get('/analytics/agents', { params: { grouping: 'department', ...params } });
-  return res?.data || { items: [], total: 0, meta: null };
+  const res = await api.get('/analytics/agents', {
+    params: { grouping: 'department', ...params },
+  });
+
+  const data = res?.data;
+  if (Array.isArray(data)) return { items: data, total: data.length, meta: null };
+  const items = Array.isArray(data?.items)
+    ? data.items
+    : Array.isArray(data?.data)
+    ? data.data
+    : Array.isArray(data)
+    ? data
+    : [];
+  const total =
+    typeof data?.total === 'number'
+      ? data.total
+      : data?.meta && typeof data.meta.total === 'number'
+      ? data.meta.total
+      : items.length;
+  return { items, total, meta: data?.meta ?? null };
 }
