@@ -1,4 +1,4 @@
-import baseClient from './baseClient';
+import { getApiClient } from './baseClient';
 import { buildQueryString } from './util';
 
 /**
@@ -21,7 +21,8 @@ const withFilters = (params = {}) => {
 export async function getGroupByAgents(params = {}) {
   /** Fetch analytics grouped by agents. */
   const qs = buildQueryString(withFilters(params));
-  const { data } = await baseClient.get(`/api/analytics/group-by-agents${qs}`);
+  const client = getApiClient();
+  const { data } = await client.get(`/api/analytics/group-by-agents${qs}`);
   return data;
 }
 
@@ -29,7 +30,8 @@ export async function getGroupByAgents(params = {}) {
 export async function getGroupByTeams(params = {}) {
   /** Fetch analytics grouped by teams. */
   const qs = buildQueryString(withFilters(params));
-  const { data } = await baseClient.get(`/api/analytics/group-by-teams${qs}`);
+  const client = getApiClient();
+  const { data } = await client.get(`/api/analytics/group-by-teams${qs}`);
   return data;
 }
 
@@ -37,7 +39,8 @@ export async function getGroupByTeams(params = {}) {
 export async function getUsageByUser(params = {}) {
   /** Fetch usage aggregated by user. */
   const qs = buildQueryString(withFilters(params));
-  const { data } = await baseClient.get(`/api/analytics/usage-by-user${qs}`);
+  const client = getApiClient();
+  const { data } = await client.get(`/api/analytics/usage-by-user${qs}`);
   return data;
 }
 
@@ -45,7 +48,8 @@ export async function getUsageByUser(params = {}) {
 export async function getFeaturesByCredit(params = {}) {
   /** Fetch features by credit usage (supports most/least via limit/sort server-side). */
   const qs = buildQueryString(withFilters(params));
-  const { data } = await baseClient.get(`/api/analytics/features-by-credit${qs}`);
+  const client = getApiClient();
+  const { data } = await client.get(`/api/analytics/features-by-credit${qs}`);
   return data;
 }
 

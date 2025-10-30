@@ -37,10 +37,25 @@ const AnalyticsUsage = () => {
         getFeaturesByCredit(activeFilters),
       ]);
 
-      setAgentsData(Array.isArray(a?.items || a) ? (a.items || a) : []);
-      setTeamsData(Array.isArray(t?.items || t) ? (t.items || t) : []);
-      setUsageByUser(Array.isArray(u?.items || u) ? (u.items || u) : []);
-      setFeaturesCredit(Array.isArray(f?.items || f) ? (f.items || f) : []);
+      const aItems = Array.isArray(a?.data) ? a.data : (Array.isArray(a?.items) ? a.items : (Array.isArray(a) ? a : []));
+      const tItems = Array.isArray(t?.data) ? t.data : (Array.isArray(t?.items) ? t.items : (Array.isArray(t) ? t : []));
+      const uItems = Array.isArray(u?.data) ? u.data : (Array.isArray(u?.items) ? u.items : (Array.isArray(u) ? u : []));
+      let fItems;
+      if (Array.isArray(f?.data)) {
+        fItems = f.data;
+      } else if (f?.data && typeof f.data === 'object' && (Array.isArray(f.data.top) || Array.isArray(f.data.bottom))) {
+        fItems = [...(f.data.top || []), ...(f.data.bottom || [])];
+      } else if (Array.isArray(f?.items)) {
+        fItems = f.items;
+      } else if (f?.items && typeof f.items === 'object' && (Array.isArray(f.items.top) || Array.isArray(f.items.bottom))) {
+        fItems = [...(f.items.top || []), ...(f.items.bottom || [])];
+      } else {
+        fItems = Array.isArray(f) ? f : [];
+      }
+      setAgentsData(aItems);
+      setTeamsData(tItems);
+      setUsageByUser(uItems);
+      setFeaturesCredit(fItems);
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error('Failed to load analytics usage datasets', e);
