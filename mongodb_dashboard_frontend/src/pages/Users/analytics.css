@@ -1,51 +1,27 @@
 .users-analytics.ocean-pro {
-  padding: 20px;
-  background: var(--bg, #f9fafb);
-  color: var(--text, #111827);
+  padding: 12px;
 }
-
-.users-analytics .ua-header {
+.ua-header h2 {
+  margin: 0 0 4px 0;
+}
+.ua-filters {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: 12px;
-  margin-bottom: 16px;
-}
-
-.users-analytics .ua-header h2 {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #111827;
-  margin: 0;
-}
-
-.users-analytics .ua-filters {
-  display: flex;
   align-items: center;
-  gap: 10px;
   flex-wrap: wrap;
 }
-
-.users-analytics .ua-section {
-  margin-top: 16px;
-}
-
-.users-analytics .ua-grid {
+.ua-grid {
   display: grid;
-  grid-template-columns: repeat(1, minmax(0, 1fr));
-  gap: 16px;
-  margin-top: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
-
-@media (min-width: 900px) {
-  .users-analytics .ua-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-.users-analytics .ua-card-title {
+.ua-card-title {
   margin: 0 0 8px 0;
-  font-size: 1rem;
-  font-weight: 600;
-  color: #1f2937;
+  font-size: 14px;
+  font-weight: 700;
+}
+@media (max-width: 1024px) {
+  .ua-grid {
+    grid-template-columns: 1fr;
+  }
 }

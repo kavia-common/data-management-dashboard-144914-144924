@@ -10,6 +10,7 @@ const DEFAULT_FILTERS = {
   organization_id: '',
   is_admin: '',
   status: '',
+  search: '',
 };
 
 function normalizeGranularity(g) {
@@ -20,10 +21,15 @@ function normalizeGranularity(g) {
 }
 
 // PUBLIC_INTERFACE
-export function useUsersAnalyticsData(initialFilters = {}) {
-  /** Hook to fetch and manage Users Analytics datasets with debounced filter changes. */
+export function useUsersAnalyticsData(initialFilters = {}, options = {}) {
+  /**
+   * Hook to fetch and manage Users Analytics datasets with debounced filter changes.
+   * Options:
+   *  - refreshKey?: number - when changed, forces a refetch even if filters unchanged
+   */
   const [filters, setFilters] = useState({ ...DEFAULT_FILTERS, ...initialFilters });
   const debouncedFilters = useDebouncedValue(filters, 350);
+  const refreshKey = options.refreshKey || 0;
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -82,7 +88,7 @@ export function useUsersAnalyticsData(initialFilters = {}) {
           returningUsers: kpiRes.returningUsers ?? null,
         });
         setActiveTrend(activeRes.items || []);
-        setJoinedTrend(joinedRes || []);
+        setJoinedTrend(Array.isArray(joinedRes) ? joinedRes : (joinedRes?.items || []));
         setByDept(deptRes || []);
         setByOrg(orgRes || []);
       } catch (e) {
@@ -98,11 +104,12 @@ export function useUsersAnalyticsData(initialFilters = {}) {
         abortRef.current.aborted = true;
       }
     };
-  }, [normalizedParams]);
+    // Trigger on param change and external refreshKey
+  }, [normalizedParams, refreshKey]);
 
   const empty =
     (activeTrend?.length ?? 0) === 0 &&
-    (joinedTrend?.length ?? 0) === 0 &&
+    (Array.isArray(joinedTrend) ? joinedTrend.length : 0) === 0 &&
     (byDept?.length ?? 0) === 0 &&
     (byOrg?.length ?? 0) === 0 &&
     kpis.totalUsers == null &&

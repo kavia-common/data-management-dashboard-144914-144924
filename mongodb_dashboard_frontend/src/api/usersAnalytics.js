@@ -17,52 +17,47 @@ function toQuery(params = {}) {
 export async function fetchActiveTrend(params = {}) {
   /** Fetch active users trend time series. Supports granularity, from/to, status, tenant_id */
   const qs = toQuery({
-    granularity: params.granularity,
+    granularity: params.granularity === 'daily' ? 'day' : params.granularity === 'weekly' ? 'week' : params.granularity,
     from: params.startDate,
     to: params.endDate,
     status: params.status,
     tenant_id: params.organization_id || params.tenant_id,
-    department: params.department,
-    is_admin: params.is_admin,
   });
   const url = `/api/users/active-trend${qs ? `?${qs}` : ''}`;
   try {
     const res = await baseClient.get(withUrlOverrides(url));
-    // Normalize to { items: [{ date, total }], meta: {...} }
     if (Array.isArray(res.data)) {
       return { items: res.data, meta: {} };
     }
     return res.data || { items: [], meta: {} };
   } catch (err) {
-    // Graceful fallback: return empty structure for missing endpoint or errors
+    // Graceful fallback: return empty structure
+    console.warn('fetchActiveTrend failed:', err?.message || err);
     return { items: [], meta: { error: true, message: err?.message || 'Failed to load active trend' } };
   }
 }
 
 // PUBLIC_INTERFACE
 export async function fetchKpiSummary(params = {}) {
-  /** Fetch KPI summary for users analytics. Backend may expose /api/users/kpi-summary or similar. */
+  /** Fetch KPI summary for users analytics. Try multiple known routes. */
   const qs = toQuery({
     from: params.startDate,
     to: params.endDate,
     granularity: params.granularity,
     tenant_id: params.organization_id || params.tenant_id,
-    department: params.department,
-    is_admin: params.is_admin,
     status: params.status,
   });
 
   const candidates = [
     `/api/users/kpi-summary`,
-    `/api/users/summary`,
     `/api/analytics/users/kpi-summary`,
+    `/api/users/summary`,
   ];
 
   for (const path of candidates) {
     try {
       const res = await baseClient.get(withUrlOverrides(`${path}${qs ? `?${qs}` : ''}`));
       if (res?.data) {
-        // Expect shape like { totalUsers, activeUsers, newUsers, returningUsers }
         return {
           totalUsers: res.data.totalUsers ?? null,
           activeUsers: res.data.activeUsers ?? null,
@@ -72,7 +67,7 @@ export async function fetchKpiSummary(params = {}) {
         };
       }
     } catch (e) {
-      // try next candidate
+      // continue trying next route
     }
   }
   return { totalUsers: null, activeUsers: null, newUsers: null, returningUsers: null, raw: null, empty: true };
@@ -85,8 +80,6 @@ export async function fetchUsersByDepartment(params = {}) {
     from: params.startDate,
     to: params.endDate,
     tenant_id: params.organization_id || params.tenant_id,
-    department: params.department,
-    is_admin: params.is_admin,
     status: params.status,
     granularity: params.granularity,
   });
@@ -118,7 +111,6 @@ export async function fetchUsersByOrganization(params = {}) {
   const qs = toQuery({
     from: params.startDate || params.from,
     to: params.endDate || params.to,
-    tenant_id: params.organization_id || params.tenant_id,
     includeInactive: params.includeInactive,
     status: params.status,
     granularity: params.granularity,
@@ -158,13 +150,11 @@ export async function fetchUsersByOrganization(params = {}) {
 
 // PUBLIC_INTERFACE
 export async function fetchLastActive(params = {}) {
-  /** Fetch last active list. */
+  /** Fetch last active list. Safe fallback to [] if endpoint missing. */
   const qs = toQuery({
     from: params.startDate,
     to: params.endDate,
     tenant_id: params.organization_id || params.tenant_id,
-    department: params.department,
-    is_admin: params.is_admin,
     status: params.status,
   });
   const candidates = [
