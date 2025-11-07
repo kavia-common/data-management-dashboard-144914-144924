@@ -110,7 +110,7 @@ async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
     err.payload = payload;
     throw err;
   }
-  return { data: payload };
+  return { data: payload, status: res.status };
 }
 
 async function httpJson(method, pathOrUrl, body, { headers, signal } = {}) {
@@ -136,11 +136,11 @@ async function httpJson(method, pathOrUrl, body, { headers, signal } = {}) {
     err.payload = payload;
     throw err;
   }
-  return { data: payload };
+  return { data: payload, status: res.status };
 }
 
 function normalizeListPayload(payload) {
-  const items = Array.isArray(payload) ? payload : payload?.data || [];
+  const items = Array.isArray(payload) ? payload : payload?.data || payload?.items || [];
   const total =
     (payload && payload.meta && typeof payload.meta.total === "number" && payload.meta.total) ||
     (Array.isArray(items) ? items.length : 0);
@@ -173,16 +173,102 @@ export async function health() {
 }
 
 /**
- * Note on headers:
- * This fetch-based client relies on the reverse proxy/backend to enforce auth,
- * and other parts of the app use axios httpClient with interceptors (Authorization, x-tenant-id).
- * The users listing uses the canonical API path with /api prefix to match other endpoints.
+ * Mask token for logging (privacy).
  */
-// PUBLIC_INTERFACE
-export async function listUsers(params = {}) {
-  /** Lists users with optional pagination/filter/sort, normalized to { items, total, meta }. */
-  const res = await httpGet("/api/users", { params });
-  return normalizeListPayload(res.data);
+function maskToken(t) {
+  if (!t || typeof t !== "string") return undefined;
+  if (t.length <= 12) return `${t[0]}...${t[t.length - 1]}`;
+  return `${t.slice(0, 6)}...${t.slice(-6)}`;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * listUsers
+ * Fetches paginated users or raw array, depending on backend response.
+ * Adds scoped diagnostics and a 20s timeout specific to this call in non-production.
+ */
+export async function listUsers(params = {}, options = {}) {
+  const { signal } = options || {};
+  const isProd = process.env.NODE_ENV === "production" || process.env.REACT_APP_NODE_ENV === "production";
+
+  // Build URL preview for logging and infer headers presence
+  const base = getApiBase();
+  const qs = new URLSearchParams(params || {}).toString();
+  const previewUrl = `${String(base).replace(/\/$/, "")}/users${qs ? `?${qs}` : ""}`;
+
+  const token = getAuthToken?.();
+  const tenantId = getTenantId?.();
+  const authHeader = token ? `Bearer ${token}` : undefined;
+
+  if (!isProd) {
+    try {
+      console.debug("[api:listUsers] request", {
+        url: previewUrl,
+        hasAuth: Boolean(authHeader),
+        tokenPreview: maskToken(token),
+        tenant: tenantId,
+        ts: Date.now(),
+      });
+    } catch {}
+  }
+
+  // Timeout safety only for this call if no external signal
+  const controller = !signal && typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timeoutMs = 20000;
+  let timeoutId;
+  if (controller) {
+    timeoutId = setTimeout(() => {
+      try {
+        controller.abort();
+      } catch {}
+    }, timeoutMs);
+  }
+
+  try {
+    // Use httpGet with explicit headers for this call to ensure presence is logged upstream
+    const res = await httpGet("/api/users", {
+      params,
+      headers: {
+        ...(tenantId ? { "x-tenant-id": tenantId } : {}),
+        ...(authHeader ? { Authorization: authHeader } : {}),
+      },
+      signal: controller ? controller.signal : signal,
+    });
+
+    if (!isProd) {
+      try {
+        console.debug("[api:listUsers] response:headers", {
+          status: res?.status,
+          ok: res?.status >= 200 && res?.status < 300,
+        });
+      } catch {}
+    }
+
+    const payload = res?.data;
+    const normalized = normalizeListPayload(payload);
+
+    if (!isProd) {
+      try {
+        const keys = payload && typeof payload === "object" ? Object.keys(payload) : [];
+        const count = Array.isArray(normalized?.items) ? normalized.items.length : undefined;
+        console.debug("[api:listUsers] parsed", { keys, count });
+      } catch {}
+    }
+
+    return normalized;
+  } catch (err) {
+    if (!isProd) {
+      if (err?.name === "AbortError") {
+        console.warn("[api:listUsers] timeout", { url: previewUrl, afterMs: timeoutMs });
+      } else {
+        const status = err?.status || err?.response?.status;
+        console.warn("[api:listUsers] non-OK", { status, url: previewUrl });
+      }
+    }
+    throw err;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 }
 
 // PUBLIC_INTERFACE

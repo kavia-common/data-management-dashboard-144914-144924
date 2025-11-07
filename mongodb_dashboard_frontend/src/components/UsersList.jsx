@@ -56,6 +56,14 @@ export default function UsersList({
 
   // PUBLIC_INTERFACE
   async function load() {
+    const isProd = process.env.NODE_ENV === 'production' || process.env.REACT_APP_NODE_ENV === 'production';
+    if (!isProd) {
+      try {
+        console.time('[Users] load:time');
+        console.info('[Users] load:start', { ts: Date.now(), limit: meta?.limit || 10, tenant: undefined });
+      } catch {}
+    }
+
     setLoading(true);
     setError("");
     try {
@@ -68,11 +76,27 @@ export default function UsersList({
         limit: prev.limit || 10,
         total: arr.length,
       }));
+
+      if (!isProd) {
+        try {
+          console.info('[Users] load:success', {
+            status: 'ok',
+            count: Array.isArray(arr) ? arr.length : undefined,
+          });
+          console.timeEnd('[Users] load:time');
+        } catch {}
+      }
     } catch (e) {
       setAllItems([]);
       setItems([]);
       setMeta({ page: 1, limit: 10, total: 0 });
       setError(e?.response?.data?.message || e?.message || "Failed to load users.");
+      if (!isProd) {
+        try {
+          console.error('[Users] load:error', e?.message, e);
+          console.timeEnd('[Users] load:time');
+        } catch {}
+      }
     } finally {
       setLoading(false);
     }
