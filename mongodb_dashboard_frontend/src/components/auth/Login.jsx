@@ -43,14 +43,14 @@ export default function Login() {
       // Perform login using auth client (throws on non-2xx)
       const { token, payload } = await loginWithOrgEmailPassword(form);
 
-      // Persist tokens + tenant using existing utils
-      const accessToken = payload?.AccessToken || payload?.access_token || token || payload?.id_token || payload?.token || null;
+      // Persist id_token + tenant using existing utils
+      const idToken = payload?.id_token || token || payload?.token || null;
       const tenantId = payload?.tenant_id || payload?.tenantId || payload?.['custom:tenant_id'] || form.organization_id || null;
-      if (accessToken) setAuthToken(accessToken);
+      if (idToken) setAuthToken(idToken);
       if (tenantId) setTenantId(tenantId);
 
-      // Persist session via context
-      login(accessToken || token || null);
+      // Persist session via context (use id_token)
+      login(idToken || null);
       // success -> redirect to dashboard overview or prior route
       navigate(from, { replace: true });
     } catch (err) {

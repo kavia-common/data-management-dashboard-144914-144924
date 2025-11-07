@@ -106,8 +106,9 @@ export async function loginWithOrgEmailPassword({ organizationId, email, passwor
   let token = null;
   if (typeof payload === "string") {
     token = payload;
-  } else if (payload && (payload.token || payload.access_token || payload.id_token || payload.AccessToken)) {
-    token = payload.token || payload.access_token || payload.id_token || payload.AccessToken;
+  } else if (payload && (payload.id_token || payload.token || payload.access_token || payload.AccessToken)) {
+    // Prefer id_token
+    token = payload.id_token || payload.token || payload.access_token || payload.AccessToken;
   }
 
   return { token, payload };

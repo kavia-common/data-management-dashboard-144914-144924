@@ -80,11 +80,15 @@ httpClient.interceptors.response.use(
   }
 );
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * storeAuthFromResponse
+ * Persist only id_token for Authorization usage; also persist tenant_id.
+ */
 export function storeAuthFromResponse(data) {
-  /** Stores token and tenant if present in response payload. */
-  if (data?.token) setAuthToken(data.token);
-  if (data?.access_token) setAuthToken(data.access_token);
+  /** Stores id_token and tenant if present in response payload. */
+  const idToken = data?.id_token || data?.token || null;
+  if (idToken) setAuthToken(idToken);
   if (data?.tenant_id) setTenantId(data.tenant_id);
 }
 

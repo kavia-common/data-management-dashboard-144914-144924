@@ -70,13 +70,18 @@ export function getAuthToken() {
   return safeGet(AUTH_STORAGE_KEYS.token);
 }
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * setAuthToken
+ * Persist the primary auth token. This should be the id_token when available.
+ */
 export function setAuthToken(token) {
-  /** Sets the JWT token in storage. Pass null/undefined to clear. */
+  /** Sets the id_token (preferred) in storage. Pass null/undefined to clear. */
   if (!token) {
     safeRemove(AUTH_STORAGE_KEYS.token);
     return;
   }
+  // Store as-is; callers must pass id_token. We intentionally do not map AccessToken here.
   safeSet(AUTH_STORAGE_KEYS.token, token);
 }
 

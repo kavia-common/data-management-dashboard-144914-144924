@@ -80,10 +80,11 @@ async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
     const pathname = absoluteUrl.pathname || "";
     // Match exact /api/users path (no id segment)
     if (pathname === "/api/users") {
-      const token = getAuthToken();
+      // Use id_token stored under auth token key
+      const idToken = getAuthToken();
       const tenant = getTenantId();
-      if (token && !mergedHeaders.Authorization) {
-        mergedHeaders.Authorization = `Bearer ${token}`;
+      if (idToken && !mergedHeaders.Authorization) {
+        mergedHeaders.Authorization = `Bearer ${idToken}`;
       }
       if (tenant && !mergedHeaders["x-tenant-id"]) {
         mergedHeaders["x-tenant-id"] = tenant;

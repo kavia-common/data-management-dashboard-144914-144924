@@ -99,14 +99,14 @@ export default function Login() {
         password,
       });
 
-      // Persist tokens + tenant using existing utils
-      const accessToken = payload?.AccessToken || payload?.access_token || token || payload?.id_token || payload?.token || null;
+      // Persist id_token + tenant using existing utils
+      const idToken = payload?.id_token || token || payload?.token || null;
       const tenantId = payload?.tenant_id || payload?.tenantId || payload?.['custom:tenant_id'] || selectedOrgId || null;
-      if (accessToken) setAuthToken(accessToken);
+      if (idToken) setAuthToken(idToken);
       if (tenantId) setTenantId(tenantId);
 
-      // Maintain existing auth context behavior
-      login(accessToken || token || null);
+      // Maintain existing auth context behavior (use id_token)
+      login(idToken || null);
 
       const from = location.state?.from?.pathname || SUCCESS_REDIRECT;
       navigate(from, { replace: true });
