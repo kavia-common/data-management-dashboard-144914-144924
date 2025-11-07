@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { listUsers } from '../api'; // unified api index with clients
+import { listUsers } from '../api/baseClient'; // restored original listUsers source
 
 /**
  * PUBLIC_INTERFACE

@@ -1,6 +1,6 @@
 export { default as api } from './baseClient';
-// Export axios-backed listUsers from usersClient (with auth interceptors)
-export { listUsers } from './usersClient';
+// Export listUsers from baseClient (original implementation)
+export { listUsers } from './baseClient';
 // Keep other APIs from baseClient unchanged
 export { getApiClient, listSessions, listDeployments, listLlmCosts, health } from './baseClient';
 export * from './baseClient';

@@ -152,6 +152,12 @@ export async function health() {
   }
 }
 
+/**
+ * Note on headers:
+ * This fetch-based client relies on the reverse proxy/backend to enforce auth,
+ * and other parts of the app use axios httpClient with interceptors (Authorization, x-tenant-id).
+ * The users listing uses the canonical API path with /api prefix to match other endpoints.
+ */
 // PUBLIC_INTERFACE
 export async function listUsers(params = {}) {
   /** Lists users with optional pagination/filter/sort, normalized to { items, total, meta }. */
