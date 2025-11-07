@@ -4,6 +4,7 @@ import { loginWithOrgEmailPassword } from '../../api/authClient';
 import { useAuth } from '../../context/AuthContext';
 import '../../styles/theme.css';
 import '../../index.css';
+import { setAuthToken, setTenantId } from '../../utils/auth';
 
 const colors = {
   primary: '#2563EB',
@@ -40,9 +41,16 @@ export default function Login() {
     setLoading(true);
     try {
       // Perform login using auth client (throws on non-2xx)
-      const { token } = await loginWithOrgEmailPassword(form);
+      const { token, payload } = await loginWithOrgEmailPassword(form);
+
+      // Persist tokens + tenant using existing utils
+      const accessToken = payload?.AccessToken || payload?.access_token || token || payload?.id_token || payload?.token || null;
+      const tenantId = payload?.tenant_id || payload?.tenantId || payload?.['custom:tenant_id'] || form.organization_id || null;
+      if (accessToken) setAuthToken(accessToken);
+      if (tenantId) setTenantId(tenantId);
+
       // Persist session via context
-      login(token || null);
+      login(accessToken || token || null);
       // success -> redirect to dashboard overview or prior route
       navigate(from, { replace: true });
     } catch (err) {

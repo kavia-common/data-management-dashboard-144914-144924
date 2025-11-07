@@ -1,4 +1,5 @@
 import { getApiBase } from "./config";
+import { getAuthToken, getTenantId } from "../utils/auth";
 
 /**
  * Internal helper: detect absolute URLs.
@@ -71,12 +72,30 @@ async function parseResponse(res) {
  */
 async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
   const url = buildUrl(`${pathOrUrl}${toQuery(params)}`);
+
+  // Safe, targeted header injection ONLY for the users list endpoint
+  let mergedHeaders = { Accept: "application/json", ...(headers || {}) };
+  try {
+    const absoluteUrl = new URL(url);
+    const pathname = absoluteUrl.pathname || "";
+    // Match exact /api/users path (no id segment)
+    if (pathname === "/api/users") {
+      const token = getAuthToken();
+      const tenant = getTenantId();
+      if (token && !mergedHeaders.Authorization) {
+        mergedHeaders.Authorization = `Bearer ${token}`;
+      }
+      if (tenant && !mergedHeaders["x-tenant-id"]) {
+        mergedHeaders["x-tenant-id"] = tenant;
+      }
+    }
+  } catch {
+    // If URL parsing fails, do not inject anything
+  }
+
   const res = await fetch(url, {
     method: "GET",
-    headers: {
-      Accept: "application/json",
-      ...(headers || {}),
-    },
+    headers: mergedHeaders,
     signal,
     credentials: "omit",
   });

@@ -7,6 +7,7 @@ import Input from '../components/ui/Input.jsx';
 import Button from '../components/ui/Button.jsx';
 import './Login.css';
 import appLogo from '../assets/logo/app-logo-2025.png'; // REQ-UI-LOGO-REPLACE: reuse sidebar logo
+import { setAuthToken, setTenantId } from '../utils/auth';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -92,12 +93,21 @@ export default function Login() {
     }
     setLoadingLogin(true);
     try {
-      const { token } = await loginWithOrgEmailPassword({
+      const { token, payload } = await loginWithOrgEmailPassword({
         organizationId: selectedOrgId,
         email,
         password,
       });
-      login(token || null);
+
+      // Persist tokens + tenant using existing utils
+      const accessToken = payload?.AccessToken || payload?.access_token || token || payload?.id_token || payload?.token || null;
+      const tenantId = payload?.tenant_id || payload?.tenantId || payload?.['custom:tenant_id'] || selectedOrgId || null;
+      if (accessToken) setAuthToken(accessToken);
+      if (tenantId) setTenantId(tenantId);
+
+      // Maintain existing auth context behavior
+      login(accessToken || token || null);
+
       const from = location.state?.from?.pathname || SUCCESS_REDIRECT;
       navigate(from, { replace: true });
     } catch (e) {
