@@ -1,16 +1,29 @@
-Authentication setup notes:
+Centralized Auth & API Client
 
-- Public login page: /login
-- API base URL is read from environment variable REACT_APP_API_BASE_URL
-  Example:
-    REACT_APP_API_BASE_URL=https://kaviaqa-worktool.cloud.kavia.ai
+Overview
+- A shared Axios client (src/api/httpClient.js) attaches Authorization: Bearer <token> to every non-public API request.
+- Public endpoints are exempt: /health, /api-docs, /swagger, /api/auth/health, /api/auth/login, /api/auth/signup, /api/auth/reset-password.
+- On 401/403 responses, the client clears auth and redirects to /login with ?next=<current>.
 
-- Optional encryption salt for organization id:
-    REACT_APP_TENANT_ENCRYPTION_SALT=<your-salt-here>
-  For production, do not hardcode salts in code. Provide via environment.
+Storage Keys
+- auth.token: JWT access token
+- auth.tenantId: active tenant id
+- auth.user: reserved for future user info
 
-- Session storage:
-  localStorage.setItem('auth', JSON.stringify({ loggedIn: true, token? }))
+Helpers
+- src/utils/auth.js exports:
+  - getAuthToken(), setAuthToken(token), clearAuth()
+  - getTenantId(), setTenantId(tenantId)
 
-- Protected routes are gated via <ProtectedRoute> wrapper in src/routes/AppRoutes.jsx
-- On successful login, user is redirected to the intended route (location.state.from) or /dashboard by default.
+Login Flow
+- src/api/authClient.js exports loginAndStore(payload) and signupAndStore(payload)
+- After successful login/signup, token and tenant_id from response are saved.
+
+Migration Notes
+- All API modules now import the centralized client via:
+  import httpClient from '../api/httpClient';
+  or re-exported as `api` from src/api/baseClient.js.
+
+Verification
+- Inspect network requests in the browser DevTools; non-public endpoints include Authorization header.
+- Public endpoints remain unauthenticated.
