@@ -91,23 +91,33 @@ async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
     // If URL parsing fails, proceed with provided headers
   }
 
-  const res = await fetch(url, {
-    method: "GET",
-    headers: mergedHeaders,
-    signal,
-    credentials: "omit",
-  });
-  const { ok, status, payload } = await parseResponse(res);
-  if (!ok) {
-    const message =
-      (payload && typeof payload === "object" && (payload.message || payload.detail)) ||
-      (typeof payload === "string" ? payload : `Request failed (${status})`);
-    const err = new Error(message);
-    err.status = status;
-    err.payload = payload;
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: mergedHeaders,
+      signal,
+      credentials: "omit",
+    });
+    const { ok, status, payload } = await parseResponse(res);
+    if (!ok) {
+      const message =
+        (payload && typeof payload === "object" && (payload.message || payload.detail)) ||
+        (typeof payload === "string" ? payload : `Request failed (${status})`);
+      const err = new Error(message);
+      err.status = status;
+      err.payload = payload;
+      throw err;
+    }
+    return { data: payload, status: res.status };
+  } catch (err) {
+    // Silence AbortError here; allow callers to decide if they want to treat as benign
+    if (err?.name === "AbortError") {
+      // Return a special marker to allow graceful handling by callers.
+      // We choose to rethrow so upper layers with try/catch-ignore can handle; but avoid console noise here.
+      throw err;
+    }
     throw err;
   }
-  return { data: payload, status: res.status };
 }
 
 async function httpJson(method, pathOrUrl, body, { headers, signal } = {}) {

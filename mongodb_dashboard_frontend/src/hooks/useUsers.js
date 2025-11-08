@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { listUsers } from '../api/baseClient'; // restored original listUsers source
+import useDebouncedValue from './useDebouncedValue';
 
 /**
  * PUBLIC_INTERFACE
  * useUsers
  * A hook to fetch users from the backend and expose loading, error, and data states.
  */
-export function useUsers({ page, limit, sort, filter } = {}) {
+export function useUsers({ page, limit, sort, filter, q } = {}) {
   /**
    * This is a public function.
    * Returns:
@@ -19,27 +20,47 @@ export function useUsers({ page, limit, sort, filter } = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const params = useMemo(() => {
+  // Build raw params
+  const rawParams = useMemo(() => {
     const out = {};
     if (page) out.page = page;
     if (limit) out.limit = limit;
     if (sort) out.sort = sort;
+    if (q) out.q = q;
     if (filter) out.filter = typeof filter === 'string' ? filter : JSON.stringify(filter);
     return out;
-  }, [page, limit, sort, filter]);
+  }, [page, limit, sort, filter, q]);
 
-  const fetchUsers = async (signal) => {
+  // Debounce to avoid chatty network calls during rapid typing/pagination changes
+  const debouncedParams = useDebouncedValue(rawParams, 250);
+
+  // Maintain a stable AbortController to cancel in-flight requests
+  const abortRef = useRef(null);
+
+  const fetchUsers = async (params, { useAbortController = true } = {}) => {
+    // Abort any prior request
+    if (useAbortController) {
+      if (abortRef.current) {
+        try {
+          abortRef.current.abort();
+        } catch {}
+      }
+      abortRef.current = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    }
+
     setLoading(true);
     setError(null);
     try {
       // Prefer existing users API client if present; fallback to generic api util
       let resp;
       if (typeof listUsers === 'function') {
-        resp = await listUsers(params, { signal });
+        const result = await listUsers(params, { signal: abortRef.current?.signal });
+        // listUsers returns envelope-normalized shape { items, total, meta }
+        resp = result?.items ?? result;
       } else {
         // Generic fetch
         const qs = new URLSearchParams(params).toString();
-        const res = await fetch(`/api/users${qs ? `?${qs}` : ''}`, { signal });
+        const res = await fetch(`/api/users${qs ? `?${qs}` : ''}`, { signal: abortRef.current?.signal });
         if (!res.ok) throw new Error(`Failed to fetch users: ${res.status}`);
         resp = await res.json();
       }
@@ -48,6 +69,7 @@ export function useUsers({ page, limit, sort, filter } = {}) {
       const data = Array.isArray(resp) ? resp : (resp?.data || resp?.items || []);
       setUsers(Array.isArray(data) ? data : []);
     } catch (err) {
+      // Ignore aborted requests; surface other errors
       if (err?.name !== 'AbortError') {
         setError(err);
       }
@@ -57,17 +79,23 @@ export function useUsers({ page, limit, sort, filter } = {}) {
   };
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetchUsers(controller.signal);
-    return () => controller.abort();
+    fetchUsers(debouncedParams, { useAbortController: true });
+    return () => {
+      // Abort on unmount
+      if (abortRef.current) {
+        try {
+          abortRef.current.abort();
+        } catch {}
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(params)]);
+  }, [JSON.stringify(debouncedParams)]);
 
   return {
     users,
     loading,
     error,
-    refetch: () => fetchUsers(),
+    refetch: () => fetchUsers(debouncedParams, { useAbortController: true }),
   };
 }
 
