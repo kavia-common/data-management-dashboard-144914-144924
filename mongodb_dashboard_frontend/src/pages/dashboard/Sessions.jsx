@@ -290,11 +290,17 @@ export default function Sessions() {
     }
   }
 
+  // Prevent duplicate initial loads
+  const didInitRef = useRef(false);
+
   // Initial load
   useEffect(() => {
+    if (didInitRef.current) return;
+    didInitRef.current = true;
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, "", key, dir);
-    loadAggregates("");
+    const initialQ = (query || "").trim();
+    load(1, meta.limit || 10, initialQ, key, dir);
+    loadAggregates(initialQ);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
@@ -302,6 +308,7 @@ export default function Sessions() {
   const debouncedQuery = useDebouncedValue(query, 250);
   // Debounced text search only
   useEffect(() => {
+    if (!didInitRef.current) return; // wait for initial run
     const q = (debouncedQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, q, key, dir);

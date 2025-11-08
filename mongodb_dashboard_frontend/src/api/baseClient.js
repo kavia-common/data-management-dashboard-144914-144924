@@ -269,9 +269,36 @@ export async function listUsers(params = {}, options = {}) {
 
 // PUBLIC_INTERFACE
 export async function listSessions(params = {}) {
-  /** Lists session tracking records normalized to { items, total, meta }. */
-  const res = await httpGet("/api/session-tracking", { params });
-  return normalizeListPayload(res.data);
+  /** Lists session tracking records normalized to { items, total, meta }.
+   * Enforces tenant scoping using stored tenant and adds Authorization header explicitly.
+   */
+  const safeParams = { ...(params || {}) };
+
+  // Ensure tenant_id is always included from authenticated context.
+  // Prefer tenant from storage; server will still enforce token tenant.
+  try {
+    const { getTenantId, getAuthToken } = await import("../utils/auth");
+    const tenantId = typeof getTenantId === "function" ? getTenantId() : null;
+    if (tenantId && !safeParams.tenant_id) {
+      // If caller provided a filter object, merge tenant_id there too (server accepts filter or top-level)
+      if (safeParams.filter && typeof safeParams.filter === "object") {
+        safeParams.filter = { ...safeParams.filter, tenant_id: tenantId };
+      } else {
+        safeParams.tenant_id = tenantId;
+      }
+    }
+
+    // Explicitly pass Authorization header for this endpoint to guarantee Bearer token presence
+    const token = typeof getAuthToken === "function" ? getAuthToken() : null;
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+    const res = await httpGet("/api/session-tracking", { params: safeParams, headers });
+    return normalizeListPayload(res.data);
+  } catch {
+    // Fallback: proceed without explicit headers (global interceptor may still attach)
+    const res = await httpGet("/api/session-tracking", { params: safeParams });
+    return normalizeListPayload(res.data);
+  }
 }
 
 // PUBLIC_INTERFACE

@@ -55,13 +55,29 @@ httpClient.interceptors.request.use(
       // Skip x-tenant-id for GET /api/users to align with backend expectations
       // and to reduce CORS preflight triggers for this endpoint only.
       let isUsersList = false;
+      let isSessionTracking = false;
       try {
         const u = /^https?:\/\//i.test(targetUrl) ? new URL(targetUrl) : new URL(targetUrl, window.location.origin);
         // match exactly /api/users (no trailing segment), allow query string
         isUsersList = (u.pathname === '/api/users');
+        isSessionTracking = (u.pathname === '/api/session-tracking');
+        // If this is /api/session-tracking, ensure tenant_id is present as query param
+        if (isSessionTracking && tenantId) {
+          const usp = new URLSearchParams(u.search || '');
+          if (!usp.has('tenant_id')) {
+            usp.set('tenant_id', tenantId);
+            const qs = usp.toString();
+            config.url = `${u.pathname}${qs ? `?${qs}` : ''}`;
+          }
+        }
       } catch {
         // if URL parsing fails, fall back to a simple startsWith check
         isUsersList = (String(config.url || '').startsWith('/api/users'));
+        isSessionTracking = (String(config.url || '').startsWith('/api/session-tracking'));
+        if (isSessionTracking && tenantId && !String(config.url || '').includes('tenant_id=')) {
+          const hasQs = String(config.url || '').includes('?');
+          config.url = `${config.url}${hasQs ? '&' : '?'}tenant_id=${encodeURIComponent(tenantId)}`;
+        }
       }
 
       if (!isUsersList && tenantId && !config.headers['x-tenant-id']) {
