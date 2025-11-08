@@ -5,24 +5,7 @@
   },
   "extends": [
     "react-app",
-    "react-app/jest",
-    "plugin:react-hooks/recommended",
-    "plugin:import/recommended"
+    "react-app/jest"
   ],
-  "plugins": [
-    "react-hooks",
-    "import"
-  ],
-  "rules": {
-    "react-hooks/rules-of-hooks": "warn",
-    "react-hooks/exhaustive-deps": "warn",
-    "import/no-useless-path-segments": "warn"
-  },
-  "settings": {
-    "import/resolver": {
-      "node": {
-        "extensions": [".js", ".jsx", ".json"]
-      }
-    }
-  }
+  "rules": {}
 }

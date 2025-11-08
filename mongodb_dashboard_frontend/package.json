@@ -5,6 +5,7 @@
   "description": "React frontend for MongoDB Dashboard",
   "scripts": {
     "start": "react-scripts start",
+    "dev": "npm run start",
     "build": "react-scripts build",
     "test": "CI=true react-scripts test --env=jsdom",
     "eject": "react-scripts eject"
