@@ -18,19 +18,19 @@ import { buildQueryString } from './util';
 export async function fetchSessionTracking(params = {}) {
   const safeParams = { ...(params || {}) };
 
-  // Merge tenant_id from auth storage; server will enforce from token regardless
+  // Server enforces scoping from token; do not include tenant_id/user_id in params
   try {
-    const { getTenantId, getAuthToken } = await import('../utils/auth');
-    const tenantId = typeof getTenantId === 'function' ? getTenantId() : null;
-    if (tenantId && !safeParams.tenant_id) {
-      if (safeParams.filter && typeof safeParams.filter === 'object') {
-        safeParams.filter = { ...safeParams.filter, tenant_id: tenantId };
-      } else {
-        safeParams.tenant_id = tenantId;
-      }
+    const { getAuthToken } = await import('../utils/auth');
+
+    // Remove any accidental tenant_id/user_id passed by callers
+    delete safeParams.tenant_id;
+    if (safeParams.filter && typeof safeParams.filter === 'object') {
+      // strip tenant_id/user_id within nested filter too
+      const { tenant_id, user_id, ...rest } = safeParams.filter;
+      safeParams.filter = rest;
     }
 
-    // stringify filter object if necessary (after merging tenant)
+    // stringify filter object if necessary
     if (safeParams.filter && typeof safeParams.filter === 'object') {
       safeParams.filter = JSON.stringify(safeParams.filter);
     }
@@ -38,7 +38,7 @@ export async function fetchSessionTracking(params = {}) {
     const qs = buildQueryString(safeParams);
     const url = `/api/session-tracking${qs}`;
 
-    // Explicit Authorization header for this endpoint
+    // Authorization header only
     const token = typeof getAuthToken === 'function' ? getAuthToken() : null;
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
 

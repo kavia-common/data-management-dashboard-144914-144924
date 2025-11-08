@@ -9,15 +9,7 @@ import useDebouncedValue from "../../hooks/useDebouncedValue";
 
 
 
-// Simple helper to get distinct, sorted, non-empty values
-function distinctSorted(arr) {
-  const set = new Set();
-  (arr || []).forEach((v) => {
-    const s = String(v ?? "").trim();
-    if (s) set.add(s);
-  });
-  return Array.from(set).sort((a, b) => a.localeCompare(b));
-}
+
 
 // PUBLIC_INTERFACE
 export default function Sessions() {
@@ -36,33 +28,32 @@ export default function Sessions() {
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // New UI filters
-  const [filterUserName, setFilterUserName] = useState("");
-  const [filterTenantId, setFilterTenantId] = useState("");
+  // Fixed filter display (read-only) based on token claims and active tenant
+  const [fixedUserId, setFixedUserId] = useState("");
+  const [fixedTenantId, setFixedTenantId] = useState("");
 
-  // Dropdown options populated from fetched session data (distinct lists)
-  const [userNameOptions, setUserNameOptions] = useState([]);
-  const [tenantIdOptions, setTenantIdOptions] = useState([]);
-
-  // Keep URL query params in sync for dropdowns (so back/forward works)
   useEffect(() => {
-    const usp = new URLSearchParams(window.location.search);
-    if (filterUserName) usp.set("user_name", filterUserName);
-    else usp.delete("user_name");
-    if (filterTenantId) usp.set("tenant_id", filterTenantId);
-    else usp.delete("tenant_id");
-    const next = `${window.location.pathname}?${usp.toString()}`;
-    window.history.replaceState({}, "", next);
-  }, [filterUserName, filterTenantId]);
-
-  // Initialize dropdown selections from URL on first mount
-  useEffect(() => {
-    const usp = new URLSearchParams(window.location.search);
-    const initialUser = usp.get("user_name") || "";
-    const initialTenant = usp.get("tenant_id") || "";
-    if (initialUser) setFilterUserName(initialUser);
-    if (initialTenant) setFilterTenantId(initialTenant);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let mounted = true;
+    (async () => {
+      try {
+        const { getAuthToken, decodeToken } = await import("../../utils/auth");
+        const { getActiveTenant } = await import("../../utils/tenantClient");
+        const token = typeof getAuthToken === "function" ? getAuthToken() : null;
+        const decoded = token && typeof decodeToken === "function" ? decodeToken(token) : null;
+        const sub =
+          decoded?.sub || decoded?.user_id || decoded?.userId || decoded?.id || "";
+        const tenantFromState = typeof getActiveTenant === "function" ? getActiveTenant() : "";
+        if (mounted) {
+          setFixedUserId(String(sub || ""));
+          setFixedTenantId(String(tenantFromState || decoded?.tenantId || decoded?.tenant_id || ""));
+        }
+      } catch {
+        // non-fatal
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Details modal state (session details; unrelated to deprecated "View All" costs modal)
@@ -184,39 +175,7 @@ export default function Sessions() {
       setByOrg(orgArr);
       setByType(typeArr);
 
-      // Build distinct options for dropdowns from the aggregated dataset (all collected pages)
-      // Keep pairs of { id, name } for filtering
-      // ✅ Build distinct options for dropdowns from the aggregated dataset (all collected pages)
-
-      // Build unique user list with IDs and names
-      const userPairs = all
-        .map((it) => ({
-          id: it?.user_id,
-          name:
-            it?.User_name ??
-            it?.user_name ??
-            it?.user?.name ??
-            it?.username ??
-            it?.email ??
-            "",
-        }))
-        .filter((u) => u.id && u.name);
-
-      const uniqueUsers = [];
-      const seen = new Set();
-      userPairs.forEach((u) => {
-        if (!seen.has(u.id)) {
-          seen.add(u.id);
-          uniqueUsers.push(u);
-        }
-      });
-
-      // Build distinct tenant IDs
-      const tenantIds = distinctSorted(all.map((it) => it?.tenant_id ?? ""));
-
-      // Update dropdown options
-      setUserNameOptions(uniqueUsers);
-      setTenantIdOptions(tenantIds);
+      // Dropdowns removed; keep aggregates only
 
     } catch (e) {
       setByOrg([]);
@@ -250,15 +209,8 @@ export default function Sessions() {
       // include optional date range as both from/to and start/end
       const params = { page, limit, q: qStr };
 
-      // Build filter: exact match on tenant_id and case-insensitive match handled server-side for user_name
+      // Do not include tenant_id/user_id from client; server enforces via token
       const filter = {};
-      if (filterTenantId && filterTenantId.trim()) {
-        filter.tenant_id = filterTenantId.trim();
-      }
-      if (filterUserName && filterUserName.trim()) {
-        filter.user_id = filterUserName.trim();
-      }
-
       if (Object.keys(filter).length > 0) {
         params.filter = filter;
       }
@@ -316,14 +268,7 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery]);
 
-  // Immediate refetch when dropdown filters change (no debounce)
-  useEffect(() => {
-    const q = (query || "").trim();
-    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, q, key, dir);
-    // Do not reload aggregates on dropdown change to keep options broad; charts are based on search/date only
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterUserName, filterTenantId]);
+  // No dropdown-driven reloads anymore
 
 
 
@@ -409,45 +354,30 @@ export default function Sessions() {
 
       {/* Existing table card remains below charts */}
       <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
-        <div className="toolbar" aria-label="Sessions toolbar">
+        <div className="toolbar" aria-label="Sessions toolbar" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <input
             className="input-search"
-            placeholder="Search sessions (user, org, service, status, etc.)..."
+            placeholder="Search sessions (org, service, status, etc.)..."
             aria-label="Search sessions"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <label htmlFor="filter-user" className="sr-only">Filter by User name</label>
-          <select
-            id="filter-user"
-            className="input-filter"
-            aria-label="Filter by User"
-            value={filterUserName}
-            onChange={(e) => setFilterUserName(e.target.value)}
-            style={{ marginLeft: 8, minWidth: 220 }}
-          >
-            <option value="">All users</option>
-            {userNameOptions.map((u) => (
-              <option key={u.id} value={u.id}>{u.name}</option>
-            ))}
-          </select>
-
-
-          <label htmlFor="filter-tenant" className="sr-only">Filter by Tenant ID</label>
-          <select
-            id="filter-tenant"
-            className="input-filter"
-            aria-label="Filter by Tenant ID"
-            value={filterTenantId}
-            onChange={(e) => setFilterTenantId(e.target.value)}
-            style={{ marginLeft: 8, minWidth: 180 }}
-          >
-            <option value="">All tenants</option>
-            {tenantIdOptions.map((t) => (
-              <option key={t} value={t}>{t}</option>
-            ))}
-          </select>
-
+          <div aria-live="polite" style={{ display: 'flex', gap: 6, marginLeft: 8, flexWrap: 'wrap' }}>
+            <span
+              className="tag"
+              title="Tenant scope from your session"
+              style={{ background: '#eef2ff', color: '#1e3a8a', padding: '4px 8px', borderRadius: 999 }}
+            >
+              Tenant: {fixedTenantId || '—'}
+            </span>
+            <span
+              className="tag"
+              title="User scope from your token"
+              style={{ background: '#ecfeff', color: '#155e75', padding: '4px 8px', borderRadius: 999 }}
+            >
+              User: {fixedUserId || '—'}
+            </span>
+          </div>
           <div className="spacer" />
         </div>
         {error && (
