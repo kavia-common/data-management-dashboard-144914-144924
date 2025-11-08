@@ -4,12 +4,19 @@ import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
 import UsersDepartmentChart from "../../modules/users/UsersDepartmentChart.jsx";
 
-
+/**
+ * Dashboard Users page
+ * Adds tenant filtering with an "All tenants" option. Maintains selectedTenantId in local state,
+ * passes it to UsersList (to filter server-side), and allows bar click on UsersByTenantChart to set the selection.
+ */
 export default function Users() {
   const [open, setOpen] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
   const [defaultTab, setDefaultTab] = useState("details");
   const [rangeDays, setRangeDays] = useState(30);
+
+  // Tenant filter state: empty string means "All tenants"
+  const [selectedTenantId, setSelectedTenantId] = useState("");
 
   // Compute quick range for charts (no URL dates)
   const { fromIso, toIso } = useMemo(() => {
@@ -17,17 +24,6 @@ export default function Users() {
     const from = new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000);
     return { fromIso: from.toISOString(), toIso: now.toISOString() };
   }, [rangeDays]);
-
-  const selectedTenantId = useMemo(() => {
-    const u = selectedUser || {};
-    return (
-      u.tenant_id ??
-      u.organization_name ??
-      u.organization ??
-      u.organization_id ??
-      ""
-    );
-  }, [selectedUser]);
 
   function handleUserSelect(user) {
     setSelectedUser(user);
@@ -39,7 +35,7 @@ export default function Users() {
     setOpen(false);
   }
 
-  // ✅ Accessibility toggle for modal overlay
+  // Accessibility toggle for modal overlay
   useEffect(() => {
     document.body.classList.toggle("modal-open--dim-header", open);
     const headerEl = document.querySelector(".app-headbar, .topbar");
@@ -52,8 +48,25 @@ export default function Users() {
   const chartToolbar = (
     <div
       className="toolbar"
-      style={{ marginBottom: 8, gap: 8, display: "flex", alignItems: "center" }}
+      style={{ marginBottom: 8, gap: 8, display: "flex", alignItems: "center", flexWrap: "wrap" }}
     >
+      {/* Tenant selector */}
+      <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
+          Tenant
+        </span>
+        <select
+          aria-label="Tenant selector"
+          value={selectedTenantId}
+          onChange={(e) => setSelectedTenantId(e.target.value)}
+          className="ui-input"
+          style={{ minWidth: 180 }}
+        >
+          <option value="">All tenants</option>
+          {/* Note: Options here are static; for discoverability, users can also click a bar below to select. */}
+        </select>
+      </label>
+
       <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
           Quick range
@@ -93,6 +106,10 @@ export default function Users() {
               status={"completed|active"}
               includeInactive={false}
               maxBars={12}
+              onBarClick={(d) => {
+                const tid = d?.tenant_id || "";
+                setSelectedTenantId(String(tid));
+              }}
             />
           </div>
         </div>
@@ -114,16 +131,17 @@ export default function Users() {
       {/* Users List */}
       <UsersList
         title="Users"
-        subtitle="All users"
+        subtitle={selectedTenantId ? `Filtered by tenant: ${selectedTenantId}` : "All users"}
         showActions={false}
         onUserSelect={handleUserSelect}
+        tenantId={selectedTenantId || undefined}
       />
 
       <TabbedUserModal
         open={open}
         onClose={closeModal}
         user={selectedUser}
-        tenantId={selectedTenantId}
+        tenantId={selectedTenantId || undefined}
         defaultTab={defaultTab}
       />
     </div>

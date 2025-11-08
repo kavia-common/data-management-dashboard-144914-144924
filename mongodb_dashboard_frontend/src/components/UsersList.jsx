@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
-import { listUsers } from "../api/baseClient";
+import usersService from "../services/usersService";
 
 /**
  * PUBLIC_INTERFACE
@@ -16,6 +16,7 @@ export default function UsersList({
   showActions = false,
   onUserSelect,
   onUserRowClick,
+  tenantId, // optional: when set, server-side filter by tenant_id
 }) {
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
@@ -55,26 +56,37 @@ export default function UsersList({
   }, []);
 
   // PUBLIC_INTERFACE
-  async function load() {
+  async function load(abortSignal) {
     const isProd = process.env.NODE_ENV === 'production' || process.env.REACT_APP_NODE_ENV === 'production';
     if (!isProd) {
       try {
         console.time('[Users] load:time');
-        console.info('[Users] load:start', { ts: Date.now(), limit: meta?.limit || 10, tenant: undefined });
+        console.info('[Users] load:start', { ts: Date.now(), limit: meta?.limit || 10, tenant: tenantId || null });
       } catch {}
     }
 
     setLoading(true);
     setError("");
     try {
-      const res = await listUsers({});
+      // Build server-side filter: include tenant_id when provided
+      const filterObj = {};
+      if (tenantId) {
+        filterObj.tenant_id = tenantId;
+      }
+      const filter = Object.keys(filterObj).length > 0 ? JSON.stringify(filterObj) : undefined;
+
+      const res = await usersService.getUsers(
+        { limit: meta?.limit || 50, filter },
+        { signal: abortSignal }
+      );
+
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
       setMeta((prev) => ({
         page: 1,
         limit: prev.limit || 10,
-        total: arr.length,
+        total: Array.isArray(arr) ? arr.length : 0,
       }));
 
       if (!isProd) {
@@ -102,10 +114,13 @@ export default function UsersList({
     }
   }
 
+  // Initial load and when tenantId changes
   useEffect(() => {
-    load();
+    const c = new AbortController();
+    load(c.signal);
+    return () => c.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [tenantId]);
 
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
@@ -138,7 +153,8 @@ export default function UsersList({
     setOrganizationFilter("");
     setItems(allItems);
     setMeta((m) => ({ ...m, total: allItems.length, page: 1 }));
-    load();
+    const c = new AbortController();
+    load(c.signal);
   }
 
   function handleRowClick(user) {
@@ -172,7 +188,7 @@ export default function UsersList({
             onChange={(e) => setQuery(e.target.value)}
           />
 
-          {/* 🏢 Tenant Filter */}
+          {/* 🏢 Tenant Filter (client-side refinement, optional when server filtered) */}
           <select
             aria-label="Filter by tenant"
             title="Filter by tenant"
@@ -180,7 +196,7 @@ export default function UsersList({
             onChange={(e) => setOrganizationFilter(e.target.value)}
             style={{ width: 200 }}
           >
-            <option value="">All Tenant</option>
+            <option value="">All tenants</option>
             {[...new Set(
               allItems.map(
                 (u) =>
