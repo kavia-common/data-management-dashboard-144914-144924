@@ -6,43 +6,105 @@ import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
+import { useAuth } from "../../context/AuthContext.jsx";
 
+/**
+ * Extracts tenant_id and user identifier from the stored token payload if it's a JWT.
+ * Falls back to tenantId saved in utils/auth and to raw sub if available.
+ */
+function useScopedIdentity() {
+  const { token } = useAuth();
+  const [identity, setIdentity] = useState({ tenantId: null, userId: null, userLabel: null });
 
+  useEffect(() => {
+    let tenantId = null;
+    let userId = null;
+    let userLabel = null;
 
+    // Try JWT decoding without external libs
+    try {
+      if (token && token.split(".").length === 3) {
+        const base64Url = token.split(".")[1];
+        const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+        const jsonPayload = decodeURIComponent(
+          atob(base64)
+            .split("")
+            .map(function (c) {
+              return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2);
+            })
+            .join("")
+        );
+        const payload = JSON.parse(jsonPayload || "{}");
+        // common fields
+        userId = payload.sub || null;
+        // custom tenant claim variations
+        tenantId =
+          (payload["custom:tenant_id"] ||
+            payload["tenant_id"] ||
+            payload["orgId"] ||
+            payload["organization_id"] ||
+            null);
 
+        // label preference
+        userLabel = payload.name || payload.email || payload.preferred_username || userId || null;
+      }
+    } catch {
+      // ignore decoding errors
+    }
+
+    // Fallback to utils/auth storage for tenantId if not in token
+    if (!tenantId) {
+      try {
+        // dynamic import to avoid circular deps
+        import("../../utils/auth").then((m) => {
+          const t = typeof m.getTenantId === "function" ? m.getTenantId() : null;
+          setIdentity({
+            tenantId: t || null,
+            userId: userId || null,
+            userLabel: userLabel || userId || null,
+          });
+        }).catch(() => {
+          setIdentity({ tenantId: null, userId: userId || null, userLabel: userLabel || userId || null });
+        });
+      } catch {
+        setIdentity({ tenantId: null, userId: userId || null, userLabel: userLabel || userId || null });
+      }
+    } else {
+      setIdentity({ tenantId, userId: userId || null, userLabel: userLabel || userId || null });
+    }
+  }, [token]);
+
+  return identity;
+}
 
 // PUBLIC_INTERFACE
 export default function Sessions() {
   /**
    * Sessions page with server-side search and pagination.
-   * - Debounced search (300ms) across the entire dataset via backend query param `q`.
-   * - Keeps existing pagination using server-provided meta.total and page/limit.
-   * - Minimal loading and error states shown within the table and above toolbar.
-   * - UI uses flexible search input; no forced chip filters. Tenant/user scoping is enforced by the backend via Authorization.
+   * - Debounced search (300ms) via backend q param.
+   * - Backend scoping strictly by Authorization token; we do not pass tenant_id/user_id.
+   * - UI shows restored tenant and user selectors, but each contains a single option derived from token.
    */
   const [items, setItems] = useState([]);
-
-
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // Note: Do not inject tenant_id/user_id filters from client; server scopes by Authorization.
-  // Any tenant/name defaults should be derived from backend responses if needed.
+  // Restored UI controls: tenant and user selectors (single-option, derived from auth)
+  const { tenantId, userId, userLabel } = useScopedIdentity();
+  const [selectedTenant, setSelectedTenant] = useState(null);
+  const [selectedUser, setSelectedUser] = useState(null);
 
-  // Details modal state (session details; unrelated to deprecated "View All" costs modal)
+  // Details modal state
   const [selectedSession, setSelectedSession] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  // Lock to prevent race conditions when multiple loads are inflight (e.g., debounce vs pagination)
+  // Locks/state for sorting and inflight
   const activeRequestRef = useRef(0);
-  // Remember the last known sort so search/debounced reloads preserve sort order across pages
   const lastSortRef = useRef({ key: "", dir: "asc" });
 
-  // Allowed and ordered fields (column visibility)
-  // Replace Task Id column with User name per requirements
+  // Allowed/ordered columns
   const allowedOrdered = useMemo(
     () => ["User_name", "tenant_id", "organization_name", "service_type"],
     []
@@ -63,14 +125,9 @@ export default function Sessions() {
     (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
 
     return allowedOrdered.map((k) => {
-      // Special case: display-friendly label for the capitalized schema alias
-      const label =
-        k === "User_name" ? "User name" : toLabel(k);
-
-      // Render function that can resolve alias to underlying values if API returns different casing
+      const label = k === "User_name" ? "User name" : toLabel(k);
       const render = (v, row) => {
         if (k === "User_name") {
-          // Prefer explicit field if present; fall back to user_name or reasonable user references
           const val =
             row?.User_name ??
             row?.user_name ??
@@ -82,29 +139,18 @@ export default function Sessions() {
         }
         return v == null || v === "" ? "—" : String(v);
       };
-
-      return {
-        key: k,
-        label,
-        render,
-        priority: 2,
-      };
+      return { key: k, label, render, priority: 2 };
     });
   }
-
   const [columns, setColumns] = useState(buildRestrictedColumns([]));
 
-  // Aggregates for charts
+  // Aggregates
   const [aggLoading, setAggLoading] = useState(false);
   const [aggError, setAggError] = useState("");
-  const [byOrg, setByOrg] = useState([]);   // [{ organization_name, session_count }]
-  const [byType, setByType] = useState([]); // [{ session_type, session_count }]
+  const [byOrg, setByOrg] = useState([]);
+  const [byType, setByType] = useState([]);
 
   async function loadAggregates(qStr = "") {
-    /**
-     * Fetch sessions data across multiple pages (capped) and build client-side aggregates
-     * for charts: by organization_name and by session_type.
-     */
     setAggLoading(true);
     setAggError("");
     try {
@@ -123,11 +169,7 @@ export default function Sessions() {
       // Aggregate by organization
       const orgCounts = new Map();
       all.forEach((it) => {
-        let org =
-          it?.organization_name ||
-          it?.organization?.name ||
-          it?.tenant_id ||
-          "";
+        let org = it?.organization_name || it?.organization?.name || it?.tenant_id || "";
         org = String(org || "").trim();
         if (!org) org = "Unknown";
         orgCounts.set(org, (orgCounts.get(org) || 0) + 1);
@@ -150,9 +192,6 @@ export default function Sessions() {
 
       setByOrg(orgArr);
       setByType(typeArr);
-
-      // Dropdowns removed; keep aggregates only
-
     } catch (e) {
       setByOrg([]);
       setByType([]);
@@ -164,28 +203,19 @@ export default function Sessions() {
 
   // PUBLIC_INTERFACE
   async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
-    /**
-     * Load sessions from server with pagination, optional query string, and server-driven sorting.
-     * When sortKey is provided, pass `sort` using:
-     *  - asc: field
-     *  - desc: -field
-     */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError("");
     try {
       const sortFieldMap = {
-        // Map UI column keys to backend fields
-        User_name: "user_name", // prefer lowercase field in DB
+        User_name: "user_name",
         tenant_id: "tenant_id",
         organization_name: "organization_name",
         service_type: "service_type",
-        task_id: "task_id", // legacy, not used in current allowedOrdered
+        task_id: "task_id",
       };
       const params = { page, limit, q: qStr };
-
-      // Do not include tenant_id/user_id from client; server enforces via token.
-      // Preserve existing filtering capability: only attach filter when explicitly set (none by default here).
+      // Bearer-only; do not send tenant_id/user_id even if selected in UI
 
       if (sortKey) {
         const backendField = sortFieldMap[sortKey] || String(sortKey);
@@ -193,7 +223,6 @@ export default function Sessions() {
       }
       const res = await listSessions(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      // If a newer request started after this one, ignore late response
       if (requestId !== activeRequestRef.current) return;
 
       setItems(arr);
@@ -202,7 +231,6 @@ export default function Sessions() {
         limit: res?.meta?.limit || limit,
         total: res?.meta?.total ?? (Array.isArray(arr) ? arr.length : 0),
       });
-      // Update columns dynamically based on currently returned data
       setColumns(buildRestrictedColumns(arr));
     } catch (e) {
       if (requestId !== activeRequestRef.current) return;
@@ -213,6 +241,13 @@ export default function Sessions() {
       if (requestId === activeRequestRef.current) setLoading(false);
     }
   }
+
+  // Initialize selectors from scoped identity when available
+  useEffect(() => {
+    if (tenantId && !selectedTenant) setSelectedTenant(tenantId);
+    if ((userId || userLabel) && !selectedUser) setSelectedUser(userId || userLabel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tenantId, userId, userLabel]);
 
   // Prevent duplicate initial loads
   const didInitRef = useRef(false);
@@ -230,21 +265,17 @@ export default function Sessions() {
 
   // Debounced server-side search on query change (250ms default)
   const debouncedQuery = useDebouncedValue(query, 250);
-  // Debounced text search only
   useEffect(() => {
-    if (!didInitRef.current) return; // wait for initial run
+    if (!didInitRef.current) return;
     const q = (debouncedQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+    // Changing selectors should still refresh table; values aren't sent to server.
     load(1, meta.limit || 10, q, key, dir);
     loadAggregates(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery]);
+  }, [debouncedQuery, selectedTenant, selectedUser]);
 
-  // No dropdown-driven reloads anymore
-
-
-
-  // Toggle global dimming class while modal is open (align with user modal UX)
+  // Modal body class toggle
   useEffect(() => {
     if (detailsOpen) {
       document.body.classList.add("modal-open");
@@ -262,12 +293,25 @@ export default function Sessions() {
         // eslint-disable-next-line no-console
         console.debug("[Sessions] Row clicked -> opening details modal with keys:", keys);
       } catch {
-        // ignore logging errors
+        // ignore
       }
     }
     setSelectedSession(row);
     setDetailsOpen(true);
   };
+
+  // Build single-option lists for selectors
+  const tenantOptions = useMemo(() => {
+    const label = tenantId || "Current tenant";
+    const value = tenantId || "current";
+    return [{ label, value }];
+  }, [tenantId]);
+
+  const userOptions = useMemo(() => {
+    const label = userLabel || userId || "Current user";
+    const value = userId || userLabel || "current";
+    return [{ label, value }];
+  }, [userId, userLabel]);
 
   return (
     <div>
@@ -281,7 +325,7 @@ export default function Sessions() {
         session={selectedSession}
       />
 
-      {/* Charts stacked vertically (normal flow, with spacing below so table doesn't overlap) */}
+      {/* Charts stacked vertically */}
       <div
         className="sessions-charts"
         role="region"
@@ -290,7 +334,7 @@ export default function Sessions() {
           display: "flex",
           flexDirection: "column",
           gap: 24,
-          marginBottom: 32, // ensure spacing before the table card
+          marginBottom: 32,
         }}
       >
         <Card
@@ -299,11 +343,7 @@ export default function Sessions() {
           subtitle="Count of sessions per organization"
         >
           <div className="chart-wrapper" style={{ height: 320 }}>
-            <SessionsByOrganization
-              data={byOrg}
-              loading={aggLoading}
-              error={aggError}
-            />
+            <SessionsByOrganization data={byOrg} loading={aggLoading} error={aggError} />
           </div>
         </Card>
 
@@ -312,45 +352,81 @@ export default function Sessions() {
           title="Sessions by Type"
           subtitle="Count of sessions per type"
         >
-          {/* Wrapper participates in normal flow; no absolute positioning */}
           <div className="chart-wrapper" style={{ minHeight: 320 }}>
-            <SessionsByType
-              data={byType}
-              loading={aggLoading}
-              error={aggError}
-              maxItems={5}
-            />
+            <SessionsByType data={byType} loading={aggLoading} error={aggError} maxItems={5} />
           </div>
         </Card>
       </div>
 
-      {/* Existing table card remains below charts */}
+      {/* Table card with restored filter controls */}
       <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
-        <div className="toolbar" aria-label="Sessions toolbar" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div
+          className="toolbar"
+          aria-label="Sessions toolbar"
+          style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
+        >
+          {/* Tenant selector (single-option) */}
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 12, color: "#555" }}>Tenant</span>
+            <select
+              aria-label="Tenant"
+              value={selectedTenant || (tenantOptions[0] && tenantOptions[0].value) || ""}
+              onChange={(e) => setSelectedTenant(e.target.value)}
+              style={{ minWidth: 200 }}
+            >
+              {tenantOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* User selector (single-option) */}
+          <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 12, color: "#555" }}>User</span>
+            <select
+              aria-label="User"
+              value={selectedUser || (userOptions[0] && userOptions[0].value) || ""}
+              onChange={(e) => setSelectedUser(e.target.value)}
+              style={{ minWidth: 200 }}
+            >
+              {userOptions.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {/* Spacer */}
+          <div style={{ flex: 1 }} />
+
+          {/* Search input */}
           <input
             className="input-search"
             placeholder="Search sessions (org, service, status, etc.)..."
             aria-label="Search sessions"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            style={{ minWidth: 280 }}
           />
-          <div className="spacer" />
         </div>
+
         {error && (
           <div className="error" role="alert" style={{ marginBottom: 8 }}>
             {error}
           </div>
         )}
+
         <DataTable
           columns={columns}
           data={items}
           loading={loading}
-
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
           fetchPage={async (page, limit, sortKey, sortDir) => {
-            // Remember current sort so external triggers (search) keep ordering consistent
             if (sortKey) {
               lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
             } else if (!lastSortRef.current) {
@@ -360,7 +436,6 @@ export default function Sessions() {
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
-
         />
       </Card>
     </div>

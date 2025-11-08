@@ -18,14 +18,16 @@ import { buildQueryString } from './util';
 export async function fetchSessionTracking(params = {}) {
   const safeParams = { ...(params || {}) };
 
-  // Server enforces scoping from token; do not include tenant_id/user_id in params
+  // Server enforces scoping from token; ensure no tenant_id/user_id in params
   try {
     const { getAuthToken } = await import('../utils/auth');
 
-    // Remove any accidental tenant_id/user_id passed by callers
+    // Remove any accidental tenant_id/user_id passed by callers (top-level)
     delete safeParams.tenant_id;
+    delete safeParams.user_id;
+
+    // strip tenant_id/user_id within nested filter too
     if (safeParams.filter && typeof safeParams.filter === 'object') {
-      // strip tenant_id/user_id within nested filter too
       const { tenant_id, user_id, ...rest } = safeParams.filter;
       safeParams.filter = rest;
     }

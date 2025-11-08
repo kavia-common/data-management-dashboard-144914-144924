@@ -8,6 +8,12 @@ const AuthContext = createContext({
   logout: () => {},
 });
 
+/**
+ * The token stored in this context may be a JWT including fields like:
+ * - sub (user id), name/email, and custom:tenant_id (tenant scoping).
+ * Downstream UI can decode it client-side if needed to show display values,
+ * but must not send tenant_id/user_id to the server; server scopes via token.
+ */
 // PUBLIC_INTERFACE
 export function AuthProvider({ children }) {
   /** Context provider to expose authentication state based on localStorage. */
