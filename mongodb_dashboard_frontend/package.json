@@ -1,54 +1,24 @@
 {
-  "name": "react-kavia",
-  "version": "0.1.0",
+  "name": "mongodb_dashboard_frontend",
+  "version": "1.0.0",
   "private": true,
-  "dependencies": {
-    "axios": "^1.7.4",
-    "crypto-js": "^4.2.0",
-    "date-fns": "^4.1.0",
-    "framer-motion": "^11.0.0",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.26.2",
-    "react-scripts": "^5.0.1",
-    "recharts": "^2.12.7"
-  },
+  "description": "React frontend for MongoDB Dashboard",
   "scripts": {
     "start": "react-scripts start",
-    "dev": "react-scripts start",
-    "preview": "react-scripts start",
-    "build": "ESLINT_NO_DEV_ERRORS=true react-scripts build",
-    "test": "react-scripts test",
+    "build": "react-scripts build",
+    "test": "CI=true react-scripts test --env=jsdom",
     "eject": "react-scripts eject"
   },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ],
-    "rules": {
-      "no-unused-vars": [
-        "warn",
-        { "varsIgnorePattern": "React|App" }
-      ],
-      "react/jsx-no-constructed-context-values": "warn",
-      "react-hooks/exhaustive-deps": "warn"
-    }
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
-  },
-  "devDependencies": {
-    "cross-env": "^7.0.3",
-    "http-proxy-middleware": "^2.0.6"
+  "dependencies": {
+    "@testing-library/jest-dom": "^6.5.0",
+    "@testing-library/react": "^16.0.1",
+    "@testing-library/user-event": "^14.5.2",
+    "axios": "^1.6.8",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.1",
+    "react-scripts": "5.0.1",
+    "recharts": "^2.13.2",
+    "web-vitals": "^4.2.4"
   }
 }
