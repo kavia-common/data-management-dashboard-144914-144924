@@ -18,6 +18,7 @@ export default function Sessions() {
    * - Debounced search (300ms) across the entire dataset via backend query param `q`.
    * - Keeps existing pagination using server-provided meta.total and page/limit.
    * - Minimal loading and error states shown within the table and above toolbar.
+   * - UI uses flexible search input; no forced chip filters. Tenant/user scoping is enforced by the backend via Authorization.
    */
   const [items, setItems] = useState([]);
 
@@ -28,33 +29,8 @@ export default function Sessions() {
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // Fixed filter display (read-only) based on token claims and active tenant
-  const [fixedUserId, setFixedUserId] = useState("");
-  const [fixedTenantId, setFixedTenantId] = useState("");
-
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const { getAuthToken, decodeToken } = await import("../../utils/auth");
-        const { getActiveTenant } = await import("../../utils/tenantClient");
-        const token = typeof getAuthToken === "function" ? getAuthToken() : null;
-        const decoded = token && typeof decodeToken === "function" ? decodeToken(token) : null;
-        const sub =
-          decoded?.sub || decoded?.user_id || decoded?.userId || decoded?.id || "";
-        const tenantFromState = typeof getActiveTenant === "function" ? getActiveTenant() : "";
-        if (mounted) {
-          setFixedUserId(String(sub || ""));
-          setFixedTenantId(String(tenantFromState || decoded?.tenantId || decoded?.tenant_id || ""));
-        }
-      } catch {
-        // non-fatal
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  // Note: Do not inject tenant_id/user_id filters from client; server scopes by Authorization.
+  // Any tenant/name defaults should be derived from backend responses if needed.
 
   // Details modal state (session details; unrelated to deprecated "View All" costs modal)
   const [selectedSession, setSelectedSession] = useState(null);
@@ -206,14 +182,10 @@ export default function Sessions() {
         service_type: "service_type",
         task_id: "task_id", // legacy, not used in current allowedOrdered
       };
-      // include optional date range as both from/to and start/end
       const params = { page, limit, q: qStr };
 
-      // Do not include tenant_id/user_id from client; server enforces via token
-      const filter = {};
-      if (Object.keys(filter).length > 0) {
-        params.filter = filter;
-      }
+      // Do not include tenant_id/user_id from client; server enforces via token.
+      // Preserve existing filtering capability: only attach filter when explicitly set (none by default here).
 
       if (sortKey) {
         const backendField = sortFieldMap[sortKey] || String(sortKey);
@@ -362,22 +334,6 @@ export default function Sessions() {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
-          <div aria-live="polite" style={{ display: 'flex', gap: 6, marginLeft: 8, flexWrap: 'wrap' }}>
-            <span
-              className="tag"
-              title="Tenant scope from your session"
-              style={{ background: '#eef2ff', color: '#1e3a8a', padding: '4px 8px', borderRadius: 999 }}
-            >
-              Tenant: {fixedTenantId || '—'}
-            </span>
-            <span
-              className="tag"
-              title="User scope from your token"
-              style={{ background: '#ecfeff', color: '#155e75', padding: '4px 8px', borderRadius: 999 }}
-            >
-              User: {fixedUserId || '—'}
-            </span>
-          </div>
           <div className="spacer" />
         </div>
         {error && (
