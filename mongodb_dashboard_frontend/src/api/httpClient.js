@@ -47,10 +47,24 @@ httpClient.interceptors.request.use(
     const targetUrl = config.baseURL ? `${config.baseURL}${config.url || ''}` : (config.url || '');
     if (!isPublicPath(targetUrl)) {
       config.headers = config.headers || {};
+      // Always attach Authorization for protected endpoints
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
-      if (tenantId && !config.headers['x-tenant-id']) {
+
+      // Skip x-tenant-id for GET /api/users to align with backend expectations
+      // and to reduce CORS preflight triggers for this endpoint only.
+      let isUsersList = false;
+      try {
+        const u = /^https?:\/\//i.test(targetUrl) ? new URL(targetUrl) : new URL(targetUrl, window.location.origin);
+        // match exactly /api/users (no trailing segment), allow query string
+        isUsersList = (u.pathname === '/api/users');
+      } catch {
+        // if URL parsing fails, fall back to a simple startsWith check
+        isUsersList = (String(config.url || '').startsWith('/api/users'));
+      }
+
+      if (!isUsersList && tenantId && !config.headers['x-tenant-id']) {
         config.headers['x-tenant-id'] = tenantId;
       }
     }

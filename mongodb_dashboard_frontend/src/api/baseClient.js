@@ -73,25 +73,22 @@ async function parseResponse(res) {
 async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
   const url = buildUrl(`${pathOrUrl}${toQuery(params)}`);
 
-  // Safe, targeted header injection ONLY for the users list endpoint
+  // Safe, targeted header handling for the users list endpoint:
+  // Ensure ONLY Authorization and Accept are included (omit x-tenant-id) to avoid CORS preflight.
   let mergedHeaders = { Accept: "application/json", ...(headers || {}) };
   try {
     const absoluteUrl = new URL(url);
     const pathname = absoluteUrl.pathname || "";
-    // Match exact /api/users path (no id segment)
     if (pathname === "/api/users") {
-      // Use id_token stored under auth token key
       const idToken = getAuthToken();
-      const tenant = getTenantId();
-      if (idToken && !mergedHeaders.Authorization) {
+      // Rebuild headers to guarantee no custom headers besides Accept and Authorization
+      mergedHeaders = { Accept: "application/json" };
+      if (idToken) {
         mergedHeaders.Authorization = `Bearer ${idToken}`;
-      }
-      if (tenant && !mergedHeaders["x-tenant-id"]) {
-        mergedHeaders["x-tenant-id"] = tenant;
       }
     }
   } catch {
-    // If URL parsing fails, do not inject anything
+    // If URL parsing fails, proceed with provided headers
   }
 
   const res = await fetch(url, {
@@ -228,10 +225,9 @@ export async function listUsers(params = {}, options = {}) {
     // Use httpGet with explicit headers for this call to ensure presence is logged upstream
     const res = await httpGet("/api/users", {
       params,
-      headers: {
-        ...(tenantId ? { "x-tenant-id": tenantId } : {}),
-        ...(authHeader ? { Authorization: authHeader } : {}),
-      },
+      // For /api/users we must only send Authorization and Accept (no x-tenant-id) to
+      // align with backend expectations and reduce preflight complications.
+      headers: authHeader ? { Authorization: authHeader } : {},
       signal: controller ? controller.signal : signal,
     });
 
