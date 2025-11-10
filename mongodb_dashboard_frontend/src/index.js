@@ -39,29 +39,45 @@ if (typeof window !== "undefined") {
   });
 }
 
-// Guarded debug demo: only log in development to avoid noisy logs in production
-// Also avoid static import of crypto to prevent build/init-time failures when salt is placeholder.
-if (typeof process !== "undefined" && process.env && process.env.NODE_ENV === "development") {
-  import("./utils/crypto")
-    .then((mod) => {
-      try {
-        if (mod && typeof mod.encryptTenantId === "function" && typeof mod.isTenantSaltValid === "function") {
-          if (mod.isTenantSaltValid()) {
-            // eslint-disable-next-line no-console
-            console.log(mod.encryptTenantId("T0002"));
-          } else {
-            // eslint-disable-next-line no-console
-            console.warn("Skipping encryptTenantId demo: tenant salt is not configured.");
+/**
+ * Optional dev-only demo: dynamic import of ./utils/crypto.
+ * ChunkLoadError can happen in dev if HMR serves stale chunks; to reduce surface area,
+ * only run when an explicit env flag is set and defer until after initial render.
+ */
+if (
+  typeof process !== "undefined" &&
+  process.env &&
+  process.env.NODE_ENV === "development" &&
+  String(process.env.REACT_APP_ENABLE_CRYPTO_DEMO || "").toLowerCase() === "true"
+) {
+  // Defer until after initial paint to avoid interfering with app mount
+  setTimeout(() => {
+    import("./utils/crypto")
+      .then((mod) => {
+        try {
+          if (
+            mod &&
+            typeof mod.encryptTenantId === "function" &&
+            typeof mod.isTenantSaltValid === "function"
+          ) {
+            if (mod.isTenantSaltValid()) {
+              // eslint-disable-next-line no-console
+              console.log(mod.encryptTenantId("T0002"));
+            } else {
+              // eslint-disable-next-line no-console
+              console.warn("Skipping encryptTenantId demo: tenant salt is not configured.");
+            }
           }
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.warn("encryptTenantId demo failed", e);
         }
-      } catch (e) {
+      })
+      .catch((err) => {
         // eslint-disable-next-line no-console
-        console.warn("encryptTenantId demo failed", e);
-      }
-    })
-    .catch(() => {
-      // ignore demo import errors
-    });
+        console.warn("Optional crypto demo import failed (safe to ignore in dev):", err && err.message ? err.message : err);
+      });
+  }, 0);
 }
 
 /**
