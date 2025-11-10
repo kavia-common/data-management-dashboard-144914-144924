@@ -4,13 +4,13 @@ import AppLayout from "../components/layout/AppLayout";
 import Skeleton from "../components/ui/Skeleton.jsx";
 import ProtectedRoute from "../components/common/ProtectedRoute";
 
-const Overview = lazy(() => import("../pages/dashboard/Overview"));
-const Users = lazy(() => import("../pages/dashboard/Users"));
-const Sessions = lazy(() => import("../pages/dashboard/Sessions"));
-const Deployments = lazy(() => import("../pages/dashboard/Deployments"));
-const Costs = lazy(() => import("../pages/dashboard/Costs"));
+const Overview = lazy(() => import("../pages/dashboard/Overview.jsx"));
+const Users = lazy(() => import("../pages/dashboard/Users.jsx"));
+const Sessions = lazy(() => import("../pages/dashboard/Sessions.jsx"));
+const Deployments = lazy(() => import("../pages/dashboard/Deployments.jsx"));
+const Costs = lazy(() => import("../pages/dashboard/Costs.jsx"));
 
-const Login = lazy(() => import("../pages/Login"));
+const Login = lazy(() => import("../pages/Login.js"));
 
 /**
  * PUBLIC_INTERFACE

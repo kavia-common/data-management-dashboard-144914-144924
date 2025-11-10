@@ -11,6 +11,34 @@ if (typeof window !== "undefined") {
   setTheme("dark");
 }
 
+// Add runtime handler to surface dynamic import/ChunkLoadError problems clearly.
+// Suggests a hard reload if a chunk fails to load (often caused by stale caches or changed chunk hashes).
+if (typeof window !== "undefined") {
+  window.addEventListener("unhandledrejection", (event) => {
+    const reason = event && event.reason;
+    const msg = reason && (reason.message || String(reason));
+    const isChunkError =
+      reason &&
+      (reason.name === "ChunkLoadError" ||
+        /loading chunk \d+ failed/i.test(msg || "") ||
+        /dynamic import/i.test(msg || ""));
+
+    if (isChunkError) {
+      // eslint-disable-next-line no-console
+      console.error("Detected chunk load failure. This can happen after a deploy when the browser has a stale bundle cached. A hard reload typically fixes it.", reason);
+      // Optional: prompt the user to reload to fetch fresh chunks
+      if (process.env.NODE_ENV === "production") {
+        // Avoid blocking dev flow; in prod politely suggest reload
+        // eslint-disable-next-line no-alert
+        const shouldReload = window.confirm("The application was updated. Reload now to continue?");
+        if (shouldReload) {
+          window.location.reload();
+        }
+      }
+    }
+  });
+}
+
 // Guarded debug demo: only log in development to avoid noisy logs in production
 // Also avoid static import of crypto to prevent build/init-time failures when salt is placeholder.
 if (typeof process !== "undefined" && process.env && process.env.NODE_ENV === "development") {

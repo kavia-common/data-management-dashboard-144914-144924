@@ -3,8 +3,8 @@ import OverviewTimeControls from './OverviewTimeControls';
 import OverviewKpiCards from './OverviewKpiCards';
 import OverviewTrendChart from './OverviewTrendChart';
 import { fetchOverviewAnalytics } from '../../api/overviewAnalytics';
-import LoadingState from '../common/LoadingState';
-import ErrorState from '../common/ErrorState';
+import LoadingState from '../common/LoadingState.jsx';
+import ErrorState from '../common/ErrorState.jsx';
 import './overview.css';
 
 // PUBLIC_INTERFACE
