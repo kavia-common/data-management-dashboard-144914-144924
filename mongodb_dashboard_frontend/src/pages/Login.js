@@ -6,11 +6,10 @@ import Card from '../components/ui/Card.jsx';
 import Input from '../components/ui/Input.jsx';
 import Button from '../components/ui/Button.jsx';
 import './Login.css';
-import appLogo from '../assets/logo/app-logo-2025.png'; // REQ-UI-LOGO-REPLACE: reuse sidebar logo
+import appLogo from '../assets/logo/app-logo-2025.png';
 
 export default function Login() {
   const [email, setEmail] = useState('');
-  const [orgResponse, setOrgResponse] = useState(null);
   const [orgResponse, setOrgResponse] = useState(null);
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [password, setPassword] = useState('');
@@ -31,7 +30,6 @@ export default function Login() {
   const SUCCESS_REDIRECT = '/dashboard/overview';
 
   // 🔹 Fetch organizations for given email
-  // 🔹 Fetch organizations for given email
   async function handleFindOrgs() {
     setError('');
     if (!email) {
@@ -44,25 +42,15 @@ export default function Login() {
       setOrgResponse(resp);
       const items = Array.isArray(resp?.organizations) ? resp.organizations : [];
 
-
       if (items.length === 0) {
         setSelectedOrgId('');
         setError('No organizations found for this email.');
       } else {
         // ✅ Try to auto-select "Kavia B2C"
-        const kaviaOrg = items.find(
+        const autoSelectedOrg = items.find(
           (org) => org.name?.toLowerCase() === 'kavia b2c'
         );
-
-        // ✅ If found, auto-select it, else keep empty
-        setSelectedOrgId(kaviaOrg?.id || '');
-        // ✅ Try to auto-select "Kavia B2C"
-        const kaviaOrg = items.find(
-          (org) => org.name?.toLowerCase() === 'kavia b2c'
-        );
-
-        // ✅ If found, auto-select it, else keep empty
-        setSelectedOrgId(kaviaOrg?.id || '');
+        setSelectedOrgId(autoSelectedOrg?.id || '');
       }
     } catch (e) {
       console.error(e);
@@ -79,37 +67,10 @@ export default function Login() {
     const selectedId = e.target.value;
     setSelectedOrgId(selectedId);
 
-    // ✅ Add your custom logic here
-    console.log('✅ Selected Organization ID:', selectedId);
-
-    // Example: If you want to also log org name or send event
     const selectedOrg = orgResponse?.organizations?.find((o) => o.id === selectedId);
     if (selectedOrg) {
       console.log('✅ Selected Organization Name:', selectedOrg.name);
     }
-
-    // You could also trigger something like:
-    // triggerEncryption(selectedId);
-    // or storeOrganization(selectedId);
-  }
-
-  // 🔹 Trigger when user selects organization manually
-  function handleOrganizationSelect(e) {
-    const selectedId = e.target.value;
-    setSelectedOrgId(selectedId);
-
-    // ✅ Add your custom logic here
-    console.log('✅ Selected Organization ID:', selectedId);
-
-    // Example: If you want to also log org name or send event
-    const selectedOrg = orgResponse?.organizations?.find((o) => o.id === selectedId);
-    if (selectedOrg) {
-      console.log('✅ Selected Organization Name:', selectedOrg.name);
-    }
-
-    // You could also trigger something like:
-    // triggerEncryption(selectedId);
-    // or storeOrganization(selectedId);
   }
 
   async function handleLogin(e) {
@@ -126,7 +87,6 @@ export default function Login() {
         email,
         password,
       });
-      // Persist token and any tenant info provided by backend (if present)
       const maybeTenant = (payload && (payload.tenant_id || payload.tenantId)) || null;
       login({ token: token || null, tenant_id: maybeTenant });
       const from = location.state?.from?.pathname || SUCCESS_REDIRECT;
@@ -161,7 +121,7 @@ export default function Login() {
         </div>
 
         <div className="auth-form">
-          {error ? <div className="error" role="alert">{error}</div> : null}
+          {error && <div className="error" role="alert">{error}</div>}
 
           <label>
             <span>Email</span>
@@ -187,19 +147,18 @@ export default function Login() {
             </Button>
           </div>
 
-          {orgResponse?.email ? (
+          {orgResponse?.email && (
             <div className="muted" aria-live="polite">
-              Email (from server): <strong style={{ color: 'inherit' }}>{orgResponse.email}</strong>
+              Email (from server): <strong>{orgResponse.email}</strong>
             </div>
-          ) : null}
+          )}
 
           <label>
             <span>Organization</span>
             <select
               className="ui-input"
               value={selectedOrgId}
-              onChange={handleOrganizationSelect} // 🔹 updated here
-              onChange={handleOrganizationSelect} // 🔹 updated here
+              onChange={handleOrganizationSelect}
               aria-label="Organization"
             >
               <option value="">Select organization...</option>
@@ -237,5 +196,3 @@ export default function Login() {
     </div>
   );
 }
- 
- 
