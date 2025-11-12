@@ -388,7 +388,7 @@ export default function TabbedUserModal({
     []
   );
 
-  const title = useMemo(() => user?.name || user?.full_name || user?.email || 'User', [user]);
+  const title = useMemo(() => (user?.name || user?.full_name || user?.email || 'User'), [user]);
 
   function ThemedTabs({ activeKey, onChange }) {
     return (

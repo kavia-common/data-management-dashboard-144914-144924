@@ -214,7 +214,7 @@ export default function Costs() {
     return renderText(value);
   }
 
-  function buildColumnsFromSample(rows = []) {
+  const buildColumnsFromSample = React.useCallback(function buildColumnsFromSample(rows = []) {
     const sample = rows[0] || {};
     const preferredOrder = [
       "_id",
@@ -265,9 +265,9 @@ export default function Costs() {
     cols.push(...nestedCols.slice(0, 3));
 
     return cols.length ? cols : [{ key: "_id", label: "ID" }];
-  }
+  }, [dateFieldHints, numericPrettyHints]);
 
-  async function load(page = 1, limit = meta.limit || 10, sortKey, sortDir) {
+  const load = React.useCallback(async function load(page = 1, limit = meta.limit || 10, sortKey, sortDir) {
     /**
      * Loads costs with optional server-side sorting.
      * When sortKey is provided, we pass `sort` param to backend using the format:
@@ -297,7 +297,7 @@ export default function Costs() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [meta.limit]);
 
   useEffect(() => {
     load();

@@ -40,4 +40,5 @@ export async function getTenantUsersSummary() {
   }
 }
 
-export default { getTenantUsersSummary };
+const usersAnalyticsApi = { getTenantUsersSummary };
+export default usersAnalyticsApi;

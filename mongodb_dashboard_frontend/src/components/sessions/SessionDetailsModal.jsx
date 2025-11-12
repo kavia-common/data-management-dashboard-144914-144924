@@ -1,9 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '../ui/Modal.jsx';
-import Button from '../ui/Button.jsx';
 import { useDataContext } from '../../context/DataContext.jsx';
 import { toTitleCaseName } from '../../utils/stringFormatters.js';
-import { formatLabel } from '../../utils/formatLabel';
 import { usdToCredits, formatCredits, parseUsdToNumber } from '../../utils/currency.js';
 import { formatCurrencyAmount } from '../../utils/formatCurrency';
 import { getUserBasic } from '../../api/users';

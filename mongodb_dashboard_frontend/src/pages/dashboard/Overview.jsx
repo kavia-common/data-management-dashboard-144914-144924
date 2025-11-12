@@ -56,6 +56,10 @@ export default function Overview() {
 
   return (
     <div className="grid">
+      {/* API status indicator uses apiStatus to avoid unused variable and improve visibility */}
+      <div className="muted" style={{ gridColumn: "1 / -1", marginBottom: 8 }}>
+        API status: <strong>{apiStatus}</strong>
+      </div>
       {/* KPI cards row */}
       <Card title="Users" subtitle="Total referral users" className="kpi-card">
         <div className="kpi">

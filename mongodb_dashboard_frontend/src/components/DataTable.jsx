@@ -107,7 +107,10 @@ export default function DataTable({
   // In client mode slice locally; in server mode assume data already corresponds to current page (and is globally sorted by server)
   const start = (currentPage - 1) * Math.max(1, pageSize);
   const end = start + Math.max(1, pageSize);
-  const pageRows = isServerMode ? (data || []) : sorted.slice(start, end);
+  const pageRows = useMemo(
+    () => (isServerMode ? (data || []) : sorted.slice(start, end)),
+    [isServerMode, data, sorted, start, end]
+  );
 
   async function setPageAndNotify(p) {
     const next = Math.min(Math.max(1, p), totalPages);
@@ -341,19 +344,28 @@ export default function DataTable({
             <tr>
               {columns.map((c) => {
                 const thClass = `th ${c.priority ? `col-priority-${c.priority}` : ""} ${c.className || ""}`.trim();
+                const ariaSort = sortKey === c.key ? (sortDir === "asc" ? "ascending" : "descending") : "none";
                 return (
                   <th
                     key={c.key}
-                    onClick={() => toggleSort(c.key)}
-                    role="button"
                     className={thClass}
                     scope="col"
-                    aria-sort={sortKey === c.key ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
-                    title="Click to sort"
+                    role="columnheader"
+                    aria-sort={ariaSort}
                     style={autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined}
+                    title="Sortable column"
                   >
-                    {c.label}
-                    {sortKey === c.key && (sortDir === "asc" ? " ▲" : " ▼")}
+                    <button
+                      type="button"
+                      className="th-sort-btn"
+                      onClick={() => toggleSort(c.key)}
+                      aria-label={`Sort by ${c.label}`}
+                      aria-pressed={sortKey === c.key}
+                      style={{ all: "unset", cursor: "pointer" }}
+                    >
+                      {c.label}
+                      {sortKey === c.key && (sortDir === "asc" ? " ▲" : " ▼")}
+                    </button>
                   </th>
                 );
               })}

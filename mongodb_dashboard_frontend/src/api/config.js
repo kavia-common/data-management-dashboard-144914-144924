@@ -13,4 +13,5 @@ export function getApiBase() {
   return apiBase;
 }
 
-export default { getApiBase };
+const apiConfig = { getApiBase };
+export default apiConfig;

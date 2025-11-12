@@ -21,7 +21,7 @@ export function useUserProjects(options = {}) {
   const [loading, setLoading] = useState(Boolean(enabled && userId && tenantId));
   const [error, setError] = useState("");
 
-  const canFetch = useMemo(() => Boolean(enabled && userId && tenantId), [enabled, userId, tenantId, from, to]);
+  const canFetch = useMemo(() => Boolean(enabled && userId && tenantId), [enabled, userId, tenantId]);
 
   async function load() {
     if (!canFetch) return;

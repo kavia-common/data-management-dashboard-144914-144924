@@ -307,7 +307,7 @@ export async function getTenantUsersSummaryStrict() {
   return res.data;
 }
 
-export default {
+const baseClientApi = {
   getApiClient,
   listUsers,
   listSessions,
@@ -316,3 +316,4 @@ export default {
   health,
   getTenantUsersSummaryStrict,
 };
+export default baseClientApi;
