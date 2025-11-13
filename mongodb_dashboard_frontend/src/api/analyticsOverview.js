@@ -1,15 +1,26 @@
-import { getApiBaseUrl, buildQueryString } from './utilBase';
+import { getApiBase } from './utilBase';
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * getOverviewAnalytics
+ * Fetches overview analytics using metric and range parameters.
+ * Builds URL based on configured API base, ensuring proper /api prefix and query string.
+ */
 export async function getOverviewAnalytics({ metric = 'creates', range = '30d' } = {}) {
-  /** Calls /api/analytics/overview with metric and range. */
-  const qs = buildQueryString({ metric, range });
-  const url = `${getApiBaseUrl().replace(/\\/api$/, '')}/api/analytics/overview${qs}`;
+  // Build query string
+  const params = new URLSearchParams({ metric, range }).toString();
+
+  // Normalize base and root
+  const base = String(getApiBase() || '').replace(/\/+$/, '');
+  const root = base.endsWith('/api') ? base.slice(0, -4) : base;
+
+  const url = `${root}/api/analytics/overview${params ? `?${params}` : ''}`;
   const res = await fetch(url, { credentials: 'include' });
   if (!res.ok) {
-    // Allow caller to handle 404 to render empty state
-    const text = await res.text();
+    const text = await res.text().catch(() => '');
     throw new Error(text || `Failed to fetch overview analytics (${res.status})`);
   }
   return res.json();
 }
+
+export default { getOverviewAnalytics };

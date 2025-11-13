@@ -89,6 +89,16 @@ export function clearActiveTenant() {
 
 /**
  * PUBLIC_INTERFACE
+ * getTenantHeaderName
+ * Returns the HTTP header name used to pass tenant scope to backend.
+ * Defaults to 'x-organization-id' for compatibility.
+ */
+export function getTenantHeaderName() {
+  return 'x-organization-id';
+}
+
+/**
+ * PUBLIC_INTERFACE
  * fetchSessionTenants
  * Fetches authorized tenants for current authenticated user.
  * Uses credentials: 'include' to carry cookies via CRA proxy.

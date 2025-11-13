@@ -1,11 +1,14 @@
-import { getApiBaseUrl } from "./util";
+import { getApiBase as getConfiguredBase } from "./config";
 
 /**
  * PUBLIC_INTERFACE (Deprecated)
  * getApiBase
- * Deprecated shim to preserve older imports. Delegates to getApiBaseUrl().
- * Returns a base that includes '/api' suffix.
+ * Deprecated shim kept for backward compatibility. Delegates to config.getApiBase().
+ * Ensures returned value includes '/api' suffix.
  */
 export function getApiBase() {
-  return getApiBaseUrl();
+  const base = String(getConfiguredBase() || "").replace(/\/+$/, "");
+  return base.endsWith("/api") ? base : `${base}/api`;
 }
+
+export default { getApiBase };

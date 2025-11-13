@@ -8,7 +8,7 @@ import { listUsers } from "../api";
  * PUBLIC_INTERFACE
  * UsersList
  * Displays users with filters: search and tenant.
- * Fetches data from API without date range filters.
+ * Adds a "Sessions" action per row when onViewSessions is provided.
  */
 export default function UsersList({
   title = "Users",
@@ -16,6 +16,7 @@ export default function UsersList({
   showActions = false,
   onUserSelect,
   onUserRowClick,
+  onViewSessions,
 }) {
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
@@ -132,6 +133,18 @@ export default function UsersList({
     [query, organizationFilter, items.length]
   );
 
+  // If a sessions callback is provided, add an Actions column to the display columns
+  const displayColumns = useMemo(() => {
+    if (typeof onViewSessions !== "function") return columns;
+    // Keep columns same; actions are rendered via DataTable's action column controlled by onEdit/onDelete
+    return columns;
+  }, [columns, onViewSessions]);
+
+  // Provide onEdit handler to render a Sessions button in DataTable's action column
+  const handleEdit = typeof onViewSessions === "function"
+    ? (row) => onViewSessions(row)
+    : undefined;
+
   return (
     <div>
       <Card title={title} subtitle={subtitle}>
@@ -197,9 +210,10 @@ export default function UsersList({
         {/* 📋 Data Table */}
         <DataTable
           key={tableKey}
-          columns={columns}
+          columns={displayColumns}
           data={items}
           loading={loading}
+          onEdit={handleEdit}
           onDelete={showActions ? (row) => setConfirmDelete(row) : undefined}
           onRowClick={handleRowClick}
           pageSize={meta.limit || 10}
