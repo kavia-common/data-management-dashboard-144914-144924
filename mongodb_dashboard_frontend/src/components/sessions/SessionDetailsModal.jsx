@@ -364,10 +364,19 @@ function SessionDetailsModal({ open, onClose, session }) {
         // Always fetch full unfiltered breakdown (no startDate/endDate).
         const data = await getSessionDetails(sessionDocId, {});
 
-        const list = Array.isArray(data?.session_breakdown) ? data.session_breakdown : [];
-        // If backend didn't compute total, compute here for robustness.
+        const rawList = Array.isArray(data?.session_breakdown) ? data.session_breakdown : [];
+
+        // Optional filter: if current session/user context provides a user id, filter breakdown to that user only
+        const contextUserId =
+          (session && (session.user_id ?? session.userId ?? session.user?._id ?? session.user?.id)) || userIdRef || '';
+        const list =
+          contextUserId
+            ? rawList.filter((seg) => String(seg?.user_id ?? '') === String(contextUserId))
+            : rawList;
+
+        // If backend didn't compute total, compute here for robustness (based on filtered list).
         const total =
-          Number.isFinite(Number(data?.session_breakdown_total_duration_seconds))
+          Number.isFinite(Number(data?.session_breakdown_total_duration_seconds)) && list.length === rawList.length
             ? Number(data.session_breakdown_total_duration_seconds)
             : list.reduce((acc, seg) => {
                 const d = Number(seg?.duration);
@@ -554,84 +563,111 @@ function SessionDetailsModal({ open, onClose, session }) {
           </div>
 
           {/* Total duration */}
-          <div style={{ marginBottom: 8, fontSize: 13, color: 'var(--text-secondary, #374151)' }}>
-            Total Duration (full):{' '}
+          <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--text-secondary, #374151)' }}>
+            Total Duration:{' '}
             <strong style={{ color: 'var(--text-primary, #111827)' }}>{formatDuration(totalDuration)}</strong>
           </div>
 
-          {/* Table */}
-          <div role="table" aria-label="Breakdown list" style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle, #E5E7EB)' }}>
-                  <th style={{ padding: '8px 6px', fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
-                    Session Start
-                  </th>
-                  <th style={{ padding: '8px 6px', fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
-                    Session End
-                  </th>
-                  <th style={{ padding: '8px 6px', fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
-                    Duration
-                  </th>
-                  <th style={{ padding: '8px 6px', fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
-                    Agents
-                  </th>
-                  <th style={{ padding: '8px 6px', fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
-                    User ID
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {breakdownLoading && (
-                  <tr>
-                    <td colSpan={5} style={{ padding: 12, fontSize: 14, color: 'var(--text-tertiary, #64748B)' }}>
-                      Loading breakdown...
-                    </td>
-                  </tr>
-                )}
-                {breakdownError && !breakdownLoading && (
-                  <tr>
-                    <td colSpan={5} style={{ padding: 12, fontSize: 14, color: 'var(--error, #EF4444)' }}>
-                      {breakdownError}
-                    </td>
-                  </tr>
-                )}
-                {!breakdownLoading && !breakdownError && breakdown.length === 0 && (
-                  <tr>
-                    <td colSpan={5} style={{ padding: 12, fontSize: 14, color: 'var(--text-tertiary, #64748B)' }}>
-                      No breakdown entries available for this session.
-                    </td>
-                  </tr>
-                )}
-                {!breakdownLoading &&
-                  !breakdownError &&
-                  breakdown.map((seg, idx) => {
-                    const dSec = Number(seg?.duration);
-                    const computedDur =
-                      Number.isFinite(dSec) && dSec >= 0
-                        ? dSec
-                        : (() => {
-                            const s = seg?.session_start ? new Date(seg.session_start).getTime() : NaN;
-                            const e = seg?.session_end ? new Date(seg.session_end).getTime() : NaN;
-                            if (!Number.isNaN(s) && !Number.isNaN(e) && e >= s) {
-                              return Math.floor((e - s) / 1000);
-                            }
-                            return 0;
-                          })();
-                    return (
-                      <tr key={idx} style={{ borderTop: '1px solid var(--border-subtle, #E5E7EB)' }}>
-                        <td style={{ padding: '8px 6px', fontSize: 13 }}>{formatDate(seg?.session_start)}</td>
-                        <td style={{ padding: '8px 6px', fontSize: 13 }}>{formatDate(seg?.session_end)}</td>
-                        <td style={{ padding: '8px 6px', fontSize: 13 }}>{formatDuration(computedDur)}</td>
-                        <td style={{ padding: '8px 6px', fontSize: 13 }}>{renderAgents(seg?.Agents)}</td>
-                        <td style={{ padding: '8px 6px', fontSize: 13 }}>
-                          {seg?.user_id != null ? String(seg.user_id) : '—'}
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
+          {/* Vertical list of cards instead of table */}
+          <div role="list" aria-label="Breakdown list" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {breakdownLoading && (
+              <div role="status" style={{ padding: 12, fontSize: 14, color: 'var(--text-tertiary, #64748B)' }}>
+                Loading breakdown...
+              </div>
+            )}
+            {breakdownError && !breakdownLoading && (
+              <div role="alert" style={{ padding: 12, fontSize: 14, color: 'var(--error, #EF4444)' }}>
+                {breakdownError}
+              </div>
+            )}
+            {!breakdownLoading && !breakdownError && breakdown.length === 0 && (
+              <div style={{ padding: 12, fontSize: 14, color: 'var(--text-tertiary, #64748B)' }}>
+                No breakdown entries found for this session.
+              </div>
+            )}
+            {!breakdownLoading &&
+              !breakdownError &&
+              breakdown.map((seg, idx) => {
+                const dSec = Number(seg?.duration);
+                const computedDur =
+                  Number.isFinite(dSec) && dSec >= 0
+                    ? dSec
+                    : (() => {
+                        const s = seg?.session_start ? new Date(seg.session_start).getTime() : NaN;
+                        const e = seg?.session_end ? new Date(seg.session_end).getTime() : NaN;
+                        if (!Number.isNaN(s) && !Number.isNaN(e) && e >= s) {
+                          return Math.floor((e - s) / 1000);
+                        }
+                        return 0;
+                      })();
+
+                return (
+                  <div
+                    key={idx}
+                    role="listitem"
+                    className="breakdown-card"
+                    style={{
+                      border: '1px solid var(--border-subtle, #E5E7EB)',
+                      borderRadius: 10,
+                      padding: 12,
+                      background: 'var(--bg-surface, #ffffff)',
+                      boxShadow: 'var(--shadow-sm, 0 1px 2px rgba(16,24,40,0.04))',
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                      gap: 12,
+                    }}
+                  >
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600, marginBottom: 4 }}>
+                        Session Start
+                      </div>
+                      <div style={{ fontSize: 14, color: 'var(--text-primary, #111827)', fontWeight: 600 }}>
+                        {formatDate(seg?.session_start)}
+                      </div>
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600, marginBottom: 4 }}>
+                        Session End
+                      </div>
+                      <div style={{ fontSize: 14, color: 'var(--text-primary, #111827)', fontWeight: 600 }}>
+                        {formatDate(seg?.session_end)}
+                      </div>
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600, marginBottom: 4 }}>
+                        Duration
+                      </div>
+                      <div style={{ fontSize: 14, color: 'var(--text-primary, #111827)', fontWeight: 600 }}>
+                        {formatDuration(computedDur)}
+                      </div>
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600, marginBottom: 4 }}>
+                        Agents
+                      </div>
+                      <div style={{ fontSize: 14, color: 'var(--text-primary, #111827)', fontWeight: 600 }}>
+                        {renderAgents(seg?.Agents)}
+                      </div>
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)', fontWeight: 600, marginBottom: 4 }}>
+                        User ID
+                      </div>
+                      <div style={{ fontSize: 14, color: 'var(--text-primary, #111827)', fontWeight: 600 }}>
+                        {seg?.user_id != null ? String(seg.user_id) : '—'}
+                      </div>
+                    </div>
+
+                    <style>{`
+                      @media (max-width: 639px) {
+                        .breakdown-card {
+                          grid-template-columns: 1fr !important;
+                        }
+                      }
+                    `}</style>
+                  </div>
+                );
+              })}
           </div>
         </section>
       </div>
