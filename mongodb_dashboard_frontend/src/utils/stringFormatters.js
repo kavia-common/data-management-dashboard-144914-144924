@@ -73,7 +73,7 @@ export function toTitleCaseName(value) {
 
   // Capitalize first letter of each word and letter after an apostrophe.
   // Use a Latin letter class that includes common accents.
-  const latinLetter = "A-Za-zÀ-ÖØ-öø-ÿ";
+  const latinLetter = 'A-Za-zÀ-ÖØ-öø-ÿ';
   const titleCased = lower
     // Start-of-word capitalization
     .replace(new RegExp(`\\b([${latinLetter}])`, 'g'), (_, ch) => ch.toUpperCase())
