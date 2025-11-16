@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getUserSessions } from "../../api/userSessions";
 
-// Format seconds to "Xh Ym Zs"
+/** Convert seconds to "Xh Ym Zs" */
 function formatDuration(secs) {
   const n = Number(secs);
   if (!Number.isFinite(n) || n < 0) return "—";
@@ -15,7 +15,7 @@ function formatDuration(secs) {
   return parts.join(" ");
 }
 
-// Format ISO/Date to local string
+/** Format ISO date/time to localized string */
 function formatDate(val) {
   if (!val) return "—";
   try {
@@ -30,64 +30,56 @@ function formatDate(val) {
 /**
  * PUBLIC_INTERFACE
  * UserSessionsList
- * Displays a vertical list of user session breakdown entries across sessions (flattened).
+ * Displays only session_breakdown entries filtered by user_id (+ tenant_id, optional project_id).
  *
  * Props:
  * - userId: string (required)
  * - tenantId: string (required)
+ * - projectId?: string | null
  */
 function UserSessionsList({ userId, tenantId, projectId = null }) {
   const [items, setItems] = useState([]);
-  const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
-  const totalDuration = useMemo(
-    () =>
-      items.reduce((acc, it) => {
-        const d = Number(it?.duration);
-        if (Number.isFinite(d) && d >= 0) return acc + d;
-        const s = it?.session_start ? new Date(it.session_start).getTime() : NaN;
-        const e = it?.session_end ? new Date(it.session_end).getTime() : NaN;
-        if (!Number.isNaN(s) && !Number.isNaN(e) && e >= s) return acc + Math.floor((e - s) / 1000);
-        return acc;
-      }, 0),
-    [items]
-  );
+  // Sum total duration from returned entries; fallback to computed diff when duration missing.
+  const totalDuration = useMemo(() => {
+    return (items || []).reduce((acc, it) => {
+      const d = Number(it?.duration);
+      if (Number.isFinite(d) && d >= 0) return acc + d;
+      const s = it?.session_start ? new Date(it.session_start).getTime() : NaN;
+      const e = it?.session_end ? new Date(it.session_end).getTime() : NaN;
+      if (!Number.isNaN(s) && !Number.isNaN(e) && e >= s) {
+        return acc + Math.floor((e - s) / 1000);
+      }
+      return acc;
+    }, 0);
+  }, [items]);
 
   useEffect(() => {
     let ignore = false;
     async function load() {
       if (!userId || !tenantId) {
         setItems([]);
-        setMeta(null);
-        setLoading(false);
         setErr("");
+        setLoading(false);
         return;
       }
       try {
         setLoading(true);
         setErr("");
-        const { items: list } = await getUserSessions(userId, tenantId, { page: 1, limit: 50, projectId });
-        if (process.env.NODE_ENV !== "production") {
-          try {
-            // eslint-disable-next-line no-console
-            console.debug("[UserSessionsList] Loaded items", {
-              userId,
-              tenantId,
-              projectId,
-              count: Array.isArray(list) ? list.length : 0,
-            });
-          } catch {}
-        }
+        // Always pass tenantId and userId; include optional projectId.
+        const { items: list } = await getUserSessions(userId, tenantId, {
+          page: 1,
+          limit: 100,
+          projectId,
+        });
         if (!ignore) {
           setItems(Array.isArray(list) ? list : []);
-          setMeta(null);
         }
       } catch (e) {
         if (!ignore) {
           setItems([]);
-          setMeta(null);
           setErr(e?.message || "Failed to load user sessions.");
         }
       } finally {
@@ -118,8 +110,19 @@ function UserSessionsList({ userId, tenantId, projectId = null }) {
         </h3>
       </div>
 
-      <div style={{ marginBottom: 12, fontSize: 13, color: "var(--text-secondary, #374151)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        Total Duration: <strong style={{ color: "var(--text-primary, #111827)" }}>{formatDuration(totalDuration)}</strong>
+      <div
+        style={{
+          marginBottom: 12,
+          fontSize: 13,
+          color: "var(--text-secondary, #374151)",
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+        }}
+      >
+        Total Duration:{" "}
+        <strong style={{ color: "var(--text-primary, #111827)" }}>{formatDuration(totalDuration)}</strong>
         {projectId ? (
           <span
             aria-label="Project filter applied"
@@ -150,9 +153,10 @@ function UserSessionsList({ userId, tenantId, projectId = null }) {
         )}
         {!loading && !err && items.length === 0 && (
           <div style={{ padding: 12, fontSize: 14, color: "var(--text-tertiary, #64748B)" }}>
-            No sessions found for this user.
+            No session activity matched your filters for this user.
           </div>
         )}
+
         {!loading &&
           !err &&
           items.map((it, idx) => (
