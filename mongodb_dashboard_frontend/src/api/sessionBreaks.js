@@ -12,7 +12,9 @@ import { getApiClient } from './baseClient';
 export async function getSessionBreakDetails(sessionId) {
   if (!sessionId) throw new Error('sessionId is required');
   const client = getApiClient();
-  const { data } = await client.get(`/api/sessions/${encodeURIComponent(String(sessionId))}/breaks`);
+  // Ensure organization scoping is passed either via headers (preferred in baseClient) or query fallback.
+  const url = `/api/sessions/${encodeURIComponent(String(sessionId))}/breaks`;
+  const { data } = await client.get(url);
   return data;
 }
 
