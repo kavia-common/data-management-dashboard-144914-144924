@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { getUserSessions } from "../../api/userSessions";
-import { useAuth } from "../../context/AuthContext.jsx";
 
 // Format seconds to "Xh Ym Zs"
 function formatDuration(secs) {
@@ -69,10 +68,10 @@ function UserSessionsList({ userId, tenantId }) {
       try {
         setLoading(true);
         setErr("");
-        const { items: list, meta: m } = await getUserSessions(userId, tenantId, { page: 1, limit: 50 });
+        const { items: list } = await getUserSessions(userId, tenantId, { page: 1, limit: 50 });
         if (!ignore) {
           setItems(Array.isArray(list) ? list : []);
-          setMeta(m || null);
+          setMeta(null);
         }
       } catch (e) {
         if (!ignore) {
