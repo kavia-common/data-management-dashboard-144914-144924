@@ -337,8 +337,8 @@ function SessionDetailsModal({ open, onClose, session }) {
   const [breakdownError, setBreakdownError] = useState('');
   const [totalDuration, setTotalDuration] = useState(0); // seconds
 
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  // Date filter controls removed per requirement: always load unfiltered breakdown.
+  // Keeping placeholders (not state) ensures no accidental query params are sent.
 
   const sessionDocId = useMemo(() => {
     return session?._id || session?.id || session?.sessionId || '';
@@ -361,18 +361,24 @@ function SessionDetailsModal({ open, onClose, session }) {
         setBreakdownLoading(true);
         setBreakdownError('');
 
-        // Requirement:
-        // 1) On initial load, call unified endpoint WITHOUT startDate/endDate so UI displays unfiltered breakdown immediately.
-        // 2) Only when user applies any date filter, include those params on the request to update the view.
-        const haveFilters = Boolean(startDate || endDate);
-        const params = haveFilters
-          ? { startDate, endDate }
-          : {}; // no dates for initial load
-
-        const data = await getSessionDetails(sessionDocId, params);
+        // Always fetch full unfiltered breakdown (no startDate/endDate).
+        const data = await getSessionDetails(sessionDocId, {});
 
         const list = Array.isArray(data?.session_breakdown) ? data.session_breakdown : [];
-        const total = Number(data?.session_breakdown_total_duration_seconds) || 0;
+        // If backend didn't compute total, compute here for robustness.
+        const total =
+          Number.isFinite(Number(data?.session_breakdown_total_duration_seconds))
+            ? Number(data.session_breakdown_total_duration_seconds)
+            : list.reduce((acc, seg) => {
+                const d = Number(seg?.duration);
+                if (Number.isFinite(d) && d >= 0) return acc + d;
+                const s = seg?.session_start ? new Date(seg.session_start).getTime() : NaN;
+                const e = seg?.session_end ? new Date(seg.session_end).getTime() : NaN;
+                if (!Number.isNaN(s) && !Number.isNaN(e) && e >= s) {
+                  return acc + Math.floor((e - s) / 1000);
+                }
+                return acc;
+              }, 0);
 
         if (!ignore) {
           setBreakdown(list);
@@ -392,7 +398,7 @@ function SessionDetailsModal({ open, onClose, session }) {
     loadDetails();
     return () => { ignore = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, sessionDocId, startDate, endDate]);
+  }, [open, sessionDocId]);
 
   // Format duration seconds into human readable
   const formatDuration = (secs) => {
@@ -545,43 +551,11 @@ function SessionDetailsModal({ open, onClose, session }) {
             <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-primary, #111827)' }}>
               Session Breakdown
             </h3>
-            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <label htmlFor="sdm-start" style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
-                Start
-              </label>
-              <input
-                id="sdm-start"
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                style={{
-                  height: 32,
-                  borderRadius: 8,
-                  border: '1px solid var(--border-subtle, #E5E7EB)',
-                  padding: '0 8px',
-                }}
-              />
-              <label htmlFor="sdm-end" style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
-                End
-              </label>
-              <input
-                id="sdm-end"
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                style={{
-                  height: 32,
-                  borderRadius: 8,
-                  border: '1px solid var(--border-subtle, #E5E7EB)',
-                  padding: '0 8px',
-                }}
-              />
-            </div>
           </div>
 
           {/* Total duration */}
           <div style={{ marginBottom: 8, fontSize: 13, color: 'var(--text-secondary, #374151)' }}>
-            Total Duration (filtered):{' '}
+            Total Duration (full):{' '}
             <strong style={{ color: 'var(--text-primary, #111827)' }}>{formatDuration(totalDuration)}</strong>
           </div>
 
@@ -625,7 +599,7 @@ function SessionDetailsModal({ open, onClose, session }) {
                 {!breakdownLoading && !breakdownError && breakdown.length === 0 && (
                   <tr>
                     <td colSpan={5} style={{ padding: 12, fontSize: 14, color: 'var(--text-tertiary, #64748B)' }}>
-                      No breakdown entries for the selected range.
+                      No breakdown entries available for this session.
                     </td>
                   </tr>
                 )}
