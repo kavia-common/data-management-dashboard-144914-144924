@@ -15,13 +15,15 @@ import { buildQueryString } from './util';
  */
 export async function getSessionDetails(id, opts = {}) {
   if (!id) throw new Error('Session id is required');
-  const params = {
-    id,
-    startDate: opts.startDate || '',
-    endDate: opts.endDate || '',
-  };
-  // Use baseClient.get with params to append scoping automatically
+
+  // Build params: always include id; include dates ONLY if provided (non-empty)
+  const params = { id };
+  if (opts.startDate) params.startDate = opts.startDate;
+  if (opts.endDate) params.endDate = opts.endDate;
+
+  // Use baseClient.get with params to append tenant scoping automatically
   const { data } = await getApiClient().get('/api/session-tracking', { params });
+
   // Backend returns { success, data }
   if (data && typeof data === 'object' && 'data' in data) {
     return data.data;

@@ -348,6 +348,7 @@ function SessionDetailsModal({ open, onClose, session }) {
   useEffect(() => {
     let ignore = false;
     async function loadDetails() {
+      // Ensure we have an id and modal is open
       if (!open || !sessionDocId) {
         setBreakdown([]);
         setTotalDuration(0);
@@ -355,15 +356,24 @@ function SessionDetailsModal({ open, onClose, session }) {
         setBreakdownError('');
         return;
       }
+
       try {
         setBreakdownLoading(true);
         setBreakdownError('');
-        const params = {};
-        if (startDate) params.startDate = startDate;
-        if (endDate) params.endDate = endDate;
+
+        // Requirement:
+        // 1) On initial load, call unified endpoint WITHOUT startDate/endDate so UI displays unfiltered breakdown immediately.
+        // 2) Only when user applies any date filter, include those params on the request to update the view.
+        const haveFilters = Boolean(startDate || endDate);
+        const params = haveFilters
+          ? { startDate, endDate }
+          : {}; // no dates for initial load
+
         const data = await getSessionDetails(sessionDocId, params);
+
         const list = Array.isArray(data?.session_breakdown) ? data.session_breakdown : [];
         const total = Number(data?.session_breakdown_total_duration_seconds) || 0;
+
         if (!ignore) {
           setBreakdown(list);
           setTotalDuration(total);
@@ -378,6 +388,7 @@ function SessionDetailsModal({ open, onClose, session }) {
         if (!ignore) setBreakdownLoading(false);
       }
     }
+
     loadDetails();
     return () => { ignore = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
