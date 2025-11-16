@@ -1,5 +1,4 @@
 import client from './client';
-import { getBaseUrl } from './util';
 
 /**
  * Session Tracking API client.
@@ -11,24 +10,15 @@ const DEFAULT_PAGE = 4;
 const DEFAULT_LIMIT = 200;
 
 // PUBLIC_INTERFACE
-export async function fetchSessionTracking({ tenantId, page = DEFAULT_PAGE, limit = DEFAULT_LIMIT, useProxy = true } = {}) {
-  /** Fetch session-tracking list (envelope or array).
-   * When useProxy is true, call the backend proxy at /api/proxy/session-tracking,
-   * otherwise call the external URL directly (may be blocked by CORS in some environments).
-   */
+export async function fetchSessionTracking({ tenantId, page = DEFAULT_PAGE, limit = DEFAULT_LIMIT } = {}) {
+  /** Fetch session-tracking list (envelope or array) from the external API directly. */
   const params = new URLSearchParams();
   if (page != null) params.set('page', String(page));
   if (limit != null) params.set('limit', String(limit));
   if (tenantId) params.set('tenant_id', tenantId);
 
-  if (useProxy) {
-    // Prefer backend proxy to avoid CORS
-    const url = `${getBaseUrl()}/api/proxy/session-tracking?${params.toString()}`;
-    const res = await client.get(url);
-    return res.data;
-  }
-
   const externalUrl = `https://vscode-internal-41189-beta.beta01.cloud.kavia.ai:3001/api/session-tracking?${params.toString()}`;
+  // Use shared client; it adds Authorization/x-tenant-id when available. CORS must be allowed by the external API.
   const res = await client.get(externalUrl);
   return res.data;
 }

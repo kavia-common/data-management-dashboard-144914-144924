@@ -281,7 +281,6 @@ function SessionDetailsModal({ open, onClose, session }) {
           tenantId,
           page: 4,
           limit: 200,
-          useProxy: true,
         });
         const rec = findRecordBySessionId(data, sessionId);
         const mapped = normalizeSessionBreakdown(rec);
