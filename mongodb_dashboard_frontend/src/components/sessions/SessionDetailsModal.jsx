@@ -9,6 +9,8 @@ import { formatCurrencyAmount } from '../../utils/formatCurrency';
 import { getUserBasic } from '../../api/users';
 import './SessionDetailsModal.css';
 import { getSessionDetails } from '../../api/sessionDetails';
+import UserSessionsList from './UserSessionsList.jsx';
+import { useAuth } from '../../context/AuthContext.jsx';
 
 /**
  * PUBLIC_INTERFACE
@@ -344,6 +346,10 @@ function SessionDetailsModal({ open, onClose, session }) {
     return session?._id || session?.id || session?.sessionId || '';
   }, [session]);
 
+  // Call hook unconditionally to satisfy Rules of Hooks
+  const authCtx = useAuth();
+  const tenantId = (authCtx && (authCtx.organizationId || authCtx.tenantId || authCtx.organization_id || authCtx.tenant_id)) || '';
+
   // Load breakdown
   useEffect(() => {
     let ignore = false;
@@ -670,6 +676,15 @@ function SessionDetailsModal({ open, onClose, session }) {
               })}
           </div>
         </section>
+
+        {/* User-centric sessions across all sessions for this user */}
+        <UserSessionsList
+          userId={userIdRef}
+          tenantId={
+            tenantId ||
+            (pickFrom(session || {}, ['tenant_id', 'tenantId', 'organization_id', 'organizationId']) || '')
+          }
+        />
       </div>
 
       {/* Footer */}
