@@ -1,27 +1,7 @@
-import client from './client';
-
 /**
- * Session Tracking API client.
- * Provides functions to fetch session tracking records for a tenant
- * and find a record by session id defensively handling envelope/array responses.
+ * Session Tracking helpers.
+ * Utilities to normalize breakdown info and match records to a sessionId.
  */
-
-const DEFAULT_PAGE = 4;
-const DEFAULT_LIMIT = 200;
-
-// PUBLIC_INTERFACE
-export async function fetchSessionTracking({ tenantId, page = DEFAULT_PAGE, limit = DEFAULT_LIMIT } = {}) {
-  /** Fetch session-tracking list (envelope or array) from the external API directly. */
-  const params = new URLSearchParams();
-  if (page != null) params.set('page', String(page));
-  if (limit != null) params.set('limit', String(limit));
-  if (tenantId) params.set('tenant_id', tenantId);
-
-  const externalUrl = `https://vscode-internal-41189-beta.beta01.cloud.kavia.ai:3001/api/session-tracking?${params.toString()}`;
-  // Use shared client; it adds Authorization/x-tenant-id when available. CORS must be allowed by the external API.
-  const res = await client.get(externalUrl);
-  return res.data;
-}
 
 // PUBLIC_INTERFACE
 export function normalizeSessionBreakdown(record) {

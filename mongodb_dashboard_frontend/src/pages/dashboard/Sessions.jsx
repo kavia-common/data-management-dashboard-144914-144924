@@ -354,7 +354,17 @@ export default function Sessions() {
           setDetailsOpen(false);
           setTimeout(() => setSelectedSession(null), 0);
         }}
-        session={selectedSession}
+        sessionId={
+          selectedSession?._id ||
+          selectedSession?.id ||
+          selectedSession?.session_id ||
+          selectedSession?.sessionId ||
+          ''
+        }
+        data={{
+          items,
+          meta,
+        }}
       />
 
       {/* Charts stacked vertically (normal flow, with spacing below so table doesn't overlap) */}

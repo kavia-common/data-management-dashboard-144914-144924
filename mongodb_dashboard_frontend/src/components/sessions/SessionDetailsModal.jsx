@@ -1,48 +1,29 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '../ui/Modal.jsx';
-import Button from '../ui/Button.jsx';
 import { useDataContext } from '../../context/DataContext.jsx';
-import { toTitleCaseName } from '../../utils/stringFormatters.js';
-import { formatLabel } from '../../utils/formatLabel';
-import { usdToCredits, formatCredits, parseUsdToNumber } from '../../utils/currency.js';
-import { formatCurrencyAmount } from '../../utils/formatCurrency';
-import { getUserBasic } from '../../api/users';
-import './SessionDetailsModal.css';
-
-// New imports for session-tracking integration
-import { fetchSessionTracking, findRecordBySessionId, normalizeSessionBreakdown } from '../../api/sessionTracking';
-import { formatDateTime } from '../../utils/stringFormatters';
+import { toTitleCaseName, formatDateTime } from '../../utils/stringFormatters.js';
 
 /**
  * PUBLIC_INTERFACE
  * SessionDetailsModal
- * A responsive, accessible modal that presents session details in a clean two-column layout aligned to the Ocean Professional theme.
+ * A responsive, accessible modal that presents session details for a specific sessionId.
  *
  * Props:
- * - open: boolean - controls visibility
- * - onClose: function - invoked to close modal
- * - session: object - session data to render
+ * - open: boolean
+ * - onClose: function
+ * - sessionId: string
+ * - data: array | { items: array, meta?: object }
  *
- * Enhancements:
- * - Fetches session_breakdown by Session ID from session-tracking API (via backend proxy)
- * - Displays additional fields: Session Start, Session End, Duration (breakdown), Agent
- * - Robust error handling and loading states for new fields
+ * Behavior:
+ * - Locates the correct session object by matching sessionId to any of: session_id, id, _id, sessionId and nested session_data.session_id/sessionId
+ * - Safely extracts session_breakdown fields and renders: session_start, session_end, duration, and agent
+ * - Robust null checks: display '—' only if truly absent
+ * - Dev-only console.debug when match fails to log available keys
  */
-function SessionDetailsModal({ open, onClose, session }) {
+function SessionDetailsModal({ open, onClose, sessionId, data }) {
   const headerId = 'session-details-title';
   const contentRef = useRef(null);
   const { users } = useDataContext?.() || { users: [] };
-
-  // User name fetch state (for cases where DataContext doesn't have a match)
-  const [fetchedUserName, setFetchedUserName] = useState('');
-  const [fetchingUserName, setFetchingUserName] = useState(false);
-
-  // New state for session_breakdown loading and error
-  // Note: We will render session_breakdown directly from the provided response (session) object.
-  // These states are retained for compatibility but no background fetch will occur.
-  const [breakdown, setBreakdown] = useState({ sessionStart: null, sessionEnd: null, duration: null, agent: null });
-  const [loadingBreakdown, setLoadingBreakdown] = useState(false);
-  const [breakdownError, setBreakdownError] = useState(null);
 
   // Focus modal content when opened for accessibility
   useEffect(() => {
@@ -51,91 +32,109 @@ function SessionDetailsModal({ open, onClose, session }) {
     }
   }, [open]);
 
-  // Helpers
-  const fallbackFormat = (val) => {
+  // PUBLIC_INTERFACE
+  function recordMatchesSessionId(record, sid) {
+    if (!record || !sid) return false;
+    const candidates = [
+      record.session_id,
+      record.sessionId,
+      record._id,
+      record.id,
+      record?.session_identifier,
+      record?.sessionIdentifier,
+      record?.session_data?.session_id,
+      record?.session_data?.sessionId,
+    ].filter(Boolean);
+    return candidates.some((v) => String(v) === String(sid));
+  }
+
+  const list = useMemo(() => {
+    if (!data) return [];
+    if (Array.isArray(data)) return data;
+    if (Array.isArray(data?.items)) return data.items;
+    if (Array.isArray(data?.data)) return data.data;
+    return [];
+  }, [data]);
+
+  const session = useMemo(() => {
+    if (!open || !sessionId) return null;
+    const found = list.find((it) => recordMatchesSessionId(it, sessionId)) || null;
+    if (!found && process.env.NODE_ENV !== 'production') {
+      try {
+        const keys = list.length ? Object.keys(list[0] || {}) : [];
+        // eslint-disable-next-line no-console
+        console.debug('[SessionDetailsModal] No match for sessionId. First item keys:', keys, 'sessionId:', sessionId);
+      } catch {
+        // ignore
+      }
+    }
+    return found;
+  }, [open, sessionId, list]);
+
+  // Utility: safely pick the first defined value by probing dot/flat aliases
+  const pickFrom = (obj, keys) => {
+    if (!obj) return undefined;
+    for (const k of keys) {
+      if (!k) continue;
+      if (k.includes('.')) {
+        const parts = k.split('.');
+        let cur = obj;
+        let ok = true;
+        for (const p of parts) {
+          if (cur && Object.prototype.hasOwnProperty.call(cur, p)) {
+            cur = cur[p];
+          } else {
+            ok = false;
+            break;
+          }
+        }
+        if (ok && cur != null) return cur;
+      } else if (obj[k] !== undefined && obj[k] !== null) {
+        return obj[k];
+      }
+    }
+    return undefined;
+  };
+
+  const fmtDate = (val) => {
     if (!val) return '—';
     try {
+      if (typeof formatDateTime === 'function') return formatDateTime(val);
       return new Date(val).toLocaleString();
     } catch {
       return '—';
     }
   };
 
-  const fmt = (val) => {
-    if (!val) return '—';
-    try {
-      if (typeof formatDateTime === 'function') {
-        return formatDateTime(val);
-      }
-      return fallbackFormat(val);
-    } catch {
-      return fallbackFormat(val);
-    }
-  };
-
   // PUBLIC_INTERFACE
-  const computeDuration = (start, end) => {
-    /** Compute human-readable duration given start and end timestamps (ms or ISO). */
-    if (!start || !end) return '—';
-    try {
-      const s = new Date(start).getTime();
-      const e = new Date(end).getTime();
-      if (isNaN(s) || isNaN(e)) return '—';
-      let ms = Math.max(0, e - s);
-      const secs = Math.floor(ms / 1000);
-      const h = Math.floor(secs / 3600);
-      const m = Math.floor((secs % 3600) / 60);
-      const sRem = secs % 60;
-      const parts = [];
-      if (h) parts.push(`${h}h`);
-      if (m || h) parts.push(`${m}m`);
-      parts.push(`${sRem}s`);
-      return parts.join(' ');
-    } catch {
-      return '—';
-    }
-  };
-
-  // PUBLIC_INTERFACE
-  const resolveUserName = (userRef) => {
-    /**
-     * Resolve a user-friendly name from user reference:
-     * - If an object with name/displayName/fullName/email exists, pick appropriately
-     * - If an id, search DataContext users for a matching _id/id/userId and prefer displayName/fullName/name/username/email
-     */
-    if (!userRef) return 'Unknown User';
-    // If already a descriptive string (e.g., username/email)
+  function resolveUserName(userRef) {
+    if (!userRef) return '—';
     if (typeof userRef === 'string') {
-      const candidate = users?.find?.(
-        (u) => u?._id === userRef || u?.id === userRef || u?.userId === userRef
-      );
-      if (candidate) {
+      const cand = users?.find?.((u) => u?._id === userRef || u?.id === userRef || u?.userId === userRef);
+      if (cand) {
         return (
-          candidate.displayName ||
-          candidate.fullName ||
-          candidate.name ||
-          candidate.username ||
-          candidate.email ||
-          'Unknown User'
+          cand.displayName ||
+          cand.fullName ||
+          cand.name ||
+          cand.username ||
+          cand.email ||
+          '—'
         );
       }
-      return userRef || 'Unknown User';
+      return userRef || '—';
     }
     if (typeof userRef === 'object') {
-      // If the object has an id-like, try to match a richer record
       const candidateId = userRef._id || userRef.id || userRef.userId || userRef.user_id;
       if (candidateId) {
-        const candidate = users?.find?.(
-          (u) => u?._id === candidateId || u?.id === candidateId || u?.userId === candidateId
-        );
-        if (candidate) {
+        const cand = users?.find?.((u) => u?._id === candidateId || u?.id === candidateId || u?.userId === candidateId);
+        if (cand) {
           return (
-            candidate.displayName ||
-            candidate.fullName ||
-            candidate.name ||
-            candidate.username ||
-            candidate.email ||
-            'Unknown User'
+            cand.displayName ||
+            cand.fullName ||
+            cand.name ||
+            cand.username ||
+            cand.email ||
+            '—'
           );
         }
       }
@@ -146,274 +145,100 @@ function SessionDetailsModal({ open, onClose, session }) {
         userRef.username ||
         userRef.email ||
         userRef.user_name ||
-        'Unknown User'
+        '—'
       );
     }
-    return 'Unknown User';
-  };
+    return '—';
+  }
 
-  // Utility: safely pick the first defined value by probing dot/flat aliases
-  const pickFrom = (s, keys) => {
-    for (const k of keys) {
-      if (k.includes('.')) {
-        const parts = k.split('.');
-        let cur = s;
-        let found = true;
-        for (const p of parts) {
-          if (cur && Object.prototype.hasOwnProperty.call(cur, p)) {
-            cur = cur[p];
-          } else {
-            found = false;
-            break;
-          }
-        }
-        if (found && cur != null) return cur;
-      } else if (s && s[k] !== undefined && s[k] !== null) {
-        return s[k];
-      }
-    }
-    return undefined;
-  };
-
-  // Extract normalized references up-front for user and timestamps
-  const { userIdRef, displayUserResolved, createdAt, lastUpdatedAt, sessionId, tenantId } = useMemo(() => {
+  const computed = useMemo(() => {
     const s = session || {};
-    const createdAtRaw = pickFrom(s, [
-      'created_at', 'createdAt', 'startedAt', 'started_at', 'start_time', 'startTime', 'created', 'timestamp', 'session_start', 'sessionStart', 'begin_time', 'beginTime'
-    ]);
 
-    const lastUpdatedPrimary = pickFrom(s, ['last_updated']);
-    let normalizedLastUpdatedAt = lastUpdatedPrimary;
-    if (!normalizedLastUpdatedAt) {
-      normalizedLastUpdatedAt = pickFrom(s, [
-        'updatedAt', 'updated_at',
-        'modifiedAt', 'modified_at',
-        'lastModified', 'last_modified',
-        'lastActivityAt', 'last_activity_at',
-        'finishedAt', 'finished_at',
-        'endedAt', 'ended_at'
-      ]);
-    }
+    // Identify top-level helpful fields
+    const sid =
+      pickFrom(s, ['session_id', 'sessionId', '_id', 'id']) ??
+      pickFrom(s, ['session_data.session_id', 'session_data.sessionId']) ??
+      '';
 
-    const normalizedCreatedAt = createdAtRaw || undefined;
-    const id = pickFrom(s, ['session_id', 'sessionId', '_id', 'id', 'session_data.session_id', 'session_data.sessionId']);
+    const tenantId =
+      pickFrom(s, ['tenant_id', 'tenantId', 'organization_id', 'organizationId']) || '—';
 
-    // Resolve user ID robustly (may be in different shapes)
-    const uId = pickFrom(s, [
-      'userId',
-      'user_id',
-      'user._id',
-      'user.id',
-      'user',
-      'owner_id',
-      'owner',
-    ]);
+    const userIdRef =
+      pickFrom(s, ['user_id', 'userId', 'user._id', 'user.id', 'owner_id']) || '';
 
     const displayUser = (() => {
       const resolved = resolveUserName(
-        pickFrom(s, ['user', 'userId', 'user_id', 'username', 'email', 'owner', 'ownerEmail'])
+        pickFrom(s, ['user', 'userId', 'user_id', 'username', 'email', 'owner'])
       );
-      const rawName = s?.User_name ?? resolved ?? 'Unknown User';
-      return typeof rawName === 'string' ? toTitleCaseName(rawName) : rawName;
+      return typeof resolved === 'string' ? toTitleCaseName(resolved) : resolved;
     })();
 
-    const tenant = pickFrom(s, ['tenant_id', 'organization_id', 'tenantId', 'organizationId', 'tenant', 'organization']) || 'T0015';
+    // session_breakdown extraction
+    const sb = s?.session_breakdown || s?.sessionBreakdown || {};
+    const sessionStart =
+      sb?.session_start ?? sb?.sessionStart ?? sb?.start ?? sb?.start_time ?? sb?.startTime ?? null;
+    const sessionEnd =
+      sb?.session_end ?? sb?.sessionEnd ?? sb?.end ?? sb?.end_time ?? sb?.endTime ?? null;
+    const duration =
+      sb?.duration ??
+      sb?.duration_breakdown ??
+      sb?.durationReadable ??
+      sb?.duration_readable ??
+      sb?.total_duration ??
+      sb?.totalDuration ??
+      null;
+    const agent =
+      sb?.agent ??
+      sb?.agents ??
+      sb?.agent_name ??
+      sb?.agentName ??
+      sb?.model ??
+      sb?.model_name ??
+      null;
 
+    // Render object
     return {
-      userIdRef: uId ? String(uId) : '',
-      displayUserResolved: displayUser,
-      createdAt: normalizedCreatedAt,
-      lastUpdatedAt: normalizedLastUpdatedAt,
-      sessionId: id || '',
-      tenantId: tenant,
+      'User ID': userIdRef || '—',
+      'User Name': displayUser || '—',
+      'Session ID': sid || '—',
+      'Tenant': tenantId || '—',
+      'Session Start': sessionStart ? sessionStart : '—',
+      'Session End': sessionEnd ? sessionEnd : '—',
+      'Duration (breakdown)': (duration || duration === 0) ? duration : '—',
+      'Agent': Array.isArray(agent)
+        ? (agent.length ? agent.join(', ') : '—')
+        : (typeof agent === 'string' && agent.trim() ? agent : '—'),
+      // Additional context fields (raw)
+      'Created At': fmtDate(
+        pickFrom(s, [
+          'created_at', 'createdAt', 'startedAt', 'started_at', 'start_time', 'startTime',
+          'timestamp', 'begin_time', 'beginTime'
+        ])
+      ),
+      'Last Updated': fmtDate(
+        pickFrom(s, [
+          'last_updated', 'updatedAt', 'updated_at', 'modifiedAt', 'modified_at',
+          'lastModified', 'last_modified', 'lastActivityAt', 'last_activity_at',
+          'finishedAt', 'finished_at', 'endedAt', 'ended_at'
+        ])
+      ),
+      'Service Type': pickFrom(s, ['service_type', 'serviceType', 'provider', 'modelProvider']) || '—',
+      'Project ID': pickFrom(s, ['project_id', 'projectId', 'project', 'projectSlug']) ||
+                    pickFrom(s, ['projectName', 'project_name', 'projectLabel', 'project_label']) || '—',
+      'Status': pickFrom(s, ['status']) || '—',
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, users]);
 
-  // Fetch a basic user name when DataContext could not resolve a meaningful name
-  useEffect(() => {
-    let ignore = false;
-    async function load() {
-      if (!open || !userIdRef) {
-        setFetchedUserName('');
-        setFetchingUserName(false);
-        return;
-      }
-
-      // If displayUserResolved is already meaningful (not Unknown User), skip fetch
-      if (displayUserResolved && !/^unknown user$/i.test(String(displayUserResolved))) {
-        setFetchedUserName('');
-        return;
-      }
-
-      try {
-        setFetchingUserName(true);
-        const res = await getUserBasic(userIdRef);
-        if (!ignore) {
-          setFetchedUserName(res?.name || '');
-        }
-      } catch {
-        if (!ignore) {
-          setFetchedUserName('');
-        }
-      } finally {
-        if (!ignore) setFetchingUserName(false);
-      }
-    }
-    load();
-    return () => {
-      ignore = true;
-    };
-  }, [open, userIdRef, displayUserResolved]);
-
-  // Directly use session.session_breakdown without background fetching.
-  useEffect(() => {
-    // Reset loading flags since no async call
-    setLoadingBreakdown(false);
-    setBreakdownError(null);
-
-    if (!open) {
-      setBreakdown({ sessionStart: null, sessionEnd: null, duration: null, agent: null });
-      return;
-    }
-
-    // Simple fallback sample when response/session missing
-    if (!session || typeof session !== 'object') {
-      setBreakdown({
-        sessionStart: '2024-01-01T00:00:00.000Z',
-        sessionEnd: '2024-01-01T06:27:00.000Z',
-        duration: 23220, // raw number per requirement
-        agent: ['HelpAgent', 'TestExecutionAgent'],
-      });
-      return;
-    }
-
-    // Pull values as-is from session.session_breakdown; if exists but fields undefined, keep placeholders.
-    const sb = session.session_breakdown || {};
-    const next = {
-      sessionStart: sb.session_start !== undefined ? sb.session_start : undefined,
-      sessionEnd: sb.session_end !== undefined ? sb.session_end : undefined,
-      duration: sb.duration !== undefined ? sb.duration : undefined,
-      agent: sb.agent !== undefined ? sb.agent : undefined,
-    };
-    setBreakdown(next);
-  }, [open, session]);
-
-  // Collect required and requested details; preserve previously approved fields.
-  const coreDetails = useMemo(() => {
-    if (!session || typeof session !== 'object') return {};
-
-    // Compute duration using startedAt (createdAt alias) and the normalized last_updated
-    const durationStr = computeDuration(createdAt, lastUpdatedAt);
-
-    // Dev-only diagnostics per instructions
-    if (process.env.NODE_ENV !== 'production') {
-      try {
-        // eslint-disable-next-line no-console
-        console.log('[SessionDetailsModal:debug]', {
-          user_id: userIdRef,
-          last_updated: lastUpdatedAt,
-          scope: 'tenant_id',
-        });
-      } catch {
-        // ignore logging errors
-      }
-    }
-
-    // Determine display name with fetch fallback
-    const nameCandidate = (() => {
-      if (fetchingUserName) return 'Loading...';
-      const fetched = fetchedUserName?.trim();
-      if (fetched) return fetched;
-      const resolved = String(displayUserResolved || '').trim();
-      if (resolved && !/^unknown user$/i.test(resolved)) return resolved;
-      return 'Not available';
-    })();
-
-    const existingDuration = session?.duration || session?.total_duration || session?.totalDuration || null;
-    const durationToShow = existingDuration || breakdown.duration || durationStr || '—';
-
-    const details = {
-      'User ID': userIdRef || '—',
-      'User Name': nameCandidate,
-      'Session ID': sessionId || '—',
-      'Project ID': pickFrom(session || {}, ['project_id', 'projectId', 'project', 'projectSlug']) ??
-        pickFrom(session || {}, ['projectName', 'project_name', 'projectLabel', 'project_label']) ??
-        '—',
-      'Service Type': pickFrom(session || {}, ['serviceType', 'service_type', 'provider', 'modelProvider']) ?? '—',
-      Tenant: tenantId || '—',
-      'Started At': fmt(createdAt),
-      'Last Updated At': fmt(lastUpdatedAt),
-      Duration: durationToShow,
-      // New fields below sourced from session_breakdown
-      // Render breakdown values directly without formatting/parsing; placeholders still shown if undefined
-      'Session Start': loadingBreakdown ? 'Loading…' : (breakdown.sessionStart ?? '2024-01-01T00:00:00.000Z'),
-      'Session End': loadingBreakdown ? 'Loading…' : (breakdown.sessionEnd ?? '2024-01-01T06:27:00.000Z'),
-      'Duration (breakdown)': loadingBreakdown ? 'Loading…' : (breakdown.duration ?? 23220),
-      'Agent': loadingBreakdown
-        ? 'Loading…'
-        : Array.isArray(breakdown.agent)
-          ? breakdown.agent.join(', ')
-          : (typeof breakdown.agent === 'string' && breakdown.agent.trim().length > 0
-              ? breakdown.agent
-              : 'HelpAgent, TestExecutionAgent'),
-    };
-
-    // Enhance: If the session payload includes a user cost field (any casing/spacing),
-    // render "User Cost: $X • Credits Used: N" inline without mutating data.
-    try {
-      const s = session;
-      const findUserCostNumber = () => {
-        if (!s || typeof s !== 'object') return null;
-        for (const [k, v] of Object.entries(s)) {
-          const norm = String(k || '')
-            .toLowerCase()
-            .replace(/\s+/g, '_')
-            .replace(/[^a-z0-9_]/g, '');
-          if (norm === 'user_cost' || norm === 'usercost') {
-            if (typeof v === 'number') return Number.isFinite(v) ? v : null;
-            const parsed = parseUsdToNumber(v);
-            if (parsed != null) return parsed;
-            const n = Number(v);
-            return Number.isFinite(n) ? n : null;
-          }
-        }
-        return null;
-      };
-      const userCostNum = findUserCostNumber();
-      if (userCostNum != null) {
-        const usdText = formatCurrencyAmount(userCostNum, { currency: 'USD' });
-        const creditsText = formatCredits(usdToCredits(userCostNum));
-        details['User Cost'] = `${usdText} \u2022 Credits Used: ${creditsText}`;
-      }
-    } catch {
-      // do not block rendering on formatter errors
-    }
-
-    return details;
-  }, [
-    session,
-    userIdRef,
-    displayUserResolved,
-    fetchedUserName,
-    fetchingUserName,
-    createdAt,
-    lastUpdatedAt,
-    sessionId,
-    tenantId,
-    breakdown,
-    loadingBreakdown,
-  ]);
-
-  // Title must be "Session Details - <sessionId>"
   const title = useMemo(() => {
-    const id = sessionId || '';
+    const id =
+      sessionId ||
+      pickFrom(session || {}, ['session_id', 'sessionId', '_id', 'id']) ||
+      '—';
     return `Session Details - ${id || '—'}`;
-  }, [sessionId]);
+  }, [sessionId, session]);
 
   return (
     <Modal open={open} onClose={onClose} title={title} className="session-details-modal modal--session modal-card-shell">
-      {/* Sticky Header with subtle divider and theme token background */}
       <div
         className="sticky-header"
         style={{
@@ -437,7 +262,6 @@ function SessionDetailsModal({ open, onClose, session }) {
         </h2>
       </div>
 
-      {/* Scrollable content area */}
       <div
         ref={contentRef}
         tabIndex={-1}
@@ -479,9 +303,9 @@ function SessionDetailsModal({ open, onClose, session }) {
               rowGap: 0,
             }}
           >
-            {Object.entries(coreDetails).map(([label, value]) => {
+            {Object.entries(computed).map(([label, value]) => {
               const isPlaceholder =
-                value === '—' || value === 'Unknown User' || value === 'Not available' || value === 'Loading...';
+                value === '—' || value === 'Unknown User' || value === 'Not available';
               return (
                 <div key={label} className="detail-item" style={{ minWidth: 0 }}>
                   <div
@@ -489,7 +313,7 @@ function SessionDetailsModal({ open, onClose, session }) {
                     style={{
                       fontSize: 12,
                       fontWeight: 600,
-                      color: 'var(--text-tertiary, #64748B)', // align with User modal
+                      color: 'var(--text-tertiary, #64748B)',
                       letterSpacing: '0.02em',
                       marginBottom: 6,
                     }}
@@ -500,7 +324,7 @@ function SessionDetailsModal({ open, onClose, session }) {
                     className="detail-value"
                     style={{
                       fontSize: 14,
-                      fontWeight: isPlaceholder ? 500 : 600, // normalize to 600 to match User Details modal
+                      fontWeight: isPlaceholder ? 500 : 600,
                       color: isPlaceholder
                         ? 'var(--text-tertiary, #6B7280)'
                         : 'var(--text-primary, #111827)',
@@ -515,12 +339,10 @@ function SessionDetailsModal({ open, onClose, session }) {
                 </div>
               );
             })}
-            {/* We no longer gate or hide rows based on breakdown parsing shape; simple rendering above handles fallbacks. */}
           </div>
         </section>
       </div>
 
-      {/* Footer */}
       <div
         className="modal-footer"
         style={{
@@ -542,25 +364,20 @@ function SessionDetailsModal({ open, onClose, session }) {
       </div>
 
       <style>{`
-        /* Responsive: single column on small screens */
         @media (max-width: 639px) {
           .details-card [aria-label="Label and value pairs"] {
             grid-template-columns: 1fr !important;
             row-gap: 0 !important;
           }
         }
-
-        /* Section dividers and zebra striping for detail items
-           Ensure striping applies by row across two columns: items (1,2), (3,4), ... */
         .details-grid .detail-item {
           padding: 10px 0;
           border-top: 1px solid var(--border-subtle, #E5E7EB);
         }
         .details-grid .detail-item:nth-child(1),
         .details-grid .detail-item:nth-child(2) {
-          border-top: none; /* First row (2 columns) has no top border */
+          border-top: none;
         }
-        /* Zebra: apply background to pairs (1,2), (5,6), (9,10) ... => 4n+1 and 4n+2 */
         .details-grid .detail-item:nth-child(4n + 1),
         .details-grid .detail-item:nth-child(4n + 2) {
           background: var(
@@ -571,13 +388,6 @@ function SessionDetailsModal({ open, onClose, session }) {
         .details-grid .detail-item:nth-child(4n + 3),
         .details-grid .detail-item:nth-child(4n + 4) {
           background: transparent;
-        }
-
-        /* Improve focus-visible for any buttons/interactive nodes inside modal */
-        .details-card .btn:focus-visible,
-        .w-100.btn:focus-visible {
-          outline: 3px solid rgba(37, 99, 235, 0.35) !important; /* Ocean blue */
-          outline-offset: 2px !important;
         }
       `}</style>
     </Modal>
