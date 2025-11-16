@@ -8,6 +8,7 @@ import { usdToCredits, formatCredits, parseUsdToNumber } from '../../utils/curre
 import { formatCurrencyAmount } from '../../utils/formatCurrency';
 import { getUserBasic } from '../../api/users';
 import './SessionDetailsModal.css';
+import { getSessionDetails } from '../../api/sessionDetails';
 
 /**
  * PUBLIC_INTERFACE
@@ -330,6 +331,85 @@ function SessionDetailsModal({ open, onClose, session }) {
     return `Session Details - ${id || '\u2014'}`;
   }, [session]);
 
+  // Breakdown state and date filters
+  const [breakdown, setBreakdown] = useState([]);
+  const [breakdownLoading, setBreakdownLoading] = useState(false);
+  const [breakdownError, setBreakdownError] = useState('');
+  const [totalDuration, setTotalDuration] = useState(0); // seconds
+
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  const sessionDocId = useMemo(() => {
+    return session?._id || session?.id || session?.sessionId || '';
+  }, [session]);
+
+  // Load breakdown
+  useEffect(() => {
+    let ignore = false;
+    async function loadDetails() {
+      if (!open || !sessionDocId) {
+        setBreakdown([]);
+        setTotalDuration(0);
+        setBreakdownLoading(false);
+        setBreakdownError('');
+        return;
+      }
+      try {
+        setBreakdownLoading(true);
+        setBreakdownError('');
+        const params = {};
+        if (startDate) params.startDate = startDate;
+        if (endDate) params.endDate = endDate;
+        const data = await getSessionDetails(sessionDocId, params);
+        const list = Array.isArray(data?.session_breakdown) ? data.session_breakdown : [];
+        const total = Number(data?.session_breakdown_total_duration_seconds) || 0;
+        if (!ignore) {
+          setBreakdown(list);
+          setTotalDuration(total);
+        }
+      } catch (e) {
+        if (!ignore) {
+          setBreakdown([]);
+          setTotalDuration(0);
+          setBreakdownError(e?.message || 'Failed to load session details.');
+        }
+      } finally {
+        if (!ignore) setBreakdownLoading(false);
+      }
+    }
+    loadDetails();
+    return () => { ignore = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, sessionDocId, startDate, endDate]);
+
+  // Format duration seconds into human readable
+  const formatDuration = (secs) => {
+    if (!Number.isFinite(secs) || secs < 0) return '—';
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = Math.floor(secs % 60);
+    const parts = [];
+    if (h) parts.push(`${h}h`);
+    if (m || h) parts.push(`${m}m`);
+    parts.push(`${s}s`);
+    return parts.join(' ');
+  };
+
+  // Convert Agents array to a compact comma-separated string of Agent names if present
+  const renderAgents = (agents) => {
+    if (!Array.isArray(agents)) return '—';
+    const names = agents.map((a) => {
+      if (a == null) return '';
+      if (typeof a === 'string') return a;
+      if (typeof a === 'object') {
+        return a.name || a['Agent Name'] || a.agent || a.id || '';
+      }
+      return '';
+    }).filter(Boolean);
+    return names.length ? names.join(', ') : '—';
+  };
+
   return (
     <Modal open={open} onClose={onClose} title={title} className="session-details-modal modal--session">
       {/* Sticky Header with subtle divider and theme token background */}
@@ -434,6 +514,139 @@ function SessionDetailsModal({ open, onClose, session }) {
                 </div>
               );
             })}
+          </div>
+        </section>
+
+        {/* Breakdown section with filters */}
+        <section
+          aria-label="Session breakdown"
+          className="details-card"
+          style={{
+            position: 'relative',
+            background: 'var(--bg-surface, #ffffff)',
+            border: '1px solid var(--border-subtle, #E5E7EB)',
+            borderRadius: 12,
+            padding: 16,
+            boxShadow: 'var(--shadow-sm, 0 1px 2px rgba(16,24,40,0.04))',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
+            <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-primary, #111827)' }}>
+              Session Breakdown
+            </h3>
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <label htmlFor="sdm-start" style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
+                Start
+              </label>
+              <input
+                id="sdm-start"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                style={{
+                  height: 32,
+                  borderRadius: 8,
+                  border: '1px solid var(--border-subtle, #E5E7EB)',
+                  padding: '0 8px',
+                }}
+              />
+              <label htmlFor="sdm-end" style={{ fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
+                End
+              </label>
+              <input
+                id="sdm-end"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                style={{
+                  height: 32,
+                  borderRadius: 8,
+                  border: '1px solid var(--border-subtle, #E5E7EB)',
+                  padding: '0 8px',
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Total duration */}
+          <div style={{ marginBottom: 8, fontSize: 13, color: 'var(--text-secondary, #374151)' }}>
+            Total Duration (filtered):{' '}
+            <strong style={{ color: 'var(--text-primary, #111827)' }}>{formatDuration(totalDuration)}</strong>
+          </div>
+
+          {/* Table */}
+          <div role="table" aria-label="Breakdown list" style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border-subtle, #E5E7EB)' }}>
+                  <th style={{ padding: '8px 6px', fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
+                    Session Start
+                  </th>
+                  <th style={{ padding: '8px 6px', fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
+                    Session End
+                  </th>
+                  <th style={{ padding: '8px 6px', fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
+                    Duration
+                  </th>
+                  <th style={{ padding: '8px 6px', fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
+                    Agents
+                  </th>
+                  <th style={{ padding: '8px 6px', fontSize: 12, color: 'var(--text-tertiary, #64748B)' }}>
+                    User ID
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {breakdownLoading && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 12, fontSize: 14, color: 'var(--text-tertiary, #64748B)' }}>
+                      Loading breakdown...
+                    </td>
+                  </tr>
+                )}
+                {breakdownError && !breakdownLoading && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 12, fontSize: 14, color: 'var(--error, #EF4444)' }}>
+                      {breakdownError}
+                    </td>
+                  </tr>
+                )}
+                {!breakdownLoading && !breakdownError && breakdown.length === 0 && (
+                  <tr>
+                    <td colSpan={5} style={{ padding: 12, fontSize: 14, color: 'var(--text-tertiary, #64748B)' }}>
+                      No breakdown entries for the selected range.
+                    </td>
+                  </tr>
+                )}
+                {!breakdownLoading &&
+                  !breakdownError &&
+                  breakdown.map((seg, idx) => {
+                    const dSec = Number(seg?.duration);
+                    const computedDur =
+                      Number.isFinite(dSec) && dSec >= 0
+                        ? dSec
+                        : (() => {
+                            const s = seg?.session_start ? new Date(seg.session_start).getTime() : NaN;
+                            const e = seg?.session_end ? new Date(seg.session_end).getTime() : NaN;
+                            if (!Number.isNaN(s) && !Number.isNaN(e) && e >= s) {
+                              return Math.floor((e - s) / 1000);
+                            }
+                            return 0;
+                          })();
+                    return (
+                      <tr key={idx} style={{ borderTop: '1px solid var(--border-subtle, #E5E7EB)' }}>
+                        <td style={{ padding: '8px 6px', fontSize: 13 }}>{formatDate(seg?.session_start)}</td>
+                        <td style={{ padding: '8px 6px', fontSize: 13 }}>{formatDate(seg?.session_end)}</td>
+                        <td style={{ padding: '8px 6px', fontSize: 13 }}>{formatDuration(computedDur)}</td>
+                        <td style={{ padding: '8px 6px', fontSize: 13 }}>{renderAgents(seg?.Agents)}</td>
+                        <td style={{ padding: '8px 6px', fontSize: 13 }}>
+                          {seg?.user_id != null ? String(seg.user_id) : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
           </div>
         </section>
       </div>
