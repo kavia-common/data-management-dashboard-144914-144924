@@ -32,10 +32,21 @@ export function normalizeSessionBreakdown(record) {
     return { sessionStart: null, sessionEnd: null, duration: null, agent: null };
   }
   const sb = record.session_breakdown || record.sessionBreakdown || {};
-  const sessionStart = sb.session_start ?? sb.sessionStart ?? null;
-  const sessionEnd = sb.session_end ?? sb.sessionEnd ?? null;
-  const duration = sb.duration ?? sb.total_duration ?? sb.totalDuration ?? null;
-  const agent = sb.agent ?? sb.agent_name ?? sb.agentName ?? null;
+  const sessionStart = sb.session_start ?? sb.sessionStart ?? sb.start ?? sb.start_time ?? sb.startTime ?? null;
+  const sessionEnd = sb.session_end ?? sb.sessionEnd ?? sb.end ?? sb.end_time ?? sb.endTime ?? null;
+
+  // Prefer a human-friendly breakdown string if provided, otherwise may be a numeric ms or seconds
+  const duration =
+    sb.breakdown ||
+    sb.duration_breakdown ||
+    sb.durationReadable ||
+    sb.duration_readable ||
+    sb.duration ||
+    sb.total_duration ||
+    sb.totalDuration ||
+    null;
+
+  const agent = sb.agent ?? sb.agent_name ?? sb.agentName ?? sb.model ?? sb.model_name ?? null;
 
   return { sessionStart, sessionEnd, duration, agent };
 }
