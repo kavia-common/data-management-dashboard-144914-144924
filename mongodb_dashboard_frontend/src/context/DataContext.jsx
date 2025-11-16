@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { listUsers, listSessions } from "../api";
+import { listUsers } from "../api";
 
 /**
  * PUBLIC_INTERFACE
@@ -14,11 +14,7 @@ const DataContext = createContext({
   users: [],
   usersLoading: false,
   usersError: "",
-  sessions: [],
-  sessionsLoading: false,
-  sessionsError: "",
   refreshUsers: async () => {},
-  refreshSessions: async () => {},
 });
 
 // PUBLIC_INTERFACE
@@ -44,10 +40,6 @@ export function DataProvider({ children }) {
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState("");
 
-  const [sessions, setSessions] = useState([]);
-  const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [sessionsError, setSessionsError] = useState("");
-
   // Independent refreshers for each dataset
   const refreshUsers = useCallback(async () => {
     setUsersLoading(true);
@@ -64,20 +56,7 @@ export function DataProvider({ children }) {
     }
   }, []);
 
-  const refreshSessions = useCallback(async () => {
-    setSessionsLoading(true);
-    setSessionsError("");
-    try {
-      const res = await listSessions();
-      const arr = Array.isArray(res) ? res : res?.items ?? [];
-      setSessions(arr);
-    } catch (e) {
-      setSessions([]);
-      setSessionsError(e?.response?.data?.message || e?.message || "Failed to load sessions.");
-    } finally {
-      setSessionsLoading(false);
-    }
-  }, []);
+
 
   // Mount-only guard to ensure initial load triggers once
   const didInit = useRef(false);
@@ -86,29 +65,20 @@ export function DataProvider({ children }) {
     didInit.current = true;
     // Fire both without awaiting to load in parallel
     refreshUsers();
-    refreshSessions();
-  }, [refreshUsers, refreshSessions]);
+  }, [refreshUsers]);
 
   const value = useMemo(
     () => ({
       users,
       usersLoading,
       usersError,
-      sessions,
-      sessionsLoading,
-      sessionsError,
       refreshUsers,
-      refreshSessions,
     }),
     [
       users,
       usersLoading,
       usersError,
-      sessions,
-      sessionsLoading,
-      sessionsError,
       refreshUsers,
-      refreshSessions,
     ]
   );
 

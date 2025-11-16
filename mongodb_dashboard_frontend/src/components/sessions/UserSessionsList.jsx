@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import PropTypes from "prop-types";
 import { getUserSessions } from "../../api/userSessions";
 
 /** Convert seconds to "Xh Ym Zs" */
@@ -231,5 +232,15 @@ function UserSessionsList({ userId, tenantId, projectId = null }) {
     </section>
   );
 }
+
+UserSessionsList.propTypes = {
+  userId: PropTypes.string.isRequired,
+  tenantId: PropTypes.string.isRequired,
+  projectId: PropTypes.oneOfType([PropTypes.string, PropTypes.oneOf([null])]),
+};
+
+UserSessionsList.defaultProps = {
+  projectId: null,
+};
 
 export default UserSessionsList;

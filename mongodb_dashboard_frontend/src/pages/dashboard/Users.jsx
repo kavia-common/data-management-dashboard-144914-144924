@@ -3,6 +3,7 @@ import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersByTenantChart from "../../components/charts/UsersByTenantChart.jsx";
 import UsersDepartmentChart from "../../modules/users/UsersDepartmentChart.jsx";
+import UserSessionsPanel from "../../components/sessions/UserSessionsPanel.jsx";
 
 
 export default function Users() {
@@ -126,6 +127,12 @@ export default function Users() {
         tenantId={selectedTenantId}
         defaultTab={defaultTab}
       />
+
+      {selectedUser?.id || selectedUser?._id ? (
+        <div style={{ marginTop: 16 }}>
+          <UserSessionsPanel userId={String(selectedUser.id || selectedUser._id)} />
+        </div>
+      ) : null}
     </div>
   );
 }
