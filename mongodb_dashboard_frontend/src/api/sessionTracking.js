@@ -1,7 +1,37 @@
+import client from './client';
+import { getBaseUrl } from './util';
+
 /**
- * Session Tracking helpers.
- * Utilities to normalize breakdown info and match records to a sessionId.
+ * Session Tracking API client.
+ * Provides functions to fetch session tracking records for a tenant
+ * and find a record by session id defensively handling envelope/array responses.
  */
+
+const DEFAULT_PAGE = 4;
+const DEFAULT_LIMIT = 200;
+
+// PUBLIC_INTERFACE
+export async function fetchSessionTracking({ tenantId, page = DEFAULT_PAGE, limit = DEFAULT_LIMIT, useProxy = true } = {}) {
+  /** Fetch session-tracking list (envelope or array).
+   * When useProxy is true, call the backend proxy at /api/proxy/session-tracking,
+   * otherwise call the external URL directly (may be blocked by CORS in some environments).
+   */
+  const params = new URLSearchParams();
+  if (page != null) params.set('page', String(page));
+  if (limit != null) params.set('limit', String(limit));
+  if (tenantId) params.set('tenant_id', tenantId);
+
+  if (useProxy) {
+    // Prefer backend proxy to avoid CORS
+    const url = `${getBaseUrl()}/api/proxy/session-tracking?${params.toString()}`;
+    const res = await client.get(url);
+    return res.data;
+  }
+
+  const externalUrl = `https://vscode-internal-41189-beta.beta01.cloud.kavia.ai:3001/api/session-tracking?${params.toString()}`;
+  const res = await client.get(externalUrl);
+  return res.data;
+}
 
 // PUBLIC_INTERFACE
 export function normalizeSessionBreakdown(record) {
@@ -12,21 +42,10 @@ export function normalizeSessionBreakdown(record) {
     return { sessionStart: null, sessionEnd: null, duration: null, agent: null };
   }
   const sb = record.session_breakdown || record.sessionBreakdown || {};
-  const sessionStart = sb.session_start ?? sb.sessionStart ?? sb.start ?? sb.start_time ?? sb.startTime ?? null;
-  const sessionEnd = sb.session_end ?? sb.sessionEnd ?? sb.end ?? sb.end_time ?? sb.endTime ?? null;
-
-  // Prefer a human-friendly breakdown string if provided, otherwise may be a numeric ms or seconds
-  const duration =
-    sb.breakdown ||
-    sb.duration_breakdown ||
-    sb.durationReadable ||
-    sb.duration_readable ||
-    sb.duration ||
-    sb.total_duration ||
-    sb.totalDuration ||
-    null;
-
-  const agent = sb.agent ?? sb.agent_name ?? sb.agentName ?? sb.model ?? sb.model_name ?? null;
+  const sessionStart = sb.session_start ?? sb.sessionStart ?? null;
+  const sessionEnd = sb.session_end ?? sb.sessionEnd ?? null;
+  const duration = sb.duration ?? sb.total_duration ?? sb.totalDuration ?? null;
+  const agent = sb.agent ?? sb.agent_name ?? sb.agentName ?? null;
 
   return { sessionStart, sessionEnd, duration, agent };
 }
