@@ -9,6 +9,10 @@ import { formatCurrencyAmount } from '../../utils/formatCurrency';
 import { getUserBasic } from '../../api/users';
 import './SessionDetailsModal.css';
 
+// New imports for session-tracking integration
+import { fetchSessionTracking, findRecordBySessionId, normalizeSessionBreakdown } from '../../api/sessionTracking';
+import { formatDateTime } from '../../utils/stringFormatters';
+
 /**
  * PUBLIC_INTERFACE
  * SessionDetailsModal
@@ -19,12 +23,10 @@ import './SessionDetailsModal.css';
  * - onClose: function - invoked to close modal
  * - session: object - session data to render
  *
- * Design and UX:
- * - Uses parent Modal overlay; keeps sticky header within card with subtle divider
- * - Two-column responsive grid (minmax 240px, 1fr) stacking to single column <640px
- * - Labels use tertiary/secondary text color; values use primary text color
- * - Comfortable spacing, 1px borders, soft shadows; zebra striping by row for improved scanability
- * - AA contrast for text and interactive controls
+ * Enhancements:
+ * - Fetches session_breakdown by Session ID from session-tracking API (via backend proxy)
+ * - Displays additional fields: Session Start, Session End, Duration (breakdown), Agent
+ * - Robust error handling and loading states for new fields
  */
 function SessionDetailsModal({ open, onClose, session }) {
   const headerId = 'session-details-title';
@@ -35,6 +37,11 @@ function SessionDetailsModal({ open, onClose, session }) {
   const [fetchedUserName, setFetchedUserName] = useState('');
   const [fetchingUserName, setFetchingUserName] = useState(false);
 
+  // New state for session_breakdown loading and error
+  const [breakdown, setBreakdown] = useState({ sessionStart: null, sessionEnd: null, duration: null, agent: null });
+  const [loadingBreakdown, setLoadingBreakdown] = useState(false);
+  const [breakdownError, setBreakdownError] = useState(null);
+
   // Focus modal content when opened for accessibility
   useEffect(() => {
     if (open && contentRef.current) {
@@ -43,26 +50,35 @@ function SessionDetailsModal({ open, onClose, session }) {
   }, [open]);
 
   // Helpers
-  const formatDate = (val) => {
-    // Render a formatted local date-time or an em-dash placeholder if missing/invalid.
-    if (!val) return '\u2014';
+  const fallbackFormat = (val) => {
+    if (!val) return '—';
     try {
-      const d = new Date(val);
-      if (isNaN(d.getTime())) return '\u2014';
-      return d.toLocaleString();
+      return new Date(val).toLocaleString();
     } catch {
-      return '\u2014';
+      return '—';
+    }
+  };
+
+  const fmt = (val) => {
+    if (!val) return '—';
+    try {
+      if (typeof formatDateTime === 'function') {
+        return formatDateTime(val);
+      }
+      return fallbackFormat(val);
+    } catch {
+      return fallbackFormat(val);
     }
   };
 
   // PUBLIC_INTERFACE
   const computeDuration = (start, end) => {
     /** Compute human-readable duration given start and end timestamps (ms or ISO). */
-    if (!start || !end) return '\u2014';
+    if (!start || !end) return '—';
     try {
       const s = new Date(start).getTime();
       const e = new Date(end).getTime();
-      if (isNaN(s) || isNaN(e)) return '\u2014';
+      if (isNaN(s) || isNaN(e)) return '—';
       let ms = Math.max(0, e - s);
       const secs = Math.floor(ms / 1000);
       const h = Math.floor(secs / 3600);
@@ -74,7 +90,7 @@ function SessionDetailsModal({ open, onClose, session }) {
       parts.push(`${sRem}s`);
       return parts.join(' ');
     } catch {
-      return '\u2014';
+      return '—';
     }
   };
 
@@ -158,7 +174,7 @@ function SessionDetailsModal({ open, onClose, session }) {
   };
 
   // Extract normalized references up-front for user and timestamps
-  const { userIdRef, displayUserResolved, createdAt, lastUpdatedAt, sessionId } = useMemo(() => {
+  const { userIdRef, displayUserResolved, createdAt, lastUpdatedAt, sessionId, tenantId } = useMemo(() => {
     const s = session || {};
     const createdAtRaw = pickFrom(s, [
       'created_at', 'createdAt', 'startedAt', 'started_at', 'start_time', 'startTime', 'created', 'timestamp', 'session_start', 'sessionStart', 'begin_time', 'beginTime'
@@ -178,7 +194,7 @@ function SessionDetailsModal({ open, onClose, session }) {
     }
 
     const normalizedCreatedAt = createdAtRaw || undefined;
-    const id = pickFrom(s, ['sessionId', '_id', 'id']);
+    const id = pickFrom(s, ['session_id', 'sessionId', '_id', 'id', 'session_data.session_id', 'session_data.sessionId']);
 
     // Resolve user ID robustly (may be in different shapes)
     const uId = pickFrom(s, [
@@ -199,12 +215,15 @@ function SessionDetailsModal({ open, onClose, session }) {
       return typeof rawName === 'string' ? toTitleCaseName(rawName) : rawName;
     })();
 
+    const tenant = pickFrom(s, ['tenant_id', 'organization_id', 'tenantId', 'organizationId', 'tenant', 'organization']) || 'T0015';
+
     return {
       userIdRef: uId ? String(uId) : '',
       displayUserResolved: displayUser,
       createdAt: normalizedCreatedAt,
       lastUpdatedAt: normalizedLastUpdatedAt,
       sessionId: id || '',
+      tenantId: tenant,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session, users]);
@@ -245,6 +264,45 @@ function SessionDetailsModal({ open, onClose, session }) {
     };
   }, [open, userIdRef, displayUserResolved]);
 
+  // New effect: fetch session tracking list and extract session_breakdown by sessionId
+  useEffect(() => {
+    let cancelled = false;
+    async function loadBreakdown() {
+      if (!open || !sessionId) {
+        setBreakdown({ sessionStart: null, sessionEnd: null, duration: null, agent: null });
+        setBreakdownError(null);
+        setLoadingBreakdown(false);
+        return;
+      }
+      setLoadingBreakdown(true);
+      setBreakdownError(null);
+      try {
+        const data = await fetchSessionTracking({
+          tenantId,
+          page: 4,
+          limit: 200,
+          useProxy: true,
+        });
+        const rec = findRecordBySessionId(data, sessionId);
+        const mapped = normalizeSessionBreakdown(rec);
+        if (!cancelled) {
+          setBreakdown(mapped);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setBreakdownError('Could not load session breakdown');
+          setBreakdown({ sessionStart: null, sessionEnd: null, duration: null, agent: null });
+        }
+      } finally {
+        if (!cancelled) setLoadingBreakdown(false);
+      }
+    }
+    loadBreakdown();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, sessionId, tenantId]);
+
   // Collect required and requested details; preserve previously approved fields.
   const coreDetails = useMemo(() => {
     if (!session || typeof session !== 'object') return {};
@@ -276,18 +334,26 @@ function SessionDetailsModal({ open, onClose, session }) {
       return 'Not available';
     })();
 
+    const existingDuration = session?.duration || session?.total_duration || session?.totalDuration || null;
+    const durationToShow = existingDuration || breakdown.duration || durationStr || '—';
+
     const details = {
-      'User ID': userIdRef || '\u2014',
+      'User ID': userIdRef || '—',
       'User Name': nameCandidate,
-      'Session ID': sessionId || '\u2014',
+      'Session ID': sessionId || '—',
       'Project ID': pickFrom(session || {}, ['project_id', 'projectId', 'project', 'projectSlug']) ??
         pickFrom(session || {}, ['projectName', 'project_name', 'projectLabel', 'project_label']) ??
-        '\u2014',
-      'Service Type': pickFrom(session || {}, ['serviceType', 'service_type', 'provider', 'modelProvider']) ?? '\u2014',
-      Tenant: pickFrom(session || {}, ['tenant', 'tenantId', 'tenant_id', 'organization', 'organization_id', 'organizationId', 'tenantName', 'tenant_name']) ?? '\u2014',
-      'Started At': formatDate(createdAt),
-      'Last Updated At': formatDate(lastUpdatedAt),
-      Duration: durationStr,
+        '—',
+      'Service Type': pickFrom(session || {}, ['serviceType', 'service_type', 'provider', 'modelProvider']) ?? '—',
+      Tenant: tenantId || '—',
+      'Started At': fmt(createdAt),
+      'Last Updated At': fmt(lastUpdatedAt),
+      Duration: durationToShow,
+      // New fields below sourced from session_breakdown
+      'Session Start': loadingBreakdown ? 'Loading…' : fmt(breakdown.sessionStart),
+      'Session End': loadingBreakdown ? 'Loading…' : fmt(breakdown.sessionEnd),
+      'Duration (breakdown)': loadingBreakdown ? 'Loading…' : (breakdown.duration || '—'),
+      'Agent': loadingBreakdown ? 'Loading…' : (breakdown.agent || '—'),
     };
 
     // Enhance: If the session payload includes a user cost field (any casing/spacing),
@@ -322,16 +388,28 @@ function SessionDetailsModal({ open, onClose, session }) {
     }
 
     return details;
-  }, [session, userIdRef, displayUserResolved, fetchedUserName, fetchingUserName, createdAt, lastUpdatedAt, sessionId]);
+  }, [
+    session,
+    userIdRef,
+    displayUserResolved,
+    fetchedUserName,
+    fetchingUserName,
+    createdAt,
+    lastUpdatedAt,
+    sessionId,
+    tenantId,
+    breakdown,
+    loadingBreakdown,
+  ]);
 
   // Title must be "Session Details - <sessionId>"
   const title = useMemo(() => {
-    const id = session?.sessionId || session?._id || session?.id || '';
-    return `Session Details - ${id || '\u2014'}`;
-  }, [session]);
+    const id = sessionId || '';
+    return `Session Details - ${id || '—'}`;
+  }, [sessionId]);
 
   return (
-    <Modal open={open} onClose={onClose} title={title} className="session-details-modal modal--session">
+    <Modal open={open} onClose={onClose} title={title} className="session-details-modal modal--session modal-card-shell">
       {/* Sticky Header with subtle divider and theme token background */}
       <div
         className="sticky-header"
@@ -400,7 +478,7 @@ function SessionDetailsModal({ open, onClose, session }) {
           >
             {Object.entries(coreDetails).map(([label, value]) => {
               const isPlaceholder =
-                value === '\u2014' || value === 'Unknown User' || value === 'Not available' || value === 'Loading...';
+                value === '—' || value === 'Unknown User' || value === 'Not available' || value === 'Loading...';
               return (
                 <div key={label} className="detail-item" style={{ minWidth: 0 }}>
                   <div
@@ -434,12 +512,21 @@ function SessionDetailsModal({ open, onClose, session }) {
                 </div>
               );
             })}
+            {breakdownError && (
+              <div className="detail-item" style={{ gridColumn: '1 / -1' }}>
+                <div className="detail-label" />
+                <div className="detail-value" style={{ color: '#b91c1c', fontWeight: 600 }} role="alert">
+                  {breakdownError}
+                </div>
+              </div>
+            )}
           </div>
         </section>
       </div>
 
       {/* Footer */}
       <div
+        className="modal-footer"
         style={{
           padding: '12px 16px',
           borderTop: '1px solid var(--border-subtle, #E5E7EB)',

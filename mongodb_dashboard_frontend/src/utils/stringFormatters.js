@@ -73,12 +73,42 @@ export function toTitleCaseName(value) {
 
   // Capitalize first letter of each word and letter after an apostrophe.
   // Use a Latin letter class that includes common accents.
-  const latinLetter = "A-Za-zÀ-ÖØ-öø-ÿ";
+  const latinLetter = "A-Za-z\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u00ff";
   const titleCased = lower
     // Start-of-word capitalization
     .replace(new RegExp(`\\b([${latinLetter}])`, 'g'), (_, ch) => ch.toUpperCase())
     // After apostrophe (straight or curly)
-    .replace(new RegExp(`([’'])(\\s*)([${latinLetter}])`, 'g'), (_, quote, spaces, ch) => quote + spaces + ch.toUpperCase());
+    .replace(new RegExp(`([\u2019'])(\\s*)([${latinLetter}])`, 'g'), (_, quote, spaces, ch) => quote + spaces + ch.toUpperCase());
 
   return titleCased;
+}
+
+// PUBLIC_INTERFACE
+export function formatDateTime(value, locale, options) {
+  /**
+   * Formats a date/time value consistently across the app.
+   * - Accepts Date | number | string (ISO or parseable)
+   * - Returns a localized string; on failure returns "—"
+   * - locale defaults to browser locale; options provide Intl.DateTimeFormat options
+   */
+  if (value == null || value === '') return '—';
+  try {
+    const d = value instanceof Date ? value : new Date(value);
+    if (isNaN(d.getTime())) return '—';
+    const fmt = new Intl.DateTimeFormat(locale || undefined, options || {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    return fmt.format(d);
+  } catch {
+    try {
+      return new Date(value).toLocaleString();
+    } catch {
+      return '—';
+    }
+  }
 }

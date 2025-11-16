@@ -74,6 +74,9 @@
 .modal-card-shell.session-details-modal .detail-value {
   color: var(--sdm-text) !important;
 }
+.modal-card-shell.session-details-modal .detail-value.error {
+  color: #b91c1c !important;
+}
 
 /* Buttons & focus rings must remain accessible on dark */
 .modal-card-shell.session-details-modal .btn:focus-visible {
