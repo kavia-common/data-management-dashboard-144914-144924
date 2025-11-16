@@ -6,10 +6,11 @@
  */
 import { getApiClient } from "./baseClient";
 
-export async function getUserSessions(userId, tenantId, { page = 1, limit = 50 } = {}) {
+export async function getUserSessions(userId, tenantId, { page = 1, limit = 50, projectId = null } = {}) {
   if (!userId) throw new Error("userId is required");
   if (!tenantId) throw new Error("tenantId is required");
   const params = { tenant_id: tenantId, user_id: userId, page, limit };
+  if (projectId) params.project_id = projectId;
   const { data } = await getApiClient().get("/api/session-tracking", { params });
   // Backend returns { success, items, total }
   const items = Array.isArray(data?.items) ? data.items : [];

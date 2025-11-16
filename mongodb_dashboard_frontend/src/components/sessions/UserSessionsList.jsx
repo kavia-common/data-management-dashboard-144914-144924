@@ -36,7 +36,7 @@ function formatDate(val) {
  * - userId: string (required)
  * - tenantId: string (required)
  */
-function UserSessionsList({ userId, tenantId }) {
+function UserSessionsList({ userId, tenantId, projectId = null }) {
   const [items, setItems] = useState([]);
   const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -68,7 +68,18 @@ function UserSessionsList({ userId, tenantId }) {
       try {
         setLoading(true);
         setErr("");
-        const { items: list } = await getUserSessions(userId, tenantId, { page: 1, limit: 50 });
+        const { items: list } = await getUserSessions(userId, tenantId, { page: 1, limit: 50, projectId });
+        if (process.env.NODE_ENV !== "production") {
+          try {
+            // eslint-disable-next-line no-console
+            console.debug("[UserSessionsList] Loaded items", {
+              userId,
+              tenantId,
+              projectId,
+              count: Array.isArray(list) ? list.length : 0,
+            });
+          } catch {}
+        }
         if (!ignore) {
           setItems(Array.isArray(list) ? list : []);
           setMeta(null);
@@ -87,7 +98,7 @@ function UserSessionsList({ userId, tenantId }) {
     return () => {
       ignore = true;
     };
-  }, [userId, tenantId]);
+  }, [userId, tenantId, projectId]);
 
   return (
     <section
@@ -107,8 +118,23 @@ function UserSessionsList({ userId, tenantId }) {
         </h3>
       </div>
 
-      <div style={{ marginBottom: 12, fontSize: 13, color: "var(--text-secondary, #374151)" }}>
+      <div style={{ marginBottom: 12, fontSize: 13, color: "var(--text-secondary, #374151)", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         Total Duration: <strong style={{ color: "var(--text-primary, #111827)" }}>{formatDuration(totalDuration)}</strong>
+        {projectId ? (
+          <span
+            aria-label="Project filter applied"
+            style={{
+              padding: "2px 8px",
+              borderRadius: 999,
+              background: "rgba(37,99,235,0.1)",
+              color: "#2563EB",
+              fontSize: 12,
+              border: "1px solid rgba(37,99,235,0.2)",
+            }}
+          >
+            Project: {String(projectId)}
+          </span>
+        ) : null}
       </div>
 
       <div role="list" aria-label="User sessions list" style={{ display: "flex", flexDirection: "column", gap: 12 }}>
