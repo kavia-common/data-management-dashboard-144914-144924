@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '../ui/Modal.jsx';
 import { useDataContext } from '../../context/DataContext.jsx';
 import { toTitleCaseName, formatDateTime } from '../../utils/stringFormatters.js';
+import { getSessionBreakDetails } from '../../api/sessionBreaks';
 
 /**
  * PUBLIC_INTERFACE
@@ -25,12 +26,39 @@ function SessionDetailsModal({ open, onClose, sessionId, data }) {
   const contentRef = useRef(null);
   const { users } = useDataContext?.() || { users: [] };
 
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [fetched, setFetched] = useState(null);
+
   // Focus modal content when opened for accessibility
   useEffect(() => {
     if (open && contentRef.current) {
       contentRef.current.focus();
     }
   }, [open]);
+
+  // Fetch backend details when modal opens or when a different sessionId is provided
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDetails() {
+      setError('');
+      setFetched(null);
+      if (!open || !sessionId) return;
+      setLoading(true);
+      try {
+        const res = await getSessionBreakDetails(sessionId);
+        if (!cancelled) setFetched(res || null);
+      } catch (e) {
+        if (!cancelled) setError(e?.message || 'Failed to load session details');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    loadDetails();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, sessionId]);
 
   // PUBLIC_INTERFACE
   function recordMatchesSessionId(record, sid) {
@@ -58,6 +86,10 @@ function SessionDetailsModal({ open, onClose, sessionId, data }) {
 
   const session = useMemo(() => {
     if (!open || !sessionId) return null;
+    // Prefer freshly fetched server record (tenant-scoped) when available
+    const best = fetched && recordMatchesSessionId(fetched, sessionId) ? fetched : null;
+    if (best) return best;
+
     const found = list.find((it) => recordMatchesSessionId(it, sessionId)) || null;
     if (!found && process.env.NODE_ENV !== 'production') {
       try {
@@ -69,7 +101,7 @@ function SessionDetailsModal({ open, onClose, sessionId, data }) {
       }
     }
     return found;
-  }, [open, sessionId, list]);
+  }, [open, sessionId, list, fetched]);
 
   // Utility: safely pick the first defined value by probing dot/flat aliases
   const pickFrom = (obj, keys) => {
@@ -196,8 +228,10 @@ function SessionDetailsModal({ open, onClose, sessionId, data }) {
       sb?.model_name ??
       null;
 
-    // Render object
-    return {
+    const breakSegments = Array.isArray(sb?.breaks || sb?.segments) ? (sb.breaks || sb.segments) : null;
+    const notes = sb?.notes || s?.notes || s?.session_notes || null;
+
+    const obj = {
       'User ID': userIdRef || '—',
       'User Name': displayUser || '—',
       'Session ID': sid || '—',
@@ -227,6 +261,24 @@ function SessionDetailsModal({ open, onClose, sessionId, data }) {
                     pickFrom(s, ['projectName', 'project_name', 'projectLabel', 'project_label']) || '—',
       'Status': pickFrom(s, ['status']) || '—',
     };
+
+    if (breakSegments && breakSegments.length) {
+      obj['Break Segments'] = breakSegments.map((seg, idx) => {
+        try {
+          const start = seg.start || seg.start_time || seg.session_start || null;
+          const end = seg.end || seg.end_time || seg.session_end || null;
+          const label = seg.label || seg.reason || `Segment ${idx + 1}`;
+          return `${label}: ${start || '—'} → ${end || '—'}`;
+        } catch {
+          return `Segment ${idx + 1}`;
+        }
+      }).join(' | ');
+    }
+    if (notes) {
+      obj['Notes'] = String(notes);
+    }
+
+    return obj;
   }, [session, users]);
 
   const title = useMemo(() => {
@@ -280,6 +332,17 @@ function SessionDetailsModal({ open, onClose, sessionId, data }) {
           background: 'var(--bg-canvas, #f9fafb)',
         }}
       >
+        {loading && (
+          <div role="status" aria-live="polite" style={{ padding: 12, color: '#2563EB', fontWeight: 600 }}>
+            Loading session details…
+          </div>
+        )}
+        {error && !loading && (
+          <div role="alert" style={{ padding: 12, color: '#B91C1C', fontWeight: 600 }}>
+            {error}
+          </div>
+        )}
+
         <section
           aria-label="Core details"
           className="details-card"
@@ -290,6 +353,7 @@ function SessionDetailsModal({ open, onClose, sessionId, data }) {
             borderRadius: 12,
             padding: 16,
             boxShadow: 'var(--shadow-sm, 0 1px 2px rgba(16,24,40,0.04))',
+            opacity: loading ? 0.7 : 1,
           }}
         >
           <div
