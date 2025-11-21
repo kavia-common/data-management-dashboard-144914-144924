@@ -48,13 +48,14 @@ export default function Sessions() {
   const [userNameOptions, setUserNameOptions] = useState([]);
   const [tenantIdOptions, setTenantIdOptions] = useState([]);
 
-  // Keep URL query params in sync for dropdowns (so back/forward works)
+  // Keep URL query params in sync (exclude any date params unless user explicitly sets them)
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
     if (filterUserName) usp.set("user_name", filterUserName);
     else usp.delete("user_name");
     if (filterTenantId) usp.set("tenant_id", filterTenantId);
     else usp.delete("tenant_id");
+    // Do NOT include from/to unless explicitly selected; we only mirror when values exist.
     if (startDate) usp.set("from", startDate);
     else usp.delete("from");
     if (endDate) usp.set("to", endDate);
@@ -63,7 +64,7 @@ export default function Sessions() {
     window.history.replaceState({}, "", next);
   }, [filterUserName, filterTenantId, startDate, endDate]);
 
-  // Initialize dropdown selections from URL on first mount
+  // Initialize dropdown selections from URL on first mount (do not inject defaults)
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
     const initialUser = usp.get("user_name") || "";
@@ -72,6 +73,7 @@ export default function Sessions() {
     const urlTo = usp.get("to") || "";
     if (initialUser) setFilterUserName(initialUser);
     if (initialTenant) setFilterTenantId(initialTenant);
+    // Dates are optional; if absent, leave blank (no implicit default range).
     if (urlFrom) setStartDate(urlFrom);
     if (urlTo) setEndDate(urlTo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -176,8 +178,9 @@ export default function Sessions() {
 
   async function loadAggregates(qStr = "") {
     /**
-     * Fetch sessions data across multiple pages (capped) and build client-side aggregates
+     * Fetch sessions data across multiple pages (count-capped for performance) and build client-side aggregates
      * for charts: by organization_name and by session_type.
+     * No implicit date window is applied; start/end are added ONLY if the user selected dates.
      */
     setAggLoading(true);
     setAggError("");
@@ -283,38 +286,34 @@ export default function Sessions() {
   async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
     /**
      * Load sessions from server with pagination, optional query string, and server-driven sorting.
-     * When sortKey is provided, pass `sort` using:
-     *  - asc: field
-     *  - desc: -field
+     * No implicit date filtering is applied; start/end are only sent when the user selects dates.
      */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError("");
     try {
       const sortFieldMap = {
-        // Map UI column keys to backend fields
-        User_name: "user_name", // prefer lowercase field in DB
+        User_name: "user_name",
         tenant_id: "tenant_id",
         organization_name: "organization_name",
         service_type: "service_type",
-        task_id: "task_id", // legacy, not used in current allowedOrdered
+        task_id: "task_id",
       };
-      // include optional date range as both from/to and start/end
+
       const params = { page, limit, q: qStr };
 
-      // Date range params: ONLY send start/end, never from/to (backend expects only start/end)
+      // Send start/end ONLY if explicitly selected by user
       if (startDate) {
         params.start = new Date(startDate).toISOString();
       }
       if (endDate) {
-        // end as end-of-day
         params.end =
           endDate && !/T/.test(endDate)
             ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
             : new Date(endDate).toISOString();
       }
 
-      // Build filter: exact match on tenant_id and case-insensitive match handled server-side for user_name
+      // Build filter: exact match on tenant_id and user_id when provided
       const filter = {};
       if (filterTenantId && filterTenantId.trim()) {
         filter.tenant_id = filterTenantId.trim();
@@ -322,7 +321,6 @@ export default function Sessions() {
       if (filterUserName && filterUserName.trim()) {
         filter.user_id = filterUserName.trim();
       }
-
       if (Object.keys(filter).length > 0) {
         params.filter = filter;
       }
@@ -331,55 +329,18 @@ export default function Sessions() {
         const backendField = sortFieldMap[sortKey] || String(sortKey);
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
       }
+
       const res = await listSessions(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      // If a newer request started after this one, ignore late response
       if (requestId !== activeRequestRef.current) return;
 
-      // Client-side fallback date filtering
-      let filtered = Array.isArray(arr) ? arr : [];
-      if (startDate || endDate) {
-        const fromMs = startDate ? new Date(startDate).getTime() : null;
-        const toMs = endDate
-          ? (/T/.test(endDate)
-              ? new Date(endDate).getTime()
-              : new Date(new Date(endDate).setHours(23, 59, 59, 999)).getTime())
-          : null;
-        filtered = filtered.filter((it) => {
-          // derive session start and end
-          const s =
-            it?.session_start ||
-            it?.start_time ||
-            it?.started_at ||
-            it?.created_at ||
-            it?.timestamp ||
-            null;
-          const e =
-            it?.session_end ||
-            it?.end_time ||
-            it?.completed_at ||
-            it?.last_updated ||
-            null;
-
-          const sMs = s ? new Date(s).getTime() : null;
-          const eMs = e ? new Date(e).getTime() : null;
-
-          // If only start exists, check it against window
-          const inFrom = fromMs == null || (sMs != null ? sMs >= fromMs : eMs != null ? eMs >= fromMs : false);
-          const inTo = toMs == null || (sMs != null ? sMs <= toMs : eMs != null ? eMs <= toMs : true);
-          return inFrom && inTo;
-        });
-      }
-
-      setItems(filtered);
+      // Do NOT apply client-side date filtering; trust server results
+      setItems(Array.isArray(arr) ? arr : []);
       setMeta({
         page: res?.meta?.page || page,
         limit: res?.meta?.limit || limit,
-        total:
-          res?.meta?.total ??
-          (Array.isArray(filtered) ? filtered.length : Array.isArray(arr) ? arr.length : 0),
+        total: typeof res?.meta?.total === "number" ? res.meta.total : (Array.isArray(arr) ? arr.length : 0),
       });
-      // Update columns dynamically based on currently returned data
       setColumns(buildRestrictedColumns(arr));
     } catch (e) {
       if (requestId !== activeRequestRef.current) return;
@@ -401,7 +362,7 @@ export default function Sessions() {
 
   // Debounced server-side search on query change (250ms default)
   const debouncedQuery = useDebouncedValue(query, 250);
-  // Debounced text search only
+  // Debounced text search only (with optional explicit date range)
   useEffect(() => {
     const q = (debouncedQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
@@ -417,7 +378,7 @@ export default function Sessions() {
     load(1, meta.limit || 10, q, key, dir);
     // Do not reload aggregates on dropdown change to keep options broad; charts are based on search/date only
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterUserName, filterTenantId, startDate, endDate]);
+  }, [filterUserName, filterTenantId]);
 
 
 
@@ -575,7 +536,7 @@ export default function Sessions() {
           columns={columns}
           data={items}
           loading={loading}
-
+          // Use server meta.total to compute pagination ranges
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}

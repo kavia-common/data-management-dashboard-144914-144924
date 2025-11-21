@@ -19,7 +19,7 @@ import { buildQueryString } from './util';
  * @returns {Promise<{ items: Array<any>, total: number, meta: any }>}
  */
 export async function fetchSessionTracking(params = {}) {
-  // Only allow allowed keys through (no from/to support)
+  // Only allow allowed keys through (no from/to support, no implicit defaults)
   const { page, limit, tenant_id, start, end, sort, filter, q } = params;
   const safeParams = {};
   if (page !== undefined) safeParams.page = page;
