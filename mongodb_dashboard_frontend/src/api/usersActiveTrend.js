@@ -49,21 +49,7 @@ export async function getActiveUsersTrend(params = {}) {
 
   const baseUrl = getApiBase();
 
-  // Try users-backed analytics endpoint first
-  try {
-    const urlUsers = `${baseUrl}/users/active-trend-from-users?${usersQuery.toString()}`;
-    const resUsers = await getApiClient().get(urlUsers);
-    if (resUsers && (Array.isArray(resUsers.items) || Array.isArray(resUsers))) {
-      if (!resUsers.items) {
-        return { items: Array.isArray(resUsers) ? resUsers : [], meta: { granularity } };
-      }
-      return resUsers;
-    }
-  } catch (e) {
-    // proceed to fallback
-  }
-
-  // Fallback to sessions-backed endpoint
+  // Use canonical sessions-backed endpoint
   const url = `${baseUrl}/users/active-trend?${legacyQuery.toString()}`;
   const res = await getApiClient().get(url);
   if (!res || typeof res !== 'object') {
