@@ -46,11 +46,31 @@ export default function UsersList({
       row?.organization ||
       row?.organization_id ||
       "—";
+
+    // Render total credits using shared USD+credits renderer.
+    // Backend field name: total_credits (USD-equivalent amount). Fall back to 0 when missing.
+    const renderTotalCredits = (v, row) => {
+      const val = typeof row?.total_credits === "number" ? row.total_credits : 0;
+      // Use compact formatting similar to other cost displays
+      // renderCreditsWithUsd shows "$X (N credits)" and gracefully handles numbers.
+      try {
+        // Lazy import to avoid circulars at module top-level
+        const { renderCreditsWithUsd } = require("../utils/currency");
+        return renderCreditsWithUsd(val, { maximumFractionDigits: 6 });
+      } catch {
+        // Fallback simple formatting if utils fail for any reason
+        const n = Number(val) || 0;
+        return `$${n.toFixed(6)} (${Math.round(n * 20000).toLocaleString()} credits)`;
+      }
+    };
+
     return [
       { key: "name", label: "Name", priority: 1 },
       { key: "__tenant", label: "Tenant Id", render: renderTenant, priority: 2 },
       { key: "email", label: "Mail", priority: 2 },
       { key: "department", label: "Department", priority: 3 },
+      // New column inserted immediately after Departments
+      { key: "total_credits", label: "Total Credits", render: renderTotalCredits, priority: 3, className: "col-total-credits" },
     ];
   }, []);
 
