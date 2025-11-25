@@ -45,15 +45,16 @@ export default function TimeBucketFilter({ value, onChange, options, disabled = 
       {opts.map((opt, idx) => {
         const active =
           String(value).toLowerCase() === String(opt.value).toLowerCase();
+        const handleClick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (!disabled) onChange(opt.value);
+        };
         return (
           <button
             key={opt.value}
             type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              if (!disabled) onChange(opt.value);
-            }}
+            onClick={handleClick}
             disabled={disabled}
             style={{
               ...baseBtn,
@@ -64,6 +65,7 @@ export default function TimeBucketFilter({ value, onChange, options, disabled = 
                 idx < opts.length - 1 ? "1px solid #e5e7eb" : "none",
             }}
             aria-pressed={active}
+            aria-label={`Select ${opt.label} granularity`}
           >
             {opt.label}
           </button>

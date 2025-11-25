@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { fetchSessionsTrend, fetchUsersTrend, fetchCostsTrend } from '../services/overviewApi';
 
 // PUBLIC_INTERFACE
@@ -17,9 +17,12 @@ export default function Overview() {
 
   const tenantId = ''; // TODO: integrate with auth/tenant context if available
 
-  const query = useMemo(() => ({ from, to, granularity, tenantId }), [from, to, granularity, tenantId]);
+  const query = useMemo(
+    () => ({ from, to, granularity, tenantId }),
+    [from, to, granularity, tenantId]
+  );
 
-  async function loadData() {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [s, u, c] = await Promise.all([
@@ -36,12 +39,11 @@ export default function Overview() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [query, sessionStatus, userStatus]);
 
   useEffect(() => {
     loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, to, granularity, sessionStatus, userStatus]);
+  }, [loadData]);
 
   // Simple inline charts using SVG for zero-dependency
   const Chart = ({ data, color = '#2563EB', label }) => {
