@@ -31,7 +31,7 @@ import { darkThemeTokens as tokens, getCurrentTheme } from "../../theme";
  * - height?: number (default 320)
  * - className?: string
  */
-function DeploymentsOverTime({ height = 320, className = "" }) {
+export function DeploymentsOverTime({ height = 320, className = "" }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [raw, setRaw] = useState([]);
@@ -135,7 +135,7 @@ function DeploymentsOverTime({ height = 320, className = "" }) {
       .map(([label, count]) => ({ label, count }))
       .sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
     return arr;
-  }, [raw, range]);
+  }, [raw, range, applyTimeRange]);
 
   return (
     <Card
