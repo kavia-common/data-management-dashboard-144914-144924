@@ -7,6 +7,8 @@ import LoadingState from "../../components/common/LoadingState";
 import ErrorState from "../../components/common/ErrorState";
 import KPIChart from "../../components/charts/KPIChart.jsx";
 import { getActiveUsersTrend } from "../../api/usersActiveTrend";
+import ScrollableDateRangePicker from "../../components/common/ScrollableDateRangePicker";
+import "../../styles/scrollable-date-range.css";
 
 /**
  * Utility helpers for date bucketing and formatting.
@@ -533,13 +535,28 @@ export default function Overview() {
     </label>
   );
 
-  const CustomDateInputs = ({ start, end, onStart, onEnd, groupLabel }) => (
-    <div role="group" aria-label={groupLabel} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-      <input type="date" aria-label="Start date" className="ui-input" value={start || ""} onChange={(e) => onStart(e.target.value || null)} />
-      <span aria-hidden="true" style={{ color: "#6B7280" }}>to</span>
-      <input type="date" aria-label="End date" className="ui-input" value={end || ""} onChange={(e) => onEnd(e.target.value || null)} />
-    </div>
-  );
+  const CustomDateInputs = ({ start, end, onStart, onEnd, groupLabel }) => {
+    // Adapt new ScrollableDateRangePicker while preserving external state shape (start/end as ISO strings or null)
+    const fromDate = start ? new Date(start) : null;
+    const toDate = end ? new Date(end) : null;
+
+    const handleChange = ({ from, to }) => {
+      onStart(from ? from.toISOString().slice(0, 10) : null);
+      onEnd(to ? to.toISOString().slice(0, 10) : null);
+    };
+
+    return (
+      <div role="group" aria-label={groupLabel} style={{ display: "inline-flex", alignItems: "flex-start", gap: 6 }}>
+        <ScrollableDateRangePicker
+          from={fromDate}
+          to={toDate}
+          onChange={handleChange}
+          numberOfMonths={2}
+          ariaLabel={`${groupLabel} date range picker`}
+        />
+      </div>
+    );
+  };
 
   // Per-chart controls assembled into Card actions
 
