@@ -40,4 +40,4 @@ export async function getTenantUsersSummary() {
   }
 }
 
-export default { getTenantUsersSummary };
+/* Removed default export to prefer named exports */

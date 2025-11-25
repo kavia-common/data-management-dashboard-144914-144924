@@ -122,7 +122,4 @@
    return fetchStatusCountsClientSide({ pageLimit, maxPages });
  }
 
- export default {
-   fetchProjectNameByProjectId,
-   fetchDeploymentStatusCounts,
- };
+ /* Removed default export to prefer named exports */

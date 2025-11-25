@@ -1,4 +1,4 @@
-import baseClient from './baseClient';
+import { getApiClient } from './baseClient';
 import { getApiBase } from './config';
 
 /**
@@ -52,7 +52,7 @@ export async function getActiveUsersTrend(params = {}) {
   // Try users-backed analytics endpoint first
   try {
     const urlUsers = `${baseUrl}/users/active-trend-from-users?${usersQuery.toString()}`;
-    const resUsers = await baseClient.get(urlUsers);
+    const resUsers = await getApiClient().get(urlUsers);
     if (resUsers && (Array.isArray(resUsers.items) || Array.isArray(resUsers))) {
       if (!resUsers.items) {
         return { items: Array.isArray(resUsers) ? resUsers : [], meta: { granularity } };
@@ -65,7 +65,7 @@ export async function getActiveUsersTrend(params = {}) {
 
   // Fallback to sessions-backed endpoint
   const url = `${baseUrl}/users/active-trend?${legacyQuery.toString()}`;
-  const res = await baseClient.get(url);
+  const res = await getApiClient().get(url);
   if (!res || typeof res !== 'object') {
     throw new Error('Invalid response');
   }
@@ -75,7 +75,4 @@ export async function getActiveUsersTrend(params = {}) {
   return res;
 }
 
-export default {
-  // PUBLIC_INTERFACE
-  getActiveUsersTrend,
-};
+/* Removed default export to prefer named exports */

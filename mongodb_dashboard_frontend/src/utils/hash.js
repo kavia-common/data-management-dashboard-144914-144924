@@ -98,8 +98,5 @@ export function getRootTenantId() {
   return ROOT_TENANT_ID;
 }
 
-export default {
-  encryptTenantId,
-  decryptTenantId,
-};
+/* Removed default export to prefer named exports */
  

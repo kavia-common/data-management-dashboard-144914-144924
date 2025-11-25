@@ -45,4 +45,4 @@ export async function fetchSessionTracking(params = {}) {
   return { items, total, meta };
 }
 
-export default { fetchSessionTracking };
+/* Removed default export to prefer named exports */

@@ -307,12 +307,4 @@ export async function getTenantUsersSummaryStrict() {
   return res.data;
 }
 
-export default {
-  getApiClient,
-  listUsers,
-  listSessions,
-  listDeployments,
-  listLlmCosts,
-  health,
-  getTenantUsersSummaryStrict,
-};
+/* Removed default export to prefer named exports for clearer module interfaces */

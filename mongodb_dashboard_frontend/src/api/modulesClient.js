@@ -157,4 +157,4 @@ export async function getOverviewMetrics() {
   };
 }
 
-export default { getModules, getOverviewMetrics };
+/* Removed default export to prefer named exports */
