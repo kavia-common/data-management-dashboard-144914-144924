@@ -65,7 +65,7 @@ function SessionDetailsModal({ open, onClose, session }) {
   };
 
   // PUBLIC_INTERFACE
-  const computeDurationPretty = (start, end, fallbackSeconds) => {
+  const computeDurationPretty = React.useCallback((start, end, fallbackSeconds) => {
     /** Prefer computing from start/end; fallback to HH:mm:ss using numeric duration if available */
     if (start && end) {
       try {
@@ -84,7 +84,7 @@ function SessionDetailsModal({ open, onClose, session }) {
     }
     if (typeof fallbackSeconds === 'string' && fallbackSeconds.trim()) return fallbackSeconds.trim();
     return '—';
-  };
+  }, []);
 
   const resolveUserName = (userRef) => {
     if (!userRef) return 'Unknown User';
@@ -333,7 +333,7 @@ function SessionDetailsModal({ open, onClose, session }) {
         agent: agentText,
       };
     });
-  }, [session]);
+  }, [session, computeDurationPretty]);
 
   const title = useMemo(() => {
     const id = session?.sessionId || session?._id || session?.id || '';

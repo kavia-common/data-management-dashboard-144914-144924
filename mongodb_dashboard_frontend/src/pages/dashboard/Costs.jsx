@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
@@ -68,7 +68,7 @@ export default function Costs() {
     // Also treat anything ending with _usd or usd_... as currency-like
     if (/_usd\b|\busd_|\busd$/i.test(k)) return true;
     return false;
-  }
+  }, [handleOpenInspector]);
   const numericPrettyHints = useMemo(
     () =>
       new Set(["total_tokens", "input_tokens", "output_tokens", "tokens", "count"]),
@@ -82,15 +82,15 @@ export default function Costs() {
   }
 
   // PUBLIC_INTERFACE
-  function openInspector(title, payload) {
+  const handleOpenInspector = useCallback((title, payload) => {
     setInspectTitle(title);
     setInspectPayload(payload);
     setInspectOpen(true);
-  }
-  function closeInspector() {
+  }, []);
+  const closeInspector = useCallback(() => {
     setInspectOpen(false);
     setInspectPayload(null);
-  }
+  }, []);
 
   const renderText = (value) => {
     const text = value == null || value === "" ? "—" : String(value);
@@ -136,7 +136,7 @@ export default function Costs() {
     }
 
     return renderText(value);
-  };
+  }, [handleOpenInspector]);;
 
   const renderDate = (value) => {
     if (!value) return "—";
@@ -148,7 +148,7 @@ export default function Costs() {
     }
   };
 
-  function renderCompact(value, fieldLabel = "Details") {
+  const renderCompact = useCallback(function renderCompact(value, fieldLabel = "Details") {
     if (Array.isArray(value)) {
       const len = value.length;
       if (len === 0) return "0 items";
@@ -181,7 +181,7 @@ export default function Costs() {
           <button
             className="btn btn-ghost"
             style={{ padding: "4px 8px", height: 28 }}
-            onClick={() => openInspector(fieldLabel, value)}
+            onClick={() => handleOpenInspector(fieldLabel, value)}
             aria-label={`View details for ${fieldLabel}`}
             title={`View details for ${fieldLabel}`}
           >
@@ -214,7 +214,7 @@ export default function Costs() {
     return renderText(value);
   }
 
-  function buildColumnsFromSample(rows = []) {
+  const buildColumnsFromSample = useCallback(function buildColumnsFromSample(rows = []) {
     const sample = rows[0] || {};
     const preferredOrder = [
       "_id",
@@ -265,9 +265,9 @@ export default function Costs() {
     cols.push(...nestedCols.slice(0, 3));
 
     return cols.length ? cols : [{ key: "_id", label: "ID" }];
-  }
+  }, [dateFieldHints]);
 
-  async function load(page = 1, limit = meta.limit || 10, sortKey, sortDir) {
+  const load = useCallback(async function load(page = 1, limit = (meta.limit || 10), sortKey, sortDir) {
     /**
      * Loads costs with optional server-side sorting.
      * When sortKey is provided, we pass `sort` param to backend using the format:
@@ -297,7 +297,7 @@ export default function Costs() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [meta.limit]);
 
   useEffect(() => {
     load();
