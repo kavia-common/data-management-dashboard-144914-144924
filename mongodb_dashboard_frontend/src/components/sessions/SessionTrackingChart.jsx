@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import PropTypes from "prop-types";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, LineChart, Line, PieChart, Pie, Cell } from "recharts";
-import Card from "../common/Card";
+import Card from "../ui/Card.jsx";
 import LoadingState from "../common/LoadingState";
 import ErrorState from "../common/ErrorState";
 
