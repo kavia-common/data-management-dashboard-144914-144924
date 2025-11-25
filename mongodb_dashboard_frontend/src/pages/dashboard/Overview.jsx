@@ -6,13 +6,10 @@ import { fetchSessionTracking } from "../../api/sessionTracking";
 import LoadingState from "../../components/common/LoadingState";
 import ErrorState from "../../components/common/ErrorState";
 import KPIChart from "../../components/charts/KPIChart.jsx";
-import TimeBucketFilter from "../../components/common/TimeBucketFilter.jsx";
 import { getActiveUsersTrend } from "../../api/usersActiveTrend";
 
 /**
- * Utility functions to bucket timestamps by day/week and compute counts.
- * We normalize dates to YYYY-MM-DD for day buckets and ISO week start for weekly buckets.
- * These mirror utils/sessions/bucketing.js to avoid cross-import churn in this page.
+ * Utility helpers for date bucketing and formatting.
  */
 function toYMD(date) {
   const d = new Date(date);
@@ -21,7 +18,6 @@ function toYMD(date) {
   const da = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${da}`;
 }
-
 function startOfWeek(date) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
@@ -41,7 +37,8 @@ function toYYYYMM(date) {
 }
 
 /**
- * Compute ISO start/end based on a range key and optional custom date inputs.
+ * Compute ISO range from preset key or custom dates.
+ * Supports presets: 7d, 14d, 30d, 90d, custom.
  */
 function computeRange(rangeKey, customRange) {
   const now = new Date();
@@ -51,6 +48,7 @@ function computeRange(rangeKey, customRange) {
   if (rangeKey === "7d") start.setDate(end.getDate() - 6);
   else if (rangeKey === "14d") start.setDate(end.getDate() - 13);
   else if (rangeKey === "30d") start.setDate(end.getDate() - 29);
+  else if (rangeKey === "90d") start.setDate(end.getDate() - 89);
   else if (rangeKey === "custom" && customRange.start && customRange.end) {
     const s = new Date(customRange.start);
     const e = new Date(customRange.end);
@@ -67,29 +65,30 @@ function computeRange(rangeKey, customRange) {
 /**
  * PUBLIC_INTERFACE
  * Overview
+ * Displays KPIs and three charts with independent dropdown filters like Users Analytics.
  */
 export default function Overview() {
-  /** Overview page with KPIs and three trend charts (Sessions, Users, Costs). */
+  // KPI/summary
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState({ users: 0, sessions: 0, deployments: 0 });
   const [error, setError] = useState("");
   const [, setApiStatus] = useState("checking");
 
   // Sessions controls (independent)
-  const [sessionsRangeKey, setSessionsRangeKey] = useState("30d"); // default last 30 days
-  const [sessionsCustomRange, setSessionsCustomRange] = useState({ start: null, end: null });
-  const [sessionsGranularity, setSessionsGranularity] = useState("daily"); // 'daily' | 'weekly' (monthly maps to weekly)
+  const [sessionsPreset, setSessionsPreset] = useState("30d");
+  const [sessionsCustom, setSessionsCustom] = useState({ start: null, end: null });
+  const [sessionsGranularity, setSessionsGranularity] = useState("day"); // day|week
 
   // Users controls (independent)
-  const [usersRangeKey, setUsersRangeKey] = useState("30d");
-  const [usersCustomRange, setUsersCustomRange] = useState({ start: null, end: null });
-  const [usersGranularity, setUsersGranularity] = useState("daily"); // 'daily' | 'weekly' | 'monthly'
-  const [usersStatus, setUsersStatus] = useState("active"); // 'active' | 'all'
+  const [usersPreset, setUsersPreset] = useState("30d");
+  const [usersCustom, setUsersCustom] = useState({ start: null, end: null });
+  const [usersGranularity, setUsersGranularity] = useState("day"); // day|week|month
+  const [usersStatus, setUsersStatus] = useState("active"); // active|all
 
-  // Costs controls (kept separate)
-  const [costsRangeKey, setCostsRangeKey] = useState("30d");
-  const [costsCustomRange, setCostsCustomRange] = useState({ start: null, end: null });
-  const [costsGranularity, setCostsGranularity] = useState("daily");
+  // Costs controls (independent)
+  const [costsPreset, setCostsPreset] = useState("30d");
+  const [costsCustom, setCostsCustom] = useState({ start: null, end: null });
+  const [costsGranularity, setCostsGranularity] = useState("day"); // day|week
 
   // Sessions chart state
   const [sessionsSeries, setSessionsSeries] = useState([]);
@@ -106,7 +105,7 @@ export default function Overview() {
   const [costsLoading, setCostsLoading] = useState(false);
   const [costsError, setCostsError] = useState(null);
 
-  // KPI metrics
+  // KPI metrics fetch
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
@@ -131,7 +130,7 @@ export default function Overview() {
     fetchData();
   }, []);
 
-  // Backend health check (non-blocking)
+  // Backend health (non-blocking)
   useEffect(() => {
     let mounted = true;
     async function ping() {
@@ -150,30 +149,29 @@ export default function Overview() {
     };
   }, []);
 
-  // Helper to fill continuous daily/weekly series from a Map
-  const fillSeries = useCallback(function fillSeries(map, start, end, bucket = "daily") {
+  // Series filler for day/week/month
+  const fillSeries = useCallback(function fillSeries(map, start, end, bucket = "day") {
     const s = new Date(start);
     const e = new Date(end);
-    const series = [];
-    if (bucket === "weekly") {
+    const out = [];
+    if (bucket === "week") {
       let c = startOfWeek(s);
       while (c <= e) {
         const key = toYMD(c);
-        series.push({ label: key, value: map.get(key) || 0 });
+        out.push({ label: key, value: map.get(key) || 0 });
         c = new Date(c);
         c.setDate(c.getDate() + 7);
       }
-    } else if (bucket === "monthly") {
+    } else if (bucket === "month") {
       let c = startOfMonth(s);
-      // defensive: if end < start, still return at least one bucket
       if (e < c) {
         const key = toYYYYMM(c);
-        series.push({ label: key, value: map.get(key) || 0 });
-        return series;
+        out.push({ label: key, value: map.get(key) || 0 });
+        return out;
       }
       while (c <= e) {
         const key = toYYYYMM(c);
-        series.push({ label: key, value: map.get(key) || 0 });
+        out.push({ label: key, value: map.get(key) || 0 });
         c = new Date(c);
         c.setMonth(c.getMonth() + 1);
       }
@@ -182,29 +180,29 @@ export default function Overview() {
       c.setHours(0, 0, 0, 0);
       while (c <= e) {
         const key = toYMD(c);
-        series.push({ label: key, value: map.get(key) || 0 });
+        out.push({ label: key, value: map.get(key) || 0 });
         c = new Date(c);
         c.setDate(c.getDate() + 1);
       }
     }
-    return series;
+    return out;
   }, []);
 
-  // Derived ISO ranges for each chart
+  // Derived ranges
   const sessionsRange = useMemo(
-    () => computeRange(sessionsRangeKey, sessionsCustomRange),
-    [sessionsRangeKey, sessionsCustomRange]
+    () => computeRange(sessionsPreset, sessionsCustom),
+    [sessionsPreset, sessionsCustom]
   );
   const usersRange = useMemo(
-    () => computeRange(usersRangeKey, usersCustomRange),
-    [usersRangeKey, usersCustomRange]
+    () => computeRange(usersPreset, usersCustom),
+    [usersPreset, usersCustom]
   );
   const costsRange = useMemo(
-    () => computeRange(costsRangeKey, costsCustomRange),
-    [costsRangeKey, costsCustomRange]
+    () => computeRange(costsPreset, costsCustom),
+    [costsPreset, costsCustom]
   );
 
-  // Sessions trend fetcher — independent
+  // Sessions trend fetch
   useEffect(() => {
     let aborted = false;
     async function loadSessions() {
@@ -213,8 +211,8 @@ export default function Overview() {
       try {
         const { startISO, endISO } = sessionsRange;
         const { items } = await fetchSessionTracking({
-          start_date: startISO, // map to start_date per requirement
-          end_date: endISO,     // map to end_date per requirement
+          start_date: startISO,
+          end_date: endISO,
           limit: 200,
           sort: "-session_start",
         });
@@ -237,7 +235,7 @@ export default function Overview() {
           .filter((d) => d && !Number.isNaN(d.getTime()));
 
         const map = new Map();
-        if (sessionsGranularity === "weekly") {
+        if (sessionsGranularity === "week") {
           pts.forEach((d) => {
             const wk = startOfWeek(d);
             const k = toYMD(wk);
@@ -265,7 +263,7 @@ export default function Overview() {
     };
   }, [sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity, fillSeries]);
 
-  // Users trend fetcher — independent
+  // Users trend fetch
   useEffect(() => {
     let aborted = false;
     async function loadUsers() {
@@ -274,7 +272,7 @@ export default function Overview() {
       try {
         const { startISO, endISO } = usersRange;
         const backendGranularity =
-          usersGranularity === "weekly" ? "week" : usersGranularity === "monthly" ? "month" : "day";
+          usersGranularity === "week" ? "week" : usersGranularity === "month" ? "month" : "day";
         const statusParam = usersStatus === "active" ? "completed|active" : undefined;
 
         let items = [];
@@ -293,7 +291,7 @@ export default function Overview() {
         }
 
         if (!backendOk) {
-          // Fallback: derive from users collection using created_at for bucketing plus status filter
+          // Fallback using created_at buckets
           const createdFilter = {
             $and: [
               {
@@ -302,7 +300,6 @@ export default function Overview() {
                   { createdAt: { $gte: startISO, $lte: endISO } },
                 ],
               },
-              // status filter: if 'active' exclude deleted; if 'all' do not filter
               ...(usersStatus === "active"
                 ? [{ $or: [{ status: { $exists: false } }, { status: { $nin: ["deleted", "inactive"] } }] }]
                 : []),
@@ -322,9 +319,9 @@ export default function Overview() {
             const d = t ? new Date(t) : null;
             if (!d || Number.isNaN(d.getTime())) return;
             let key;
-            if (usersGranularity === "weekly") {
+            if (usersGranularity === "week") {
               key = toYMD(startOfWeek(d));
-            } else if (usersGranularity === "monthly") {
+            } else if (usersGranularity === "month") {
               key = toYYYYMM(startOfMonth(d));
             } else {
               key = toYMD(d);
@@ -345,7 +342,6 @@ export default function Overview() {
 
         const map = new Map();
         (items || []).forEach((row) => {
-          // Backend returns date as YYYY-MM for monthly or YYYY-MM-DD for daily/weekly
           const label = row.date || row.label || row.day || row.week || row.month;
           const total = Number(row.total ?? row.count ?? row.value ?? 0);
           if (!label) return;
@@ -368,7 +364,7 @@ export default function Overview() {
     };
   }, [usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries]);
 
-  // Costs trend fetcher — independent (kept separate to avoid coupling)
+  // Costs trend fetch
   useEffect(() => {
     let aborted = false;
     async function loadCosts() {
@@ -410,7 +406,7 @@ export default function Overview() {
           const num = typeof raw === "number" ? raw : Number(String(raw).replace(/[$,]/g, ""));
           const value = Number.isFinite(num) ? num : 0;
 
-          const key = costsGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
+          const key = costsGranularity === "week" ? toYMD(startOfWeek(d)) : toYMD(d);
           map.set(key, (map.get(key) || 0) + value);
         });
 
@@ -430,7 +426,7 @@ export default function Overview() {
     };
   }, [costsRange.startISO, costsRange.endISO, costsGranularity, fillSeries]);
 
-  // Reusable controls renderers (per-chart)
+  // Helpers
   const renderDateRangeLabel = useCallback((rangeKey, customRange, range) => {
     if (rangeKey === "custom") {
       const opts = { year: "numeric", month: "short", day: "numeric" };
@@ -471,145 +467,128 @@ export default function Overview() {
     </span>
   );
 
-  // Per-chart time range selectors and bucket toggles
+  // Dropdown control elements (explicit select elements like Users Analytics)
+  const PresetDropdown = ({ id, value, onChange, label = "Quick range" }) => (
+    <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+      <span style={{ fontSize: 12, color: "#6B7280" }}>{label}</span>
+      <select
+        id={id}
+        aria-label={label}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="ui-input"
+        style={{ minWidth: 140 }}
+      >
+        <option value="7d">Last 7 days</option>
+        <option value="14d">Last 14 days</option>
+        <option value="30d">Last 30 days</option>
+        <option value="90d">Last 90 days</option>
+        <option value="custom">Custom...</option>
+      </select>
+    </label>
+  );
+
+  const GranularityDropdown = ({ id, value, onChange, allowMonthly = false }) => (
+    <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+      <span style={{ fontSize: 12, color: "#6B7280" }}>Aggregation</span>
+      <select
+        id={id}
+        aria-label="Aggregation granularity"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="ui-input"
+        style={{ minWidth: 140 }}
+      >
+        <option value="day">Daily</option>
+        <option value="week">Weekly</option>
+        {allowMonthly && <option value="month">Monthly</option>}
+      </select>
+    </label>
+  );
+
+  const CustomDateInputs = ({ start, end, onStart, onEnd, groupLabel }) => (
+    <div role="group" aria-label={groupLabel} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <input type="date" aria-label="Start date" className="ui-input" value={start || ""} onChange={(e) => onStart(e.target.value || null)} />
+      <span aria-hidden="true" style={{ color: "#6B7280" }}>to</span>
+      <input type="date" aria-label="End date" className="ui-input" value={end || ""} onChange={(e) => onEnd(e.target.value || null)} />
+    </div>
+  );
+
+  // Per-chart controls assembled into Card actions
+
   const SessionsControls = (
-    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-      <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
-        {["7d", "14d", "30d", "custom"].map((key) => (
-          <button
-            key={key}
-            onClick={() => setSessionsRangeKey(key)}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 6,
-              border: "none",
-              background: sessionsRangeKey === key ? "#2563EB" : "transparent",
-              color: sessionsRangeKey === key ? "#fff" : "#111827",
-              cursor: "pointer",
-              transition: "background 120ms ease, color 120ms ease",
-            }}
-            aria-pressed={sessionsRangeKey === key}
-          >
-            {key.toUpperCase()}
-          </button>
-        ))}
-      </div>
-      <DateRangePill label={renderDateRangeLabel(sessionsRangeKey, sessionsCustomRange, sessionsRange)} />
-      <TimeBucketFilter
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <GranularityDropdown
+        id="sessions-granularity"
         value={sessionsGranularity}
-        onChange={(v) => setSessionsGranularity(v === "monthly" ? "weekly" : v)}
-        options={[
-          { value: "daily", label: "Daily" },
-          { value: "weekly", label: "Weekly" },
-          { value: "monthly", label: "Monthly" },
-        ]}
+        onChange={(v) => setSessionsGranularity(v === "month" ? "week" : v)}
+        allowMonthly={true /* UI consistency; will map month->week */}
       />
+      <PresetDropdown id="sessions-preset" value={sessionsPreset} onChange={setSessionsPreset} />
+      <CustomDateInputs
+        groupLabel="Sessions custom date range"
+        start={sessionsCustom.start}
+        end={sessionsCustom.end}
+        onStart={(v) => setSessionsCustom((s) => ({ ...s, start: v }))}
+        onEnd={(v) => setSessionsCustom((s) => ({ ...s, end: v }))}
+      />
+      <DateRangePill label={renderDateRangeLabel(sessionsPreset, sessionsCustom, sessionsRange)} />
     </div>
   );
 
   const UsersControls = (
-    <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-      <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
-        {["7d", "14d", "30d", "custom"].map((key) => (
-          <button
-            key={key}
-            onClick={() => setUsersRangeKey(key)}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 6,
-              border: "none",
-              background: usersRangeKey === key ? "#2563EB" : "transparent",
-              color: usersRangeKey === key ? "#fff" : "#111827",
-              cursor: "pointer",
-              transition: "background 120ms ease, color 120ms ease",
-            }}
-            aria-pressed={usersRangeKey === key}
-          >
-            {key.toUpperCase()}
-          </button>
-        ))}
-      </div>
-      <DateRangePill label={renderDateRangeLabel(usersRangeKey, usersCustomRange, usersRange)} />
-      <TimeBucketFilter
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", width: "100%" }}>
+      <GranularityDropdown
+        id="users-granularity"
         value={usersGranularity}
-        onChange={(v) => setUsersGranularity(v)}
-        options={[
-          { value: "daily", label: "Daily" },
-          { value: "weekly", label: "Weekly" },
-          { value: "monthly", label: "Monthly" },
-        ]}
+        onChange={setUsersGranularity}
+        allowMonthly={true}
+      />
+      <PresetDropdown id="users-preset" value={usersPreset} onChange={setUsersPreset} />
+      <CustomDateInputs
+        groupLabel="Users custom date range"
+        start={usersCustom.start}
+        end={usersCustom.end}
+        onStart={(v) => setUsersCustom((s) => ({ ...s, start: v }))}
+        onEnd={(v) => setUsersCustom((s) => ({ ...s, end: v }))}
       />
       <div style={{ marginLeft: "auto", display: "inline-flex", gap: 8, alignItems: "center" }}>
         <label htmlFor="users-status-filter" style={{ fontSize: 12, color: "#6B7280" }}>
           Status
         </label>
-        <div
+        <select
           id="users-status-filter"
-          role="group"
           aria-label="Users status filter"
-          style={{ display: "inline-flex", border: "1px solid #E5E7EB", borderRadius: 8, overflow: "hidden", background: "#fff" }}
+          value={usersStatus}
+          onChange={(e) => setUsersStatus(e.target.value)}
+          className="ui-input"
+          style={{ minWidth: 120 }}
         >
-          {[
-            { key: "active", label: "Active" },
-            { key: "all", label: "All" },
-          ].map((opt, idx) => {
-            const active = usersStatus === opt.key;
-            return (
-              <button
-                key={opt.key}
-                type="button"
-                onClick={() => setUsersStatus(opt.key)}
-                aria-pressed={active}
-                style={{
-                  padding: "6px 10px",
-                  border: "none",
-                  background: active ? "#0EA5E9" : "transparent",
-                  color: active ? "#fff" : "#111827",
-                  borderRight: idx === 0 ? "1px solid #E5E7EB" : "none",
-                  cursor: "pointer",
-                }}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
+          <option value="active">Active</option>
+          <option value="all">All</option>
+        </select>
       </div>
+      <DateRangePill label={renderDateRangeLabel(usersPreset, usersCustom, usersRange)} />
     </div>
   );
 
   const CostsControls = (
-    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-      <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
-        {["7d", "14d", "30d", "custom"].map((key) => (
-          <button
-            key={key}
-            onClick={() => setCostsRangeKey(key)}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 6,
-              border: "none",
-              background: costsRangeKey === key ? "#2563EB" : "transparent",
-              color: costsRangeKey === key ? "#fff" : "#111827",
-              cursor: "pointer",
-              transition: "background 120ms ease, color 120ms ease",
-            }}
-            aria-pressed={costsRangeKey === key}
-          >
-            {key.toUpperCase()}
-          </button>
-        ))}
-      </div>
-      <DateRangePill label={renderDateRangeLabel(costsRangeKey, costsCustomRange, costsRange)} />
-      <TimeBucketFilter
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <GranularityDropdown
+        id="costs-granularity"
         value={costsGranularity}
-        onChange={(v) => setCostsGranularity(v === "monthly" ? "weekly" : v)}
-        options={[
-          { value: "daily", label: "Daily" },
-          { value: "weekly", label: "Weekly" },
-          { value: "monthly", label: "Monthly" },
-        ]}
+        onChange={(v) => setCostsGranularity(v === "month" ? "week" : v)}
+        allowMonthly={true /* UI consistency; map month->week */}
       />
+      <PresetDropdown id="costs-preset" value={costsPreset} onChange={setCostsPreset} />
+      <CustomDateInputs
+        groupLabel="Costs custom date range"
+        start={costsCustom.start}
+        end={costsCustom.end}
+        onStart={(v) => setCostsCustom((s) => ({ ...s, start: v }))}
+        onEnd={(v) => setCostsCustom((s) => ({ ...s, end: v }))}
+      />
+      <DateRangePill label={renderDateRangeLabel(costsPreset, costsCustom, costsRange)} />
     </div>
   );
 
@@ -662,32 +641,6 @@ export default function Overview() {
           subtitle="Session counts over time"
           actions={SessionsControls}
         >
-          {sessionsRangeKey === "custom" ? (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                <label style={{ fontSize: 12, color: "#6B7280" }}>
-                  Start:
-                  <input
-                    type="date"
-                    onChange={(e) => setSessionsCustomRange((r) => ({ ...r, start: e.target.value }))}
-                    value={sessionsCustomRange.start || ""}
-                    style={{ marginLeft: 6 }}
-                    aria-label="Sessions custom range start date"
-                  />
-                </label>
-                <label style={{ fontSize: 12, color: "#6B7280" }}>
-                  End:
-                  <input
-                    type="date"
-                    onChange={(e) => setSessionsCustomRange((r) => ({ ...r, end: e.target.value }))}
-                    value={sessionsCustomRange.end || ""}
-                    style={{ marginLeft: 6 }}
-                    aria-label="Sessions custom range end date"
-                  />
-                </label>
-              </div>
-            </div>
-          ) : null}
           {sessionsLoading && <LoadingState message="Loading sessions trend…" height={220} />}
           {sessionsError && <ErrorState message={sessionsError?.message || "Failed to load sessions."} />}
           {!sessionsLoading && !sessionsError && (
@@ -703,32 +656,6 @@ export default function Overview() {
           subtitle="Distinct active users by day/week/month"
           actions={UsersControls}
         >
-          {usersRangeKey === "custom" ? (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                <label style={{ fontSize: 12, color: "#6B7280" }}>
-                  Start:
-                  <input
-                    type="date"
-                    onChange={(e) => setUsersCustomRange((r) => ({ ...r, start: e.target.value }))}
-                    value={usersCustomRange.start || ""}
-                    style={{ marginLeft: 6 }}
-                    aria-label="Users custom range start date"
-                  />
-                </label>
-                <label style={{ fontSize: 12, color: "#6B7280" }}>
-                  End:
-                  <input
-                    type="date"
-                    onChange={(e) => setUsersCustomRange((r) => ({ ...r, end: e.target.value }))}
-                    value={usersCustomRange.end || ""}
-                    style={{ marginLeft: 6 }}
-                    aria-label="Users custom range end date"
-                  />
-                </label>
-              </div>
-            </div>
-          ) : null}
           {usersLoading && <LoadingState message="Loading users trend…" height={220} />}
           {usersError && <ErrorState message={usersError?.message || "Failed to load users trend."} />}
           {!usersLoading && !usersError && (
@@ -744,32 +671,6 @@ export default function Overview() {
           subtitle="Total USD by day/week"
           actions={CostsControls}
         >
-          {costsRangeKey === "custom" ? (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                <label style={{ fontSize: 12, color: "#6B7280" }}>
-                  Start:
-                  <input
-                    type="date"
-                    onChange={(e) => setCostsCustomRange((r) => ({ ...r, start: e.target.value }))}
-                    value={costsCustomRange.start || ""}
-                    style={{ marginLeft: 6 }}
-                    aria-label="Costs custom range start date"
-                  />
-                </label>
-                <label style={{ fontSize: 12, color: "#6B7280" }}>
-                  End:
-                  <input
-                    type="date"
-                    onChange={(e) => setCostsCustomRange((r) => ({ ...r, end: e.target.value }))}
-                    value={costsCustomRange.end || ""}
-                    style={{ marginLeft: 6 }}
-                    aria-label="Costs custom range end date"
-                  />
-                </label>
-              </div>
-            </div>
-          ) : null}
           {costsLoading && <LoadingState message="Loading costs trend…" height={220} />}
           {costsError && <ErrorState message={costsError?.message || "Failed to load costs trend."} />}
           {!costsLoading && !costsError && (
