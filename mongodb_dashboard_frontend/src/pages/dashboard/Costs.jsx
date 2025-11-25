@@ -68,7 +68,7 @@ export default function Costs() {
     // Also treat anything ending with _usd or usd_... as currency-like
     if (/_usd\b|\busd_|\busd$/i.test(k)) return true;
     return false;
-  }, [handleOpenInspector]);
+  }
   const numericPrettyHints = useMemo(
     () =>
       new Set(["total_tokens", "input_tokens", "output_tokens", "tokens", "count"]),
@@ -111,7 +111,7 @@ export default function Costs() {
     );
   };
 
-  const renderNumber = (value, key) => {
+  const renderNumber = React.useCallback((value, key) => {
     if (value == null || value === "") return "—";
 
     // Coerce to number when possible (e.g., "0.123", "$0.12")
@@ -136,7 +136,7 @@ export default function Costs() {
     }
 
     return renderText(value);
-  }, [handleOpenInspector]);;
+  }, [numericPrettyHints]);
 
   const renderDate = (value) => {
     if (!value) return "—";
@@ -202,7 +202,7 @@ export default function Costs() {
           <button
             className="btn btn-ghost"
             style={{ padding: "4px 8px", height: 28 }}
-            onClick={() => openInspector(fieldLabel, value)}
+            onClick={() => handleOpenInspector(fieldLabel, value)}
             aria-label={`View ${fieldLabel}`}
             title={`View ${fieldLabel}`}
           >
@@ -212,7 +212,7 @@ export default function Costs() {
       );
     }
     return renderText(value);
-  }
+  }, [handleOpenInspector]);
 
   const buildColumnsFromSample = useCallback(function buildColumnsFromSample(rows = []) {
     const sample = rows[0] || {};
