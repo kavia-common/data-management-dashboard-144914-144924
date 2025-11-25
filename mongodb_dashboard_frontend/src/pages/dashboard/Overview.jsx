@@ -29,6 +29,16 @@ function startOfWeek(date) {
   d.setDate(d.getDate() - diff);
   return d;
 }
+function startOfMonth(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(1);
+  return d;
+}
+function toYYYYMM(date) {
+  const d = new Date(date);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
 
 /**
  * Compute ISO start/end based on a range key and optional custom date inputs.
@@ -73,7 +83,7 @@ export default function Overview() {
   // Users controls (independent)
   const [usersRangeKey, setUsersRangeKey] = useState("30d");
   const [usersCustomRange, setUsersCustomRange] = useState({ start: null, end: null });
-  const [usersGranularity, setUsersGranularity] = useState("daily");
+  const [usersGranularity, setUsersGranularity] = useState("daily"); // 'daily' | 'weekly' | 'monthly'
   const [usersStatus, setUsersStatus] = useState("active"); // 'active' | 'all'
 
   // Costs controls (kept separate)
@@ -152,6 +162,20 @@ export default function Overview() {
         series.push({ label: key, value: map.get(key) || 0 });
         c = new Date(c);
         c.setDate(c.getDate() + 7);
+      }
+    } else if (bucket === "monthly") {
+      let c = startOfMonth(s);
+      // defensive: if end < start, still return at least one bucket
+      if (e < c) {
+        const key = toYYYYMM(c);
+        series.push({ label: key, value: map.get(key) || 0 });
+        return series;
+      }
+      while (c <= e) {
+        const key = toYYYYMM(c);
+        series.push({ label: key, value: map.get(key) || 0 });
+        c = new Date(c);
+        c.setMonth(c.getMonth() + 1);
       }
     } else {
       let c = new Date(s);
@@ -249,7 +273,8 @@ export default function Overview() {
       setUsersError(null);
       try {
         const { startISO, endISO } = usersRange;
-        const backendGranularity = usersGranularity === "weekly" ? "week" : "day";
+        const backendGranularity =
+          usersGranularity === "weekly" ? "week" : usersGranularity === "monthly" ? "month" : "day";
         const statusParam = usersStatus === "active" ? "completed|active" : undefined;
 
         let items = [];
@@ -296,7 +321,14 @@ export default function Overview() {
             const t = u.created_at || u.createdAt || u.date;
             const d = t ? new Date(t) : null;
             if (!d || Number.isNaN(d.getTime())) return;
-            const key = usersGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
+            let key;
+            if (usersGranularity === "weekly") {
+              key = toYMD(startOfWeek(d));
+            } else if (usersGranularity === "monthly") {
+              key = toYYYYMM(startOfMonth(d));
+            } else {
+              key = toYMD(d);
+            }
             const uid = String(u._id ?? u.id ?? u.user_id ?? u.userId ?? u.email ?? "");
             if (!uid) return;
             if (!bucketUsers.has(key)) bucketUsers.set(key, new Set());
@@ -313,7 +345,8 @@ export default function Overview() {
 
         const map = new Map();
         (items || []).forEach((row) => {
-          const label = row.date || row.label || row.day || row.week;
+          // Backend returns date as YYYY-MM for monthly or YYYY-MM-DD for daily/weekly
+          const label = row.date || row.label || row.day || row.week || row.month;
           const total = Number(row.total ?? row.count ?? row.value ?? 0);
           if (!label) return;
           map.set(String(label), (map.get(String(label)) || 0) + (Number.isFinite(total) ? total : 0));
@@ -499,7 +532,7 @@ export default function Overview() {
       <DateRangePill label={renderDateRangeLabel(usersRangeKey, usersCustomRange, usersRange)} />
       <TimeBucketFilter
         value={usersGranularity}
-        onChange={(v) => setUsersGranularity(v === "monthly" ? "weekly" : v)}
+        onChange={(v) => setUsersGranularity(v)}
         options={[
           { value: "daily", label: "Daily" },
           { value: "weekly", label: "Weekly" },
@@ -667,7 +700,7 @@ export default function Overview() {
       <div className="block-full" style={{ gridColumn: "1 / -1" }}>
         <Card
           title="Users over time"
-          subtitle="Distinct active users by day/week"
+          subtitle="Distinct active users by day/week/month"
           actions={UsersControls}
         >
           {usersRangeKey === "custom" ? (
