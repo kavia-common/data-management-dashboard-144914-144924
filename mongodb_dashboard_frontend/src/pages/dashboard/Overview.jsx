@@ -263,102 +263,129 @@ export default function Overview() {
     };
   }, [sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity, fillSeries]);
 
-  // Users trend fetch
+  // Users trend fetch (calls backend endpoint and maps to series: createdCount/updatedCount)
   useEffect(() => {
     let aborted = false;
+
+    function toIsoSafe(v) {
+      if (!v) return undefined;
+      try {
+        return v instanceof Date ? v.toISOString() : new Date(v).toISOString();
+      } catch {
+        return undefined;
+      }
+    }
+
+    // Format labels based on granularity: YYYY-MM for month, YYYY-MM-DD otherwise
+    function labelFor(dateStr, granularity) {
+      if (!dateStr) return "";
+      if (granularity === "month") {
+        // Expect YYYY-MM or ISO; normalize to YYYY-MM
+        const d = new Date(dateStr.length > 10 ? dateStr : `${dateStr}-01T00:00:00.000Z`);
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        return `${y}-${m}`;
+      }
+      // Day/week display as YYYY-MM-DD
+      if (dateStr.length >= 10) return dateStr.slice(0, 10);
+      return dateStr;
+    }
+
     async function loadUsers() {
       setUsersLoading(true);
       setUsersError(null);
       try {
         const { startISO, endISO } = usersRange;
-        const backendGranularity =
-          usersGranularity === "week" ? "week" : usersGranularity === "month" ? "month" : "day";
-        const statusParam = usersStatus === "active" ? "completed|active" : undefined;
+        const from = toIsoSafe(startISO);
+        const to = toIsoSafe(endISO);
+        // Backend supports day|week granularity for active-trend; monthly is supported in overview users-trend
+        const g = usersGranularity === "week" ? "week" : usersGranularity === "month" ? "month" : "day";
+        const status = usersStatus === "active" ? "completed|active" : undefined;
 
-        let items = [];
-        let backendOk = false;
+        // Prefer overview users-trend which can support month as well
+        // fallback to usersActiveTrend (sessions-based) when month not supported or if call fails.
+        let createdCounts = new Map();
+        let updatedCounts = new Map();
+        let labelsSet = new Set();
+        let usedGranularity = g;
+
+        // Try overview users-trend first
         try {
-          const resp = await getActiveUsersTrend({
-            from: startISO,
-            to: endISO,
-            granularity: backendGranularity,
-            status: statusParam,
+          const { fetchUsersTrend } = await import("../../services/overviewApi");
+          const resp = await fetchUsersTrend({ from, to, granularity: g, status });
+          // Expected shape: { items: [{ date, createdCount, updatedCount }], meta: { granularity, from, to } }
+          const items = Array.isArray(resp?.items) ? resp.items : [];
+          usedGranularity = resp?.meta?.granularity || g;
+
+          items.forEach((it) => {
+            const lab = labelFor(it.date || it.label, usedGranularity);
+            if (!lab) return;
+            labelsSet.add(lab);
+            const c = Number(it.createdCount ?? 0);
+            const u = Number(it.updatedCount ?? 0);
+            if (Number.isFinite(c)) createdCounts.set(lab, (createdCounts.get(lab) || 0) + c);
+            if (Number.isFinite(u)) updatedCounts.set(lab, (updatedCounts.get(lab) || 0) + u);
           });
-          items = Array.isArray(resp?.items) ? resp.items : [];
-          backendOk = items.length > 0 || Array.isArray(resp?.items);
         } catch {
-          backendOk = false;
-        }
+          // Fallback: sessions active-trend -> map to "updatedCount" as active count, createdCount=0
+          try {
+            const resp = await getActiveUsersTrend({ from, to, granularity: g, status });
+            const items = Array.isArray(resp?.items) ? resp.items : [];
+            usedGranularity = resp?.meta?.granularity || g;
 
-        if (!backendOk) {
-          // Fallback using created_at buckets
-          const createdFilter = {
-            $and: [
-              {
-                $or: [
-                  { created_at: { $gte: startISO, $lte: endISO } },
-                  { createdAt: { $gte: startISO, $lte: endISO } },
-                ],
-              },
-              ...(usersStatus === "active"
-                ? [{ $or: [{ status: { $exists: false } }, { status: { $nin: ["deleted", "inactive"] } }] }]
-                : []),
-            ],
-          };
-
-          const usersRes = await listUsers({
-            filter: JSON.stringify(createdFilter),
-            limit: 2000,
-            sort: "-created_at",
-          });
-
-          const users = usersRes?.items || (Array.isArray(usersRes) ? usersRes : []);
-          const bucketUsers = new Map();
-          users.forEach((u) => {
-            const t = u.created_at || u.createdAt || u.date;
-            const d = t ? new Date(t) : null;
-            if (!d || Number.isNaN(d.getTime())) return;
-            let key;
-            if (usersGranularity === "week") {
-              key = toYMD(startOfWeek(d));
-            } else if (usersGranularity === "month") {
-              key = toYYYYMM(startOfMonth(d));
-            } else {
-              key = toYMD(d);
-            }
-            const uid = String(u._id ?? u.id ?? u.user_id ?? u.userId ?? u.email ?? "");
-            if (!uid) return;
-            if (!bucketUsers.has(key)) bucketUsers.set(key, new Set());
-            bucketUsers.get(key).add(uid);
-          });
-
-          items = Array.from(bucketUsers.entries()).map(([date, set]) => ({
-            date,
-            total: (set && set.size) || 0,
-          }));
+            items.forEach((it) => {
+              const lab = labelFor(it.date || it.label, usedGranularity);
+              if (!lab) return;
+              labelsSet.add(lab);
+              const total = Number(it.total ?? 0);
+              if (Number.isFinite(total)) updatedCounts.set(lab, (updatedCounts.get(lab) || 0) + total);
+              if (!createdCounts.has(lab)) createdCounts.set(lab, 0);
+            });
+          } catch (err) {
+            throw err;
+          }
         }
 
         if (aborted) return;
 
-        const map = new Map();
-        (items || []).forEach((row) => {
-          const label = row.date || row.label || row.day || row.week || row.month;
-          const total = Number(row.total ?? row.count ?? row.value ?? 0);
-          if (!label) return;
-          map.set(String(label), (map.get(String(label)) || 0) + (Number.isFinite(total) ? total : 0));
+        // Build full x-axis labels from range to align with API buckets
+        const mapForFilling = new Map();
+        // Use updated counts as primary for existence of points, but ensure created also filled
+        labelsSet.forEach((lab) => {
+          const sum = (createdCounts.get(lab) || 0) + (updatedCounts.get(lab) || 0);
+          mapForFilling.set(lab, sum);
         });
 
-        const series = fillSeries(map, usersRange.startISO, usersRange.endISO, usersGranularity);
-        setUsersSeries(series);
+        // Fill series across range to ensure continuity; derive labels from range to avoid gaps
+        const filled = fillSeries(mapForFilling, usersRange.startISO, usersRange.endISO, usedGranularity);
+
+        // Output stacked series by label with total as updated+created and primary yKey as value for chart
+        const finalSeries = filled.map((pt) => {
+          const lab = pt.label;
+          const created = createdCounts.get(lab) || 0;
+          const updated = updatedCounts.get(lab) || 0;
+          const total = created + updated;
+          return {
+            label: lab,
+            value: Number.isFinite(total) ? total : 0,
+            createdCount: Number.isFinite(created) ? created : 0,
+            updatedCount: Number.isFinite(updated) ? updated : 0,
+          };
+        });
+
+        setUsersSeries(finalSeries);
       } catch (e) {
         if (aborted) return;
-        setUsersError(e);
+        setUsersError(new Error(e?.message || "Failed to load users trend"));
         setUsersSeries([]);
       } finally {
         if (!aborted) setUsersLoading(false);
       }
     }
-    if (usersRange.startISO && usersRange.endISO) loadUsers();
+
+    if (usersRange.startISO && usersRange.endISO) {
+      loadUsers();
+    }
     return () => {
       aborted = true;
     };
@@ -659,7 +686,12 @@ export default function Overview() {
           {usersLoading && <LoadingState message="Loading users trend…" height={220} />}
           {usersError && <ErrorState message={usersError?.message || "Failed to load users trend."} />}
           {!usersLoading && !usersError && (
-            <KPIChart data={usersSeries} xKey="label" yKey="value" color="#0EA5E9" />
+            <KPIChart
+              data={usersSeries}
+              xKey="label"
+              yKey="value"
+              color="#0EA5E9"
+            />
           )}
         </Card>
       </div>
