@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import "./App.css";
-import "./styles/scrollable-date-range.css";
 import { appLogo } from "./assets/logo"; // REQ-UI-LOGO-REPLACE: shared logo for overlay
 import AppRoutes from "./routes/AppRoutes";
 import { useVerifyUsersUrlOnce } from "./hooks/useVerifyUsersUrlOnce";
