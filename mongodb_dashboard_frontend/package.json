@@ -3,11 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
-      "recharts": "^2.10.3",
-      "framer-motion": "^11.0.0",
     "axios": "^1.7.4",
     "crypto-js": "^4.2.0",
     "date-fns": "^4.1.0",
+    "framer-motion": "^11.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.26.2",
@@ -15,10 +14,10 @@
     "recharts": "^2.12.7"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "dev": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
+    "start": "cross-env NODE_OPTIONS=--max_old_space_size=512 DISABLE_ESLINT_PLUGIN=true react-scripts start",
+    "dev": "cross-env NODE_OPTIONS=--max_old_space_size=512 DISABLE_ESLINT_PLUGIN=true react-scripts start",
+    "build": "cross-env NODE_OPTIONS=--max_old_space_size=512 GENERATE_SOURCEMAP=${REACT_APP_ENABLE_SOURCE_MAPS:-false} react-scripts build",
+    "test": "cross-env CI=true NODE_OPTIONS=--max_old_space_size=512 react-scripts test --watchAll=false",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {

@@ -173,13 +173,15 @@ export default function Overview() {
   }, []);
 
   // Derived ISO ranges for each chart
+  const sessionsRangeDepsKey = `${sessionsRangeKey}|${sessionsCustomRange.start || ''}|${sessionsCustomRange.end || ''}`;
   const sessionsRange = useMemo(
     () => computeRange(sessionsRangeKey, sessionsCustomRange),
-    [sessionsRangeKey, sessionsCustomRange.start, sessionsCustomRange.end]
+    [sessionsRangeDepsKey]
   );
+  const usersRangeDepsKey = `${usersRangeKey}|${usersCustomRange.start || ''}|${usersCustomRange.end || ''}`;
   const usersRange = useMemo(
     () => computeRange(usersRangeKey, usersCustomRange),
-    [usersRangeKey, usersCustomRange.start, usersCustomRange.end]
+    [usersRangeDepsKey]
   );
 
 
@@ -306,7 +308,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [sessionsRangeKey, sessionsCustomRange, sessionsGranularity, sessionsRange.startISO, sessionsRange.endISO, fillSeries]);
+  }, [sessionsRangeDepsKey, sessionsGranularity, sessionsRange.startISO, sessionsRange.endISO, fillSeries]);
 
   // Users trend fetcher — independent
   useEffect(() => {
@@ -401,7 +403,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries]);
+  }, [usersRangeDepsKey, usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries]);
 
 
 

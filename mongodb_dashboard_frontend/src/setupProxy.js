@@ -14,18 +14,12 @@ const { createProxyMiddleware } = require("http-proxy-middleware");
  * - secure: false permits self-signed certs if target is https (dev only)
  */
 module.exports = function setupProxy(app) {
-  const port = process.env.REACT_APP_BACKEND_PORT || process.env.PORT || "3001";
-  // Prefer explicit base URL if set; otherwise, infer from current host to avoid localhost/IP mismatch in preview
-  let inferredHost = "localhost";
-  try {
-    // CRA proxy runs in node (dev server). We cannot access window here, but we can use the host header at runtime.
-    // http-proxy-middleware will rewrite based on target; we'll keep protocol http for local dev.
-    inferredHost = process.env.REACT_APP_PROXY_HOST || "localhost";
-  } catch {}
+  // Force proxy target to localhost:3001 by default to avoid EADDRNOTAVAIL with 0.0.0.0 in preview envs
+  const port = "3001";
   const target =
     process.env.REACT_APP_API_BASE_URL ||
     process.env.REACT_APP_API_URL ||
-    `http://${inferredHost}:${port}`;
+    `http://localhost:${port}`;
 
   const commonOpts = {
     target,
