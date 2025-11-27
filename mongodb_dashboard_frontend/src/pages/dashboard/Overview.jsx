@@ -2,12 +2,12 @@ import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
-import { fetchSessionTracking } from "../../api/sessionTracking";
 import LoadingState from "../../components/common/LoadingState";
 import ErrorState from "../../components/common/ErrorState";
 import KPIChart from "../../components/charts/KPIChart.jsx";
 import TimeBucketFilter from "../../components/common/TimeBucketFilter.jsx";
 import { getActiveUsersTrend } from "../../api/usersActiveTrend";
+import OverviewFeatureCharts from "../../components/overview/OverviewFeatureCharts.jsx";
 
 /**
  * Utility functions to bucket timestamps by day/week and compute counts.
@@ -183,100 +183,9 @@ export default function Overview() {
   );
 
 
-  // Sessions trend fetcher — independent
-  useEffect(() => {
-    let aborted = false;
-    async function loadSessions() {
-      setSessionsLoading(true);
-      setSessionsError(null);
-      try {
-        const { startISO, endISO } = sessionsRange;
-
-        // Map UI granularity to API bucket param
-        const apiGranularity =
-          sessionsGranularity === "weekly"
-            ? "week"
-            : sessionsGranularity === "monthly"
-            ? "month"
-            : "day";
-
-        const { items } = await fetchSessionTracking({
-          from: startISO,
-          to: endISO,
-          start_date: startISO,
-          end_date: endISO,
-          limit: 2000,
-          sort: "-session_start",
-          granularity: apiGranularity,
-          filter: {
-            $and: [
-              {
-                $or: [
-                  { session_start: { $gte: startISO, $lte: endISO } },
-                  { session_end: { $gte: startISO, $lte: endISO } },
-                ],
-              },
-            ],
-          },
-        });
-        if (aborted) return;
-
-        const pts = (items || [])
-          .map((it) => {
-            const t =
-              it.session_start ||
-              it.last_updated ||
-              it.updated_at ||
-              it.startedAt ||
-              it.createdAt ||
-              it.timestamp ||
-              it.lastActivityAt ||
-              it.endedAt ||
-              it.date;
-            return t ? new Date(t) : null;
-          })
-          .filter((d) => d && !Number.isNaN(d.getTime()));
-
-        const map = new Map();
-        if (sessionsGranularity === "weekly") {
-          pts.forEach((d) => {
-            const k = toYMD(startOfWeek(d));
-            map.set(k, (map.get(k) || 0) + 1);
-          });
-        } else if (sessionsGranularity === "monthly") {
-          pts.forEach((d) => {
-            const m = startOfMonth(d);
-            const k = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, "0")}-01`;
-            map.set(k, (map.get(k) || 0) + 1);
-          });
-        } else {
-          pts.forEach((d) => {
-            const k = toYMD(d);
-            map.set(k, (map.get(k) || 0) + 1);
-          });
-        }
-
-        setSessionsSeries(fillSeries(map, sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity));
-      } catch (e) {
-        if (aborted) return;
-        setSessionsError(e);
-        setSessionsSeries([]);
-      } finally {
-        if (!aborted) setSessionsLoading(false);
-      }
-    }
-    if (sessionsRange.startISO && sessionsRange.endISO) loadSessions();
-    return () => {
-      aborted = true;
-    };
-  }, [
-    sessionsRange.startISO,
-    sessionsRange.endISO,
-    sessionsGranularity,
-    sessionsCustomRange.start,
-    sessionsCustomRange.end,
-    fillSeries,
-  ]);
+  // Sessions trend derived locally from users/sessions was previously fetched via fetchSessionTracking.
+  // For this Overview page, we now omit that additional fetch and rely on the KPI/other charts.
+  // If needed in the future, reintroduce a sessions trend fetcher here.
 
   // Users trend fetcher — independent
   useEffect(() => {
@@ -702,7 +611,14 @@ export default function Overview() {
         </Card>
       </div>
 
-
+      {/* Overall Feature Charts (by service_type) */}
+      <div className="block-full" style={{ gridColumn: "1 / -1" }}>
+        <OverviewFeatureCharts
+          from={sessionsRange.startISO}
+          to={sessionsRange.endISO}
+          defaultView="bar"
+        />
+      </div>
 
       {error && (
         <div className="block-full" role="alert" style={{ alignSelf: "start" }}>
