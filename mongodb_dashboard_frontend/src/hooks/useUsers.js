@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { listUsers } from '../api'; // unified api index with clients
+import useDebouncedValue from './useDebouncedValue';
 
 /**
  * PUBLIC_INTERFACE
@@ -19,29 +20,51 @@ export function useUsers({ page, limit, sort, filter } = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Build stable params; limit intentionally ignored for /api/users by design
   const params = useMemo(() => {
     const out = {};
-    // Note: limit is intentionally excluded for /api/users (stripped by client rule)
     if (page) out.page = page;
     if (sort) out.sort = sort;
     if (filter) out.filter = typeof filter === 'string' ? filter : JSON.stringify(filter);
     return out;
   }, [page, sort, filter]);
 
-  const fetchUsers = async (signal) => {
+  // Debounce params to avoid rapid successive requests when inputs change quickly
+  const debouncedParams = useDebouncedValue(params, 300);
+
+  // Track current in-flight controller for explicit cancellation on changes/unmount
+  const inflightRef = useRef(null);
+
+  const fetchUsers = async (optSignal) => {
     setLoading(true);
     setError(null);
-    try {
-      // Enforce shared client usage; it appends tenant_id automatically.
-      const resp = await listUsers(params, { signal });
 
-      // Development-time verification log to confirm tenant_id is present
+    // If a previous request is still in-flight, cancel it
+    if (inflightRef.current) {
+      try {
+        inflightRef.current.abort();
+      } catch {
+        // ignore
+      }
+    }
+
+    // Create a new controller for this invocation
+    const controller = new AbortController();
+    inflightRef.current = controller;
+
+    // Compose signal: if caller provided one, race via consumer cancellation
+    const signal = optSignal instanceof AbortSignal ? optSignal : controller.signal;
+
+    try {
+      // listUsers already uses requestClient with dedupe/cache; pass signal for consumer-level abort
+      const resp = await listUsers(debouncedParams, { signal });
+
       if (process.env.NODE_ENV !== 'production') {
         // eslint-disable-next-line no-console
-        console.debug('[useUsers] listUsers(params) invoked with tenant-scoped client. Params:', params);
+        console.debug('[useUsers] fetched users', { debouncedParams });
       }
 
-      // Handle both raw array and envelope formats
+      // Normalize payload to array
       const data = Array.isArray(resp) ? resp : (resp?.data || resp?.items || []);
       setUsers(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -50,15 +73,25 @@ export function useUsers({ page, limit, sort, filter } = {}) {
       }
     } finally {
       setLoading(false);
+      // clear only if this is our current controller
+      if (inflightRef.current === controller) {
+        inflightRef.current = null;
+      }
     }
   };
 
   useEffect(() => {
-    const controller = new AbortController();
-    fetchUsers(controller.signal);
-    return () => controller.abort();
+    const outer = new AbortController();
+    fetchUsers(outer.signal);
+    return () => {
+      outer.abort();
+      if (inflightRef.current) {
+        try { inflightRef.current.abort(); } catch { /* noop */ }
+        inflightRef.current = null;
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(params)]);
+  }, [JSON.stringify(debouncedParams)]);
 
   return {
     users,

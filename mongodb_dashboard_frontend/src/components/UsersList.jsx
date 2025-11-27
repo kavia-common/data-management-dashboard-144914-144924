@@ -3,6 +3,7 @@ import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
 import { listUsers } from "../api";
+import useDebouncedValue from "../hooks/useDebouncedValue";
 
 /**
  * PUBLIC_INTERFACE
@@ -25,6 +26,9 @@ export default function UsersList({
   const [query, setQuery] = useState("");
   const [organizationFilter, setOrganizationFilter] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
+
+  // Debounced input to reduce rapid filter recomputations and accidental multi-renders
+  const debouncedQuery = useDebouncedValue(query, 300);
 
   const allowedFields = useMemo(
     () => [
@@ -85,7 +89,7 @@ export default function UsersList({
   }, []);
 
   useEffect(() => {
-    const q = (query || "").trim().toLowerCase();
+    const q = (debouncedQuery || "").trim().toLowerCase();
     let filtered = allItems || [];
 
     if (q) {
@@ -108,7 +112,7 @@ export default function UsersList({
 
     setItems(filtered);
     setMeta((m) => ({ ...m, total: filtered.length, page: 1 }));
-  }, [query, allItems, allowedFields, organizationFilter]);
+  }, [debouncedQuery, allItems, allowedFields, organizationFilter]);
 
   function resetFilters() {
     setQuery("");
