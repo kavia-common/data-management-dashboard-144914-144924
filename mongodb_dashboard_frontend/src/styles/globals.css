@@ -456,6 +456,7 @@ html[data-theme="dark"] .project-id-pill:focus-visible {
   border: none !important;
   box-shadow: none !important;
   outline: none !important;
+  color: black;
 }
 
 /* Transparent hover rectangle drawn by Recharts 'cursor' */
