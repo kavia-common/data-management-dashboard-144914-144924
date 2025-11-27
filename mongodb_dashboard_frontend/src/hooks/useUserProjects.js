@@ -21,7 +21,8 @@ export function useUserProjects(options = {}) {
   const [loading, setLoading] = useState(Boolean(enabled && userId && tenantId));
   const [error, setError] = useState("");
 
-  const canFetch = useMemo(() => Boolean(enabled && userId && tenantId), [enabled, userId, tenantId, from, to]);
+  // Only user/tenant/enabled gate fetch capability; range values are request params, not capability
+  const canFetch = useMemo(() => Boolean(enabled && userId && tenantId), [enabled, userId, tenantId]);
 
   async function load() {
     if (!canFetch) return;
@@ -41,8 +42,8 @@ export function useUserProjects(options = {}) {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, tenantId, enabled, from, to]);
+    // Re-fetch when identity or range changes
+  }, [userId, tenantId, enabled, from, to]); 
 
   return { projects, loading, error, refetch: load };
 }
