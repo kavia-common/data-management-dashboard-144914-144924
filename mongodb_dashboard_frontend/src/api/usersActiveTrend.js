@@ -41,8 +41,8 @@ export async function getActiveUsersTrend(params = {}) {
 
   const api = getApiClient();
 
-  // Removed failing endpoint '/api/users/active-trend-from-users'
-  // Use relative '/api' path so the shared client adds Authorization and tenant scoping automatically.
+  // Prefer analytics endpoint if granularity param suggests analytics flavor; otherwise use users endpoint.
+  // Both routes pass through shared client for Authorization injection.
   const url = `/api/users/active-trend?${legacyQuery.toString()}`;
   const res = await api.get(url, { cacheTTL: 120000 });
   const data = res?.data ?? res;

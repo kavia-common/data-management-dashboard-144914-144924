@@ -8,18 +8,73 @@ const AUTH_STORAGE_KEY = 'auth';
 const ACTIVE_ORG_KEY = 'activeOrganization';
 const ACTIVE_TENANT_KEY = 'activeTenant'; // legacy alias kept for backward compatibility
 
-// PUBLIC_INTERFACE
+/**
+ * Attempt to retrieve an auth token from multiple sources in priority order:
+ * 1) window.authTokenProvider?.getIdToken?.()
+ * 2) localStorage: 'id_token' | 'auth_token' | JSON under AUTH_STORAGE_KEY { token }
+ * 3) sessionStorage: same keys as localStorage
+ */
 export function getToken() {
-  /** Returns the stored JWT token or null if not logged in. */
+  // window provider (e.g., Firebase/Custom)
+  try {
+    const maybeProvider = typeof window !== 'undefined' ? window.authTokenProvider : undefined;
+    if (maybeProvider && typeof maybeProvider.getIdToken === 'function') {
+      const token = maybeProvider.getIdToken();
+      if (token && typeof token === 'string' && token.trim()) {
+        return token;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  // Helpers to read storage safely
+  const readFromStorage = (storage) => {
+    try {
+      // Flat token keys
+      const directKeys = ['id_token', 'auth_token'];
+      for (const k of directKeys) {
+        const v = storage.getItem(k);
+        if (v && typeof v === 'string' && v.trim()) return v;
+      }
+      // JSON { token } under AUTH_STORAGE_KEY
+      const raw = storage.getItem(AUTH_STORAGE_KEY);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          const t = parsed?.token;
+          if (t && typeof t === 'string' && t.trim()) return t;
+        } catch {
+          // not JSON, ignore
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  };
+
+  // localStorage first
+  const lsToken = typeof localStorage !== 'undefined' ? readFromStorage(localStorage) : null;
+  if (lsToken) return lsToken;
+
+  // sessionStorage next
+  const ssToken = typeof sessionStorage !== 'undefined' ? readFromStorage(sessionStorage) : null;
+  if (ssToken) return ssToken;
+
+  // Fallback to original JSON under AUTH_STORAGE_KEY if not yet caught
   try {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const token = parsed?.token || null;
-    return token || null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const token = parsed?.token || null;
+      if (token) return token;
+    }
   } catch {
-    return null;
+    // ignore
   }
+
+  return null;
 }
 
 /**
@@ -125,7 +180,19 @@ export function buildAuthHeaders(baseHeaders = {}) {
     headers.Authorization = `Bearer ${token}`;
   }
 
-  // Note: We no longer set 'X-Tenant-Id'. Tenant is appended as a query param elsewhere.
+  // Demo-mode fallback when no token present
+  const allowDemo = String(process.env.REACT_APP_ALLOW_DEMO_AUTH || '').toLowerCase() === 'true';
+  if (!token && allowDemo) {
+    // Attach x-organization-id if available to help backend scoping without JWT
+    const org = getOrganizationId();
+    if (org && !headers['x-organization-id'] && !headers['X-Organization-Id']) {
+      headers['x-organization-id'] = String(org);
+    }
+    // Optionally include a benign Authorization header for dev
+    if (!headers.Authorization) {
+      headers.Authorization = 'Bearer ok';
+    }
+  }
 
   return headers;
 }

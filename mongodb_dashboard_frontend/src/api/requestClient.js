@@ -132,23 +132,7 @@ async function coreRequest(method, pathOrUrl, { params, headers, signal, body, c
   const key = makeKey(method, url);
   const upperMethod = method.toUpperCase();
 
-  // Debug: request start
-  if (DEBUG_API && isTargetUsersEndpoint(url)) {
-    try {
-      const authHeader = (headers && (headers.Authorization || headers.authorization)) || '';
-      // Avoid dumping token; log presence and length only
-      // eslint-disable-next-line no-console
-      console.log('[API DEBUG][request]', {
-        method: upperMethod,
-        url,
-        hasAuthorization: !!authHeader,
-        authorizationLength: typeof authHeader === 'string' ? authHeader.length : 0,
-      });
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn('[API DEBUG] request log error:', e);
-    }
-  }
+  // Debug for request is logged after headers are constructed (below) to reflect injected Authorization.
 
   // GET cache check
   const allowCache = upperMethod === 'GET';
@@ -204,6 +188,23 @@ async function performFetch(method, url, { headers, signal, body }, key, isReval
       ...(method !== 'GET' ? { 'Content-Type': 'application/json' } : {}),
       ...(headers || {}),
     });
+
+    // Late-bound debug: confirm Authorization presence for target endpoints
+    if (DEBUG_API && isTargetUsersEndpoint(url)) {
+      try {
+        const authHeader = builtHeaders.Authorization || builtHeaders.authorization || '';
+        // eslint-disable-next-line no-console
+        console.log('[API DEBUG][request]', {
+          method,
+          url,
+          hasAuthorization: !!authHeader,
+          authorizationLength: typeof authHeader === 'string' ? authHeader.length : 0,
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[API DEBUG] request log error:', e);
+      }
+    }
 
     const res = await fetch(url, {
       method,
