@@ -7,7 +7,7 @@ import { getApiBaseUrl } from './util';
  * - short-lived GET cache with stale-while-revalidate (TTL 90s default)
  * - AbortController support for cancellation
  *
- * Public interface mirrors axios-lite used in the codebase:
+ * PUBLIC_INTERFACE
  *   client.get(url, { params?, headers?, signal?, cacheTTL? })
  *   client.post(url, body, { params?, headers?, signal? })
  *   client.put(url, body, { params?, headers?, signal? })
@@ -38,7 +38,7 @@ function baseJoin(base, path) {
 }
 
 /**
- * Resolve base URL including '/api' suffix using existing helpers.
+ * Resolve base URL including '/api'
  */
 function getBase() {
   // getApiBaseUrl already returns a fully formed base including '/api'
@@ -46,10 +46,7 @@ function getBase() {
 }
 
 /**
- * Build final URL from pathOrUrl + params:
- * - Supports absolute URLs and '/api' prefixed paths
- * - For relative paths, joins with getBase()
- * - Ensures organization_id query is appended if not present
+ * Build final URL from pathOrUrl + params and ensure organization_id query if available.
  */
 function buildUrlWithParams(pathOrUrl, params = {}) {
   let url = '';
@@ -76,7 +73,7 @@ function buildUrlWithParams(pathOrUrl, params = {}) {
   });
 
   // Append organization_id if not present for scoping (safe default; server enforces)
-  const orgId = getOrganizationId();
+  const orgId = getOrganizationId && getOrganizationId();
   if (orgId && !usp.has('organization_id')) {
     usp.set('organization_id', String(orgId));
   }
@@ -89,7 +86,6 @@ function buildUrlWithParams(pathOrUrl, params = {}) {
  * Deterministic cache/dedupe key: METHOD|URL_WITH_SORTED_PARAMS
  */
 function makeKey(method, url) {
-  // Sort query params to ensure consistent keys
   try {
     const u = new URL(url, 'http://x');
     const usp = u.searchParams;
@@ -121,6 +117,7 @@ async function parseResponse(res) {
 
 function isTargetUsersEndpoint(url) {
   return (
+    url.includes('/api/users') ||
     (url.includes('/api/tenants/') && url.includes('/users/usage')) ||
     url.includes('/api/analytics/users/active-trend')
   );
@@ -132,8 +129,6 @@ async function coreRequest(method, pathOrUrl, { params, headers, signal, body, c
   const key = makeKey(method, url);
   const upperMethod = method.toUpperCase();
 
-  // Debug for request is logged after headers are constructed (below) to reflect injected Authorization.
-
   // GET cache check
   const allowCache = upperMethod === 'GET';
   const ttl = Number.isFinite(cacheTTL) ? cacheTTL : DEFAULT_TTL_MS;
@@ -141,9 +136,8 @@ async function coreRequest(method, pathOrUrl, { params, headers, signal, body, c
   if (allowCache) {
     const hit = cache.get(key);
     if (hit && now - hit.timestamp < ttl) {
-      // Serve cached immediately; also trigger SWR in background if not already in-flight
+      // Background SWR if not inflight
       if (!inflight.has(key)) {
-        // Fire-and-forget revalidation
         void (async () => {
           try {
             await performFetch(upperMethod, url, { headers, signal: undefined, body: undefined }, key, true);
@@ -159,14 +153,6 @@ async function coreRequest(method, pathOrUrl, { params, headers, signal, body, c
   // In-flight dedupe
   if (inflight.has(key)) {
     const entry = inflight.get(key);
-    // Attach cancellation if caller provided signal
-    if (signal instanceof AbortSignal) {
-      // When the caller cancels, we'll abort our controller too by listening
-      signal.addEventListener('abort', () => {
-        // Each consumer handles their own abort; we do not cancel the shared in-flight request
-        // to avoid canceling others waiting for the deduped response.
-      });
-    }
     return entry.promise;
   }
 
@@ -175,13 +161,6 @@ async function coreRequest(method, pathOrUrl, { params, headers, signal, body, c
 }
 
 async function performFetch(method, url, { headers, signal, body }, key, isRevalidate = false, allowCache = true, ttlMs = DEFAULT_TTL_MS) {
-  // Create AbortController for this request, and hook up provided signal to forward cancellation for this consumer only
-  const controller = new AbortController();
-  const finalSignal = controller.signal;
-
-  // Do not attach user-provided signal directly to shared request; instead, mirror abort behavior for the caller by racing.
-  // We implement consumer-level cancellation by returning a promise that rejects if the caller's signal aborts first.
-
   const fetchPromise = (async () => {
     const builtHeaders = buildAuthHeaders({
       Accept: 'application/json',
@@ -189,7 +168,7 @@ async function performFetch(method, url, { headers, signal, body }, key, isReval
       ...(headers || {}),
     });
 
-    // Late-bound debug: confirm Authorization presence for target endpoints
+    // Debug: confirm Authorization presence
     if (DEBUG_API && isTargetUsersEndpoint(url)) {
       try {
         const authHeader = builtHeaders.Authorization || builtHeaders.authorization || '';
@@ -210,13 +189,12 @@ async function performFetch(method, url, { headers, signal, body }, key, isReval
       method,
       headers: builtHeaders,
       body: body !== undefined ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined,
-      signal: finalSignal,
+      signal,
       credentials: 'omit',
     });
 
     const parsed = await parseResponse(res);
 
-    // Debug: response info
     if (DEBUG_API && isTargetUsersEndpoint(url)) {
       try {
         const authHeader = builtHeaders.Authorization || builtHeaders.authorization || '';
@@ -245,16 +223,6 @@ async function performFetch(method, url, { headers, signal, body }, key, isReval
       const err = new Error(message);
       err.status = parsed.status;
       err.payload = parsed.payload;
-
-      if (DEBUG_API && isTargetUsersEndpoint(url)) {
-        // eslint-disable-next-line no-console
-        console.error('[API DEBUG][response error]', {
-          url,
-          status: parsed.status,
-          message,
-        });
-      }
-
       throw err;
     }
 
@@ -271,40 +239,17 @@ async function performFetch(method, url, { headers, signal, body }, key, isReval
   })();
 
   if (!isRevalidate) {
-    // Only track inflight for foreground requests
-    const inflightEntry = {
+    inflight.set(key, {
       promise: fetchPromise.finally(() => {
         inflight.delete(key);
       }),
-      controllers: new Set([controller]),
-    };
-    inflight.set(key, inflightEntry);
-  }
-
-  // If caller has a signal, race to emulate consumer-level cancellation without canceling shared fetch
-  if (signal instanceof AbortSignal) {
-    return Promise.race([
-      fetchPromise,
-      new Promise((_, reject) => {
-        if (signal.aborted) {
-          const abortErr = new DOMException('Aborted', 'AbortError');
-          reject(abortErr);
-          return;
-        }
-        const onAbort = () => {
-          signal.removeEventListener('abort', onAbort);
-          const abortErr = new DOMException('Aborted', 'AbortError');
-          reject(abortErr);
-        };
-        signal.addEventListener('abort', onAbort);
-      }),
-    ]);
+      controllers: new Set(),
+    });
   }
 
   return fetchPromise;
 }
 
-// Public client factory
 // PUBLIC_INTERFACE
 export function createRequestClient() {
   /** Returns a minimal axios-like client wrapper with dedupe/cache/abort support. */

@@ -1,19 +1,16 @@
 const { createProxyMiddleware } = require("http-proxy-middleware");
 
-/**
- * PUBLIC_INTERFACE
- * CRA dev server proxy.
- *
- * Proxies API calls and OpenAPI docs to the backend target to avoid mixed-content and CORS issues.
- * Target is chosen using:
- * - REACT_APP_API_BASE_URL or REACT_APP_API_URL if provided
- * - otherwise http://localhost:${REACT_APP_BACKEND_PORT || 3001}
- *
- * Notes:
- * - changeOrigin: true allows virtual hosted sites
- * - secure: false permits self-signed certs if target is https (dev only)
- */
+// PUBLIC_INTERFACE
+// CRA dev server proxy with duplicate-install guard for HMR.
+// Proxies API and OpenAPI requests to backend target resolved from env.
+const PROXY_INSTALLED = Symbol.for("dashboard.proxy.installed");
+
 module.exports = function setupProxy(app) {
+  if (app[PROXY_INSTALLED]) {
+    return;
+  }
+  app[PROXY_INSTALLED] = true;
+
   const port = process.env.REACT_APP_BACKEND_PORT || "3001";
   const target =
     process.env.REACT_APP_API_BASE_URL ||
@@ -24,22 +21,33 @@ module.exports = function setupProxy(app) {
     target,
     changeOrigin: true,
     secure: false,
-    logLevel: "warn",
+    xfwd: true,
+    logLevel: (process.env.REACT_APP_LOG_LEVEL || "warn").toLowerCase(),
+    onProxyReq(proxyReq, req, res) {
+      // Ensure auth header is forwarded to backend
+      if (req.headers && (req.headers.authorization || req.headers.Authorization)) {
+        proxyReq.setHeader("authorization", req.headers.authorization || req.headers.Authorization);
+      }
+      // Forward tenant header if present (demo mode)
+      if (req.headers && (req.headers["x-organization-id"] || req.headers["X-Organization-Id"])) {
+        proxyReq.setHeader("x-organization-id", req.headers["x-organization-id"] || req.headers["X-Organization-Id"]);
+      }
+      // Preserve forwarded proto for backend trust setups
+      proxyReq.setHeader("X-Forwarded-Proto", "http");
+    }
   };
 
-  // Proxy API prefix
   app.use(
     "/api",
     createProxyMiddleware({
-      ...commonOpts,
+      ...commonOpts
     })
   );
 
-  // Proxy OpenAPI spec for connectivity/health checks
   app.use(
     "/openapi.json",
     createProxyMiddleware({
-      ...commonOpts,
+      ...commonOpts
     })
   );
 };
