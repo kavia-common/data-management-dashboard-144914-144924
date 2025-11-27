@@ -193,87 +193,100 @@ export default function Overview() {
       try {
         const { startISO, endISO } = sessionsRange;
 
-        // Pull a relatively high limit to get a meaningful trend without pagination loops.
-        // Stay within helper/API capabilities
-        const params = {
-          page: 1,
-          limit: 500,
-          sort: '-last_updated,-session_start,-createdAt,-timestamp',
-          // tenant_id is applied by base client from auth/session when present; we can pass through if needed.
+        // Heuristic to estimate how many items we need: number of buckets * avg per day
+        // but stay within API max 200 per page and paginate a few pages if needed.
+        const maxPerPage = 200;
+        const pagesToFetch = 4; // fetch up to 800 rows client-side to cover range
+        const baseParams = {
+          sort: '-session_start,-last_updated,-createdAt,-timestamp',
         };
 
-        // Prefer the base listSessions if available; otherwise use fetchSessionTracking helper
+        // Fetch multiple pages in sequence to respect API
         let items = [];
-        try {
-          const res = await listSessions(params);
-          items = res?.items || (Array.isArray(res) ? res : res?.data) || [];
-        } catch (e) {
+        for (let page = 1; page <= pagesToFetch; page += 1) {
+          const params = { ...baseParams, page, limit: maxPerPage };
+          let pageItems = [];
           try {
-            // Fallback to direct session-tracking client if base listSessions shape differs
-            const mod = await import('../../api/sessionTracking');
-            const alt = await mod.fetchSessionTracking(params);
-            items = alt?.items || [];
-          } catch (e2) {
-            throw e;
+            const res = await listSessions(params);
+            // listSessions may return: array OR { data, meta } OR { items }
+            const arr = res?.items || res?.data || (Array.isArray(res) ? res : []);
+            pageItems = Array.isArray(arr) ? arr : [];
+          } catch (e) {
+            // Fallback to direct session-tracking client if needed
+            try {
+              const mod = await import('../../api/sessionTracking');
+              const alt = await mod.fetchSessionTracking({ ...params });
+              const arr = alt?.items || alt?.data || [];
+              pageItems = Array.isArray(arr) ? arr : [];
+            } catch (e2) {
+              // if first page already failed on both paths, propagate error
+              if (page === 1) throw e;
+              break;
+            }
           }
+          items = items.concat(pageItems);
+          // Stop early if we got fewer than maxPerPage
+          if (!pageItems || pageItems.length < maxPerPage) break;
         }
 
-        // Map each item to a timestamp with priority:
-        // session_start, then last_updated, then timestamp/createdAt fallback
-        const timestamps = [];
+        // Build two timestamp arrays per business rules:
+        // 1) starts: session_start if present; if absent we DO NOT use last_updated here.
+        // 2) ends: session_end if present; otherwise if session_start missing and we only have end/last_updated,
+        //          we'll count end; this helps include sessions where start wasn't recorded.
+        const starts = [];
+        const ends = [];
+
+        const ds = new Date(startISO).getTime();
+        const de = new Date(endISO).getTime();
+
         (items || []).forEach((it) => {
-          const t =
-            it.session_start ||
-            it.sessionStart ||
-            it.last_updated ||
-            it.lastUpdated ||
-            it.timestamp ||
-            it.createdAt ||
-            it.created_at ||
-            it.start_time ||
-            it.started_at;
-          if (!t) return;
-          const d = new Date(t);
-          if (Number.isNaN(d.getTime())) return;
-          // Only include those within the selected range (when set)
-          if (startISO && endISO) {
-            const ds = new Date(startISO).getTime();
-            const de = new Date(endISO).getTime();
-            const tt = d.getTime();
-            if (tt < ds || tt > de) {
-              // skip out-of-range for trend integrity
-            } else {
-              timestamps.push(d);
-            }
-          } else {
-            timestamps.push(d);
+          const startTs = it.session_start || it.sessionStart || it.start_time || it.started_at;
+          const endTs = it.session_end || it.sessionEnd || it.end_time || it.ended_at;
+          const lastUpd = it.last_updated || it.lastUpdated || it.timestamp || it.updatedAt;
+
+          if (startTs) {
+            const d = new Date(startTs);
+            const t = d.getTime();
+            if (!Number.isNaN(t) && t >= ds && t <= de) starts.push(d);
+          }
+
+          // Count ends if present within range
+          if (endTs) {
+            const d = new Date(endTs);
+            const t = d.getTime();
+            if (!Number.isNaN(t) && t >= ds && t <= de) ends.push(d);
+          } else if (!startTs && lastUpd) {
+            // If no start but there is last_updated in range, treat as an end proxy
+            const d = new Date(lastUpd);
+            const t = d.getTime();
+            if (!Number.isNaN(t) && t >= ds && t <= de) ends.push(d);
           }
         });
 
-        // Aggregate by bucket including monthly
+        // Combine into a single count series per bucket: starts + ends
         const map = new Map();
-        const s = new Date(startISO);
-        const e = new Date(endISO);
 
-        if (sessionsGranularity === 'weekly') {
-          timestamps.forEach((t) => {
-            const wk = toYMD(startOfWeek(t));
-            map.set(wk, (map.get(wk) || 0) + 1);
-          });
-        } else if (sessionsGranularity === 'monthly') {
-          timestamps.forEach((t) => {
-            const mStart = startOfMonth(t);
+        const addToMap = (d) => {
+          if (sessionsGranularity === 'weekly') {
+            const key = toYMD(startOfWeek(d));
+            map.set(key, (map.get(key) || 0) + 1);
+          } else if (sessionsGranularity === 'monthly') {
+            const mStart = startOfMonth(d);
             const key = `${mStart.getFullYear()}-${String(mStart.getMonth() + 1).padStart(2, '0')}-01`;
             map.set(key, (map.get(key) || 0) + 1);
-          });
-        } else {
-          timestamps.forEach((t) => {
-            const key = toYMD(t);
+          } else {
+            const key = toYMD(d);
             map.set(key, (map.get(key) || 0) + 1);
-          });
-        }
+          }
+        };
 
+        starts.forEach(addToMap);
+        ends.forEach(addToMap);
+
+        const s = new Date(startISO);
+        const e = new Date(endISO);
         const series = fillSeries(map, s, e, sessionsGranularity);
+
         if (!aborted) {
           setSessionsSeries(series);
         }
@@ -293,7 +306,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity, fillSeries]);
+  }, [sessionsRangeKey, sessionsCustomRange, sessionsGranularity, sessionsRange.startISO, sessionsRange.endISO, fillSeries]);
 
   // Users trend fetcher — independent
   useEffect(() => {
@@ -666,8 +679,13 @@ export default function Overview() {
           )}
           {sessionsLoading && <LoadingState message="Loading sessions trend…" height={220} />}
           {sessionsError && <ErrorState message={sessionsError?.message || "Failed to load sessions."} />}
-          {!sessionsLoading && !sessionsError && (
+          {!sessionsLoading && !sessionsError && sessionsSeries && sessionsSeries.length > 0 && (
             <KPIChart data={sessionsSeries} xKey="label" yKey="value" color="#2563EB" />
+          )}
+          {!sessionsLoading && !sessionsError && sessionsSeries && sessionsSeries.length === 0 && (
+            <div style={{ padding: 16, color: '#6B7280', fontSize: 14 }}>
+              No sessions found for the selected range.
+            </div>
           )}
         </Card>
       </div>
