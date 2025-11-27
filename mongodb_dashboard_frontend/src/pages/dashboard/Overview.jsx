@@ -183,9 +183,117 @@ export default function Overview() {
   );
 
 
-  // Sessions trend derived locally from users/sessions was previously fetched via fetchSessionTracking.
-  // For this Overview page, we now omit that additional fetch and rely on the KPI/other charts.
-  // If needed in the future, reintroduce a sessions trend fetcher here.
+  // Sessions trend: fetch session-tracking and aggregate client-side by day/week/month
+  useEffect(() => {
+    let aborted = false;
+
+    async function loadSessions() {
+      setSessionsLoading(true);
+      setSessionsError(null);
+      try {
+        const { startISO, endISO } = sessionsRange;
+
+        // Pull a relatively high limit to get a meaningful trend without pagination loops.
+        // Stay within helper/API capabilities
+        const params = {
+          page: 1,
+          limit: 500,
+          sort: '-last_updated,-session_start,-createdAt,-timestamp',
+          // tenant_id is applied by base client from auth/session when present; we can pass through if needed.
+        };
+
+        // Prefer the base listSessions if available; otherwise use fetchSessionTracking helper
+        let items = [];
+        try {
+          const res = await listSessions(params);
+          items = res?.items || (Array.isArray(res) ? res : res?.data) || [];
+        } catch (e) {
+          try {
+            // Fallback to direct session-tracking client if base listSessions shape differs
+            const mod = await import('../../api/sessionTracking');
+            const alt = await mod.fetchSessionTracking(params);
+            items = alt?.items || [];
+          } catch (e2) {
+            throw e;
+          }
+        }
+
+        // Map each item to a timestamp with priority:
+        // session_start, then last_updated, then timestamp/createdAt fallback
+        const timestamps = [];
+        (items || []).forEach((it) => {
+          const t =
+            it.session_start ||
+            it.sessionStart ||
+            it.last_updated ||
+            it.lastUpdated ||
+            it.timestamp ||
+            it.createdAt ||
+            it.created_at ||
+            it.start_time ||
+            it.started_at;
+          if (!t) return;
+          const d = new Date(t);
+          if (Number.isNaN(d.getTime())) return;
+          // Only include those within the selected range (when set)
+          if (startISO && endISO) {
+            const ds = new Date(startISO).getTime();
+            const de = new Date(endISO).getTime();
+            const tt = d.getTime();
+            if (tt < ds || tt > de) {
+              // skip out-of-range for trend integrity
+            } else {
+              timestamps.push(d);
+            }
+          } else {
+            timestamps.push(d);
+          }
+        });
+
+        // Aggregate by bucket including monthly
+        const map = new Map();
+        const s = new Date(startISO);
+        const e = new Date(endISO);
+
+        if (sessionsGranularity === 'weekly') {
+          timestamps.forEach((t) => {
+            const wk = toYMD(startOfWeek(t));
+            map.set(wk, (map.get(wk) || 0) + 1);
+          });
+        } else if (sessionsGranularity === 'monthly') {
+          timestamps.forEach((t) => {
+            const mStart = startOfMonth(t);
+            const key = `${mStart.getFullYear()}-${String(mStart.getMonth() + 1).padStart(2, '0')}-01`;
+            map.set(key, (map.get(key) || 0) + 1);
+          });
+        } else {
+          timestamps.forEach((t) => {
+            const key = toYMD(t);
+            map.set(key, (map.get(key) || 0) + 1);
+          });
+        }
+
+        const series = fillSeries(map, s, e, sessionsGranularity);
+        if (!aborted) {
+          setSessionsSeries(series);
+        }
+      } catch (e) {
+        if (!aborted) {
+          setSessionsError(e);
+          setSessionsSeries([]);
+        }
+      } finally {
+        if (!aborted) setSessionsLoading(false);
+      }
+    }
+
+    if (sessionsRange.startISO && sessionsRange.endISO) {
+      loadSessions();
+    }
+    return () => {
+      aborted = true;
+    };
+  }, [sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity, fillSeries]);
 
   // Users trend fetcher — independent
   useEffect(() => {
