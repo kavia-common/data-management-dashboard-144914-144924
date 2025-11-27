@@ -1,5 +1,4 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from "react";
-import Button from "./ui/Button.jsx";
 import Modal from "./ui/Modal.jsx";
 
 /**
