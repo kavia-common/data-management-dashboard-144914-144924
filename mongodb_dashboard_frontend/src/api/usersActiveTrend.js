@@ -39,11 +39,11 @@ export async function getActiveUsersTrend(params = {}) {
   if (status) legacyQuery.set('status', status);
   if (tenantId) legacyQuery.set('tenant_id', tenantId);
 
-  const baseUrl = getApiBase();
   const api = getApiClient();
 
   // Removed failing endpoint '/api/users/active-trend-from-users'
-  const url = `${baseUrl}/users/active-trend?${legacyQuery.toString()}`;
+  // Use relative '/api' path so the shared client adds Authorization and tenant scoping automatically.
+  const url = `/api/users/active-trend?${legacyQuery.toString()}`;
   const res = await api.get(url, { cacheTTL: 120000 });
   const data = res?.data ?? res;
   if (!data || typeof data !== 'object') {

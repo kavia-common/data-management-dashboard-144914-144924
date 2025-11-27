@@ -33,7 +33,7 @@ export async function getUserProjects(userId, params = {}) {
   }
 
   // Rely on requestClient deterministic (method+url+sorted params) for dedup/cache
-  const res = await requestClient.get(`/users/${encodeURIComponent(userId)}/projects`, {
+  const res = await requestClient.get(`/api/users/${encodeURIComponent(userId)}/projects`, {
     params: query,
     cacheTTL,
   });

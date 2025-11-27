@@ -106,7 +106,8 @@ export default function UsersAnalyticsPanel({
       setUsageError("");
       try {
         const api = getApiClient();
-        const res = await api.get(`/tenants/${encodeURIComponent(String(activeTenantId))}/users/usage`, {
+        // Use absolute API path to ensure baseClient path normalization and auth header injection
+        const res = await api.get(`/api/tenants/${encodeURIComponent(String(activeTenantId))}/users/usage`, {
           params: {},
         });
         const payload = res?.data?.data ?? res?.data ?? [];
@@ -144,7 +145,7 @@ export default function UsersAnalyticsPanel({
       setTrendError("");
       try {
         const api = getApiClient();
-        const res = await api.get(`/analytics/users/active-trend`, {
+        const res = await api.get(`/api/analytics/users/active-trend`, {
           params: {
             granularity: granularity === "week" ? "week" : "day",
             from: startISO,
