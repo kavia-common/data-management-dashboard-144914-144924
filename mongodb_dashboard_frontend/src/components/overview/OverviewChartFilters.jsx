@@ -31,7 +31,8 @@ export default function OverviewChartFilters({
       alignItems: 'center',
       flexWrap: 'wrap',
       marginBottom: 8,
-    }}>
+      width: '100%',
+    }} aria-label="Overview chart filters">
       {/* Tenant selector (if provided) */}
       {tenants && tenants.length > 0 && (
         <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
