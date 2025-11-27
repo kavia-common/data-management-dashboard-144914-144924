@@ -16,7 +16,11 @@ export async function getUserProjects(userId, params = {}) {
   if (!userId) {
     throw new Error("userId is required");
   }
-  const { tenantId, organizationId, from, to } = params || {};
+  const { tenantId, organizationId, from, to, enabled = true, cacheTTL = 120000 } = params || {};
+  if (enabled === false) {
+    // Honor on-demand guard: no network call when disabled
+    return undefined;
+  }
   const org = organizationId || tenantId;
 
   const query = {};
@@ -28,15 +32,10 @@ export async function getUserProjects(userId, params = {}) {
     query.to = typeof to === "string" ? to : new Date(to).toISOString();
   }
 
-  // Compose a cache key leveraging requestClient inflight cache/dedup
-  const cacheKey = ["user-projects", String(userId), String(org || ""), query.from || "", query.to || ""].join("::");
-
-  // Use requestClient directly to ensure dedup keyed by composite cacheKey
+  // Rely on requestClient deterministic (method+url+sorted params) for dedup/cache
   const res = await requestClient.get(`/users/${encodeURIComponent(userId)}/projects`, {
     params: query,
-    cacheTTL: 120000,
-    // internal requestClient doesn't accept cacheKey explicitly, so include params for deterministic keys,
-    // and rely on its key building (method+url+sorted params). We still compute cacheKey above for any future use.
+    cacheTTL,
   });
 
   // Response shape: { user_id, organization_id?, tenant_id?, projects: [{ project_id, project_name?, last_activity? }]}

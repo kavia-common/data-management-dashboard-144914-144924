@@ -175,11 +175,12 @@ UserDetailsView.propTypes = {
 /**
  * Internal presentational view for user projects
  */
-function UserProjectsView({ userId, tenantId, from, to }) {
-  const enabled = Boolean(userId && tenantId);
+function UserProjectsView({ userId, tenantId, from, to, enabled: externalEnabled = true }) {
+  // Only allow fetch when upstream allows it (e.g., modal open AND tab active) and IDs are present.
+  const enabled = Boolean(externalEnabled && userId && tenantId);
   const { projects, loading, error, refetch } = useUserProjects({ userId, tenantId, from, to, enabled });
 
-  if (!enabled) {
+  if (!externalEnabled || !enabled) {
     return <div className="text-gray-500">Select a user with a valid tenant to view projects.</div>;
   }
   if (loading) return (
@@ -434,7 +435,13 @@ export default function TabbedUserModal({
         <div style={{ padding: 20 }}>
           {activeTab === 'details' && <UserDetailsView user={user} />}
           {activeTab === 'projects' && (
-            <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
+            <UserProjectsView
+              userId={userId}
+              tenantId={tenantId}
+              from={from}
+              to={to}
+              enabled={Boolean(open && activeTab === 'projects')}
+            />
           )}
         </div>
       </div>

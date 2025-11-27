@@ -26,13 +26,13 @@ import { useUserProjects } from "../../hooks/useUserProjects";
  * - from: ISO start
  * - to: ISO end
  */
-export default function UserMiniInsights({ userId, tenantId, from, to }) {
+export default function UserMiniInsights({ userId, tenantId, from, to, enabled = false }) {
   const { projects, loading, error } = useUserProjects({
     userId,
     tenantId,
     from,
     to,
-    enabled: Boolean(userId && tenantId),
+    enabled: Boolean(enabled && userId && tenantId),
   });
 
   // Build timeline by day from last_activity if present
@@ -136,4 +136,5 @@ UserMiniInsights.propTypes = {
   tenantId: PropTypes.string,
   from: PropTypes.string,
   to: PropTypes.string,
+  enabled: PropTypes.bool,
 };

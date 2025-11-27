@@ -1,5 +1,5 @@
 
-import { useCallback, useMemo, useState, useEffect } from "react";
+import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { getUserProjects } from "../api/users";
 
 /**
@@ -24,12 +24,26 @@ export function useUserProjects(options = {}) {
 
   const canFetch = useMemo(() => Boolean(enabled && userId && tenantId), [enabled, userId, tenantId]);
 
+  // Track last composite key to prevent unnecessary reloads due to identity churn
+  const lastKeyRef = useRef("");
+  const compositeKey = useMemo(() => {
+    const f = from ? (typeof from === "string" ? from : new Date(from).toISOString()) : "";
+    const t = to ? (typeof to === "string" ? to : new Date(to).toISOString()) : "";
+    return [String(userId || ""), String(tenantId || ""), f, t, String(Boolean(canFetch))].join("::");
+  }, [userId, tenantId, from, to, canFetch]);
+
   const load = useCallback(async () => {
     if (!canFetch) return;
+    if (lastKeyRef.current === compositeKey) {
+      // Params unchanged; no-op to avoid redundant refetch
+      return;
+    }
+    lastKeyRef.current = compositeKey;
+
     setLoading(true);
     setError("");
     try {
-      const data = await getUserProjects(userId, { tenantId, from, to });
+      const data = await getUserProjects(userId, { tenantId, from, to, enabled: true, cacheTTL: 120000 });
       const list = Array.isArray(data?.projects) ? data.projects : [];
       setProjects(list);
     } catch (e) {
@@ -38,11 +52,14 @@ export function useUserProjects(options = {}) {
     } finally {
       setLoading(false);
     }
-  }, [canFetch, userId, tenantId, from, to]);
+  }, [canFetch, compositeKey, userId, tenantId, from, to]);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    // Only trigger load when allowed; guard inside load handles unchanged params
+    if (canFetch) {
+      void load();
+    }
+  }, [canFetch, load]);
 
   return { projects, loading, error, refetch: load };
 }
