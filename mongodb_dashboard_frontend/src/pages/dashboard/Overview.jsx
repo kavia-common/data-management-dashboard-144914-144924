@@ -30,6 +30,13 @@ function startOfWeek(date) {
   return d;
 }
 
+function startOfMonth(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(1);
+  return d;
+}
+
 /**
  * Compute ISO start/end based on a range key and optional custom date inputs.
  */
@@ -68,7 +75,8 @@ export default function Overview() {
   // Sessions controls (independent)
   const [sessionsRangeKey, setSessionsRangeKey] = useState("30d"); // default last 30 days
   const [sessionsCustomRange, setSessionsCustomRange] = useState({ start: null, end: null });
-  const [sessionsGranularity, setSessionsGranularity] = useState("daily"); // 'daily' | 'weekly' (monthly maps to weekly)
+  // Support daily/weekly/monthly via dropdown; backend expects day|week|month, internal mapping below
+  const [sessionsGranularity, setSessionsGranularity] = useState("daily"); // 'daily' | 'weekly' | 'monthly'
 
   // Users controls (independent)
   const [usersRangeKey, setUsersRangeKey] = useState("30d");
@@ -143,6 +151,14 @@ export default function Overview() {
         c = new Date(c);
         c.setDate(c.getDate() + 7);
       }
+    } else if (bucket === "monthly") {
+      let c = startOfMonth(s);
+      while (c <= e) {
+        const key = `${c.getFullYear()}-${String(c.getMonth() + 1).padStart(2, "0")}-01`;
+        series.push({ label: key, value: map.get(key) || 0 });
+        c = new Date(c);
+        c.setMonth(c.getMonth() + 1, 1);
+      }
     } else {
       let c = new Date(s);
       c.setHours(0, 0, 0, 0);
@@ -175,19 +191,31 @@ export default function Overview() {
       setSessionsError(null);
       try {
         const { startISO, endISO } = sessionsRange;
+
+        // Map UI granularity to API bucket param
+        const apiGranularity =
+          sessionsGranularity === "weekly"
+            ? "week"
+            : sessionsGranularity === "monthly"
+            ? "month"
+            : "day";
+
         const { items } = await fetchSessionTracking({
-          // Provide multiple shapes: from/to and start/end plus convenience keys
           from: startISO,
           to: endISO,
           start_date: startISO,
           end_date: endISO,
-          limit: 200,
+          limit: 2000,
           sort: "-session_start",
-          // Fallback server filter if direct params ignored
+          granularity: apiGranularity,
           filter: {
-            $or: [
-              { session_start: { $gte: startISO, $lte: endISO } },
-              { session_end: { $gte: startISO, $lte: endISO } },
+            $and: [
+              {
+                $or: [
+                  { session_start: { $gte: startISO, $lte: endISO } },
+                  { session_end: { $gte: startISO, $lte: endISO } },
+                ],
+              },
             ],
           },
         });
@@ -212,8 +240,13 @@ export default function Overview() {
         const map = new Map();
         if (sessionsGranularity === "weekly") {
           pts.forEach((d) => {
-            const wk = startOfWeek(d);
-            const k = toYMD(wk);
+            const k = toYMD(startOfWeek(d));
+            map.set(k, (map.get(k) || 0) + 1);
+          });
+        } else if (sessionsGranularity === "monthly") {
+          pts.forEach((d) => {
+            const m = startOfMonth(d);
+            const k = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, "0")}-01`;
             map.set(k, (map.get(k) || 0) + 1);
           });
         } else {
@@ -236,7 +269,14 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity, fillSeries]);
+  }, [
+    sessionsRange.startISO,
+    sessionsRange.endISO,
+    sessionsGranularity,
+    sessionsCustomRange.start,
+    sessionsCustomRange.end,
+    fillSeries,
+  ]);
 
   // Users trend fetcher — independent
   useEffect(() => {
@@ -378,7 +418,7 @@ export default function Overview() {
 
   // Per-chart time range selectors and bucket toggles
   const SessionsControls = (
-    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+    <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
       <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
         {["7d", "14d", "30d", "custom"].map((key) => (
           <button
@@ -400,20 +440,35 @@ export default function Overview() {
         ))}
       </div>
       <DateRangePill label={renderDateRangeLabel(sessionsRangeKey, sessionsCustomRange, sessionsRange)} />
-      <TimeBucketFilter
-        value={sessionsGranularity}
-        onChange={(v) => setSessionsGranularity(v === "monthly" ? "weekly" : v)}
-        options={[
-          { value: "daily", label: "Daily" },
-          { value: "weekly", label: "Weekly" },
-          { value: "monthly", label: "Monthly" },
-        ]}
-      />
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <label htmlFor="sessions-granularity" style={{ fontSize: 12, color: "#6B7280" }}>
+          Granularity
+        </label>
+        <select
+          id="sessions-granularity"
+          value={sessionsGranularity}
+          onChange={(e) => setSessionsGranularity(e.target.value)}
+          style={{
+            padding: "6px 10px",
+            borderRadius: 6,
+            border: "1px solid #E5E7EB",
+            background: "#fff",
+            color: "#111827",
+          }}
+          aria-label="Sessions granularity"
+        >
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly">Monthly</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
       <button
         type="button"
         onClick={() => {
           setSessionsRangeKey("7d");
           setSessionsCustomRange({ start: null, end: null });
+          setSessionsGranularity("daily");
         }}
         className="btn btn-ghost"
         aria-label="Clear sessions filters"
@@ -557,10 +612,10 @@ export default function Overview() {
       <div className="block-full" style={{ gridColumn: "1 / -1" }}>
         <Card
           title="Sessions Trend"
-          subtitle="Session counts over time"
+          subtitle="Session counts over time (Daily/Weekly/Monthly)"
           actions={SessionsControls}
         >
-          {sessionsRangeKey === "custom" ? (
+          {sessionsRangeKey === "custom" || sessionsGranularity === "custom" ? (
             <div style={{ marginBottom: 8 }}>
               <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                 <label style={{ fontSize: 12, color: "#6B7280" }}>
@@ -586,7 +641,7 @@ export default function Overview() {
               </div>
             </div>
           ) : (
-            sessionsRangeKey === "custom" && (!sessionsCustomRange.start || !sessionsCustomRange.end) ? (
+            (sessionsRangeKey === "custom" || sessionsGranularity === "custom") && (!sessionsCustomRange.start || !sessionsCustomRange.end) ? (
               <div style={{ marginBottom: 8, color: "#6B7280", fontSize: 12 }}>
                 Select start and end dates to apply custom range.
               </div>
