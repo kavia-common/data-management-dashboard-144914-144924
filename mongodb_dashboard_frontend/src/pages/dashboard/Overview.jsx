@@ -418,30 +418,8 @@ export default function Overview() {
 
   // Per-chart time range selectors and bucket toggles
   const SessionsControls = (
-    <div
-      style={{
-        display: "flex",
-        gap: 12,
-        alignItems: "center",
-        flexWrap: "wrap",
-        justifyContent: "flex-start",
-        width: "100%",
-      }}
-      aria-label="Sessions Trend Filters"
-    >
-      <div
-        role="group"
-        aria-label="Sessions quick ranges"
-        style={{
-          display: "flex",
-          gap: 6,
-          background: "#fff",
-          border: "1px solid #E5E7EB",
-          borderRadius: 8,
-          padding: 4,
-          flexWrap: "wrap",
-        }}
-      >
+    <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
         {["7d", "14d", "30d", "custom"].map((key) => (
           <button
             key={key}
@@ -454,7 +432,6 @@ export default function Overview() {
               color: sessionsRangeKey === key ? "#fff" : "#111827",
               cursor: "pointer",
               transition: "background 120ms ease, color 120ms ease",
-              whiteSpace: "nowrap",
             }}
             aria-pressed={sessionsRangeKey === key}
           >
@@ -462,11 +439,9 @@ export default function Overview() {
           </button>
         ))}
       </div>
-
       <DateRangePill label={renderDateRangeLabel(sessionsRangeKey, sessionsCustomRange, sessionsRange)} />
-
-      <div style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-        <label htmlFor="sessions-granularity" style={{ fontSize: 12, color: "#6B7280", whiteSpace: "nowrap" }}>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <label htmlFor="sessions-granularity" style={{ fontSize: 12, color: "#6B7280" }}>
           Granularity
         </label>
         <select
@@ -488,36 +463,6 @@ export default function Overview() {
           <option value="custom">Custom</option>
         </select>
       </div>
-
-      {(sessionsRangeKey === "custom" || sessionsGranularity === "custom") && (
-        <div
-          role="group"
-          aria-label="Sessions custom date range"
-          style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}
-        >
-          <label htmlFor="sessions-custom-start" style={{ fontSize: 12, color: "#6B7280", whiteSpace: "nowrap" }}>
-            Start:
-          </label>
-          <input
-            id="sessions-custom-start"
-            type="date"
-            onChange={(e) => setSessionsCustomRange((r) => ({ ...r, start: e.target.value }))}
-            value={sessionsCustomRange.start || ""}
-            aria-label="Sessions custom range start date"
-          />
-          <label htmlFor="sessions-custom-end" style={{ fontSize: 12, color: "#6B7280", whiteSpace: "nowrap" }}>
-            End:
-          </label>
-          <input
-            id="sessions-custom-end"
-            type="date"
-            onChange={(e) => setSessionsCustomRange((r) => ({ ...r, end: e.target.value }))}
-            value={sessionsCustomRange.end || ""}
-            aria-label="Sessions custom range end date"
-          />
-        </div>
-      )}
-
       <button
         type="button"
         onClick={() => {
@@ -670,6 +615,38 @@ export default function Overview() {
           subtitle="Session counts over time (Daily/Weekly/Monthly)"
           actions={SessionsControls}
         >
+          {sessionsRangeKey === "custom" || sessionsGranularity === "custom" ? (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  Start:
+                  <input
+                    type="date"
+                    onChange={(e) => setSessionsCustomRange((r) => ({ ...r, start: e.target.value }))}
+                    value={sessionsCustomRange.start || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Sessions custom range start date"
+                  />
+                </label>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  End:
+                  <input
+                    type="date"
+                    onChange={(e) => setSessionsCustomRange((r) => ({ ...r, end: e.target.value }))}
+                    value={sessionsCustomRange.end || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Sessions custom range end date"
+                  />
+                </label>
+              </div>
+            </div>
+          ) : (
+            (sessionsRangeKey === "custom" || sessionsGranularity === "custom") && (!sessionsCustomRange.start || !sessionsCustomRange.end) ? (
+              <div style={{ marginBottom: 8, color: "#6B7280", fontSize: 12 }}>
+                Select start and end dates to apply custom range.
+              </div>
+            ) : null
+          )}
           {sessionsLoading && <LoadingState message="Loading sessions trend…" height={220} />}
           {sessionsError && <ErrorState message={sessionsError?.message || "Failed to load sessions."} />}
           {!sessionsLoading && !sessionsError && (
