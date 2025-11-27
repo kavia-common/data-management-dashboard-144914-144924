@@ -100,7 +100,7 @@ function DeploymentsOverTime({ height = 320, className = "" }) {
     }
   }
 
-  function applyTimeRange(items) {
+  const applyTimeRange = React.useCallback((items) => {
     if (range === "all") return items;
     const now = new Date();
     let days = 30;
@@ -118,7 +118,7 @@ function DeploymentsOverTime({ height = 320, className = "" }) {
         return false;
       }
     });
-  }
+  }, [range]);
 
   const chartData = useMemo(() => {
     // Aggregate by day only (since Aggregation selector is removed)

@@ -169,6 +169,7 @@ export default function Overview() {
   // Derived ISO ranges for each chart
   const sessionsRange = useMemo(
     () => computeRange(sessionsRangeKey, sessionsCustomRange),
+    // sessionsCustomRange object is stable via per-field deps to avoid identity churn
     [sessionsRangeKey, sessionsCustomRange.start, sessionsCustomRange.end]
   );
   const usersRange = useMemo(
@@ -249,7 +250,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity, fillSeries]);
+  }, [sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity, fillSeries, sessionsRange]);
 
   // Users trend fetcher — independent
   useEffect(() => {
@@ -344,7 +345,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries]);
+  }, [usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries, usersRange]);
 
   // Costs trend fetcher — independent (analytics-only)
   useEffect(() => {
@@ -414,7 +415,7 @@ export default function Overview() {
     return () => {
       aborted = true;
     };
-  }, [costsRange.startISO, costsRange.endISO, costsGranularity, fillSeries]);
+  }, [costsRange.startISO, costsRange.endISO, costsGranularity, fillSeries, costsRange]);
 
   // Reusable controls renderers (per-chart)
   const renderDateRangeLabel = useCallback((rangeKey, customRange, range) => {

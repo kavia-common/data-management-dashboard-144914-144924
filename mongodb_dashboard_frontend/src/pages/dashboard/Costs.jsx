@@ -333,7 +333,7 @@ export default function Costs() {
   const columns = useMemo(() => {
     const base = buildColumnsFromSample(items || []);
     return base.slice();
-  }, [items]);
+  }, [items, buildColumnsFromSample]);
 
   return (
     <div>

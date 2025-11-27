@@ -103,7 +103,7 @@ export default function UsersByTenantChart({
   const t = getChartTheme();
   const primary = t.primary;
   const primaryDark = t.primaryActive;
-  const secondary = t.primaryHover;
+  // const secondary = t.primaryHover; // unused
   const gridStroke = t.grid;
 
   // Memoized static style objects used inside JSX to prevent new identity each render

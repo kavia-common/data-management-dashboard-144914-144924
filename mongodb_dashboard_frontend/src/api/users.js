@@ -12,7 +12,7 @@ import requestClient from "./requestClient";
  * @returns {Promise<{ user_id: string, tenant_id?: string, organization_id?: string, projects: Array<{ project_id: string, project_name?: string|null, last_activity?: string|null }> }>}
  */
 export async function getUserProjects(userId, params = {}) {
-  const api = getApiClient();
+  // const api = getApiClient(); // not required for this function
   if (!userId) {
     throw new Error("userId is required");
   }
