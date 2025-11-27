@@ -26,20 +26,11 @@ import Skeleton from "../../components/ui/Skeleton";
  * A charts/analytics panel for the Users page, with independent filters.
  * - Projects by User (bar)
  * - Projects by Department (pie/donut)
- * - Projects timeline (daily/weekly created counts)
+ * - Projects timeline (daily/weekly activity counts)
  *
- * Data source:
- * - Reuses /api/users to get users, then uses /api/users/:userId/projects
- *   to fetch per-user projects when available. Falls back to client-side
- *   aggregation from data already loaded if needed.
- *
- * Filters:
- * - Date range (start, end with explicit ISO)
- * - Granularity (day/week)
- * - Tenant scoped via base client and active tenant helper.
- *
- * Accessibility:
- * - Proper aria-labels and live region updates for date label.
+ * Optimization notes:
+ * - Eliminates per-user fan-out requests on initial render. All charts use aggregated endpoints.
+ * - Adds optional on-demand toggle to fetch per-user projects; default is off (no fan-out).
  */
 export default function UsersAnalyticsPanel({
   style,
@@ -53,10 +44,13 @@ export default function UsersAnalyticsPanel({
   const [customEnd, setCustomEnd] = useState(null);
   const [dateLiveLabel, setDateLiveLabel] = useState("");
 
-  // Active tenant (scoped by client too, but visible here for explicit query params when needed)
+  // Optional: allow on-demand per-user projects fetch (disabled by default)
+  const [enablePerUserDetails, setEnablePerUserDetails] = useState(false);
+
+  // Active tenant
   const activeTenantId = getActiveTenant?.() || null;
 
-  // Compute date range ISO strings; end is set to 23:59:59.999
+  // Date range ISO
   const { startISO, endISO } = useMemo(() => {
     let start;
     let end;
@@ -65,7 +59,6 @@ export default function UsersAnalyticsPanel({
       end = new Date(customEnd);
     } else {
       end = new Date();
-      // end to end-of-day
       end.setHours(23, 59, 59, 999);
       start = new Date();
       start.setDate(end.getDate() - days + 1);
@@ -74,7 +67,7 @@ export default function UsersAnalyticsPanel({
     return { startISO: start.toISOString(), endISO: end.toISOString() };
   }, [customStart, customEnd, days]);
 
-  // Live label for date range for accessibility
+  // Accessible live date label
   useEffect(() => {
     const start = new Date(startISO);
     const end = new Date(endISO);
@@ -83,19 +76,117 @@ export default function UsersAnalyticsPanel({
     setDateLiveLabel(label);
   }, [startISO, endISO, granularity]);
 
-  // Fetch users; table is unchanged elsewhere
+  // Fetch users (no change)
   const { users, loading: usersLoading, error: usersError } = useUsers({ limit: 200 });
 
-  // Fetch projects per user when needed
+  // Aggregated: Users usage summary (per user)
+  const [usageByUser, setUsageByUser] = useState([]);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState("");
+
+  // Aggregated: Active users trend timeline
+  const [activeTrend, setActiveTrend] = useState([]);
+  const [trendLoading, setTrendLoading] = useState(false);
+  const [trendError, setTrendError] = useState("");
+
+  // On-demand per-user projects (disabled by default to avoid fan-out)
   const [projectsByUser, setProjectsByUser] = useState({});
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState("");
 
+  // Fetch aggregated per-user usage
   useEffect(() => {
     let cancelled = false;
     async function run() {
-      // We lazily fetch projects for each user for better accuracy of counts over time.
-      // If endpoint not available or fails, we gracefully continue with partial data.
+      if (!activeTenantId) {
+        setUsageByUser([]);
+        return;
+      }
+      setUsageLoading(true);
+      setUsageError("");
+      try {
+        const api = getApiClient();
+        const res = await api.get(`/tenants/${encodeURIComponent(String(activeTenantId))}/users/usage`, {
+          params: {},
+        });
+        const payload = res?.data?.data ?? res?.data ?? [];
+        if (!cancelled) {
+          // Normalize to { user_id, user, count }
+          const normalized = (Array.isArray(payload) ? payload : (payload.items || [])).map((row) => {
+            const uid = String(row.user_id || row.userId || row._id || row.id || "");
+            const name = row.user_name || row.name || row.email || uid;
+            // Use total_projects if provided; otherwise use 0 as default
+            const count = Number(row.total_projects ?? row.projects ?? row.project_count ?? 0);
+            return { user_id: uid, user: name, count: isNaN(count) ? 0 : count };
+          });
+          // Sort desc by count
+          normalized.sort((a, b) => b.count - a.count);
+          setUsageByUser(normalized);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setUsageByUser([]);
+          setUsageError(e?.message || "Failed to load users usage summary");
+        }
+      } finally {
+        if (!cancelled) setUsageLoading(false);
+      }
+    }
+    run();
+    return () => { cancelled = true; };
+  }, [activeTenantId]);
+
+  // Fetch aggregated active users trend
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      setTrendLoading(true);
+      setTrendError("");
+      try {
+        const api = getApiClient();
+        const res = await api.get(`/analytics/users/active-trend`, {
+          params: {
+            granularity: granularity === "week" ? "week" : "day",
+            from: startISO,
+            to: endISO,
+          },
+        });
+        const data = res?.data?.items || res?.data?.datasets?.[0]?.data?.map((v, i) => ({
+          date: res?.data?.labels?.[i],
+          total: v,
+        })) || [];
+        const items = Array.isArray(data) ? data : [];
+        if (!cancelled) {
+          // Map to { bucket, total }
+          const mapped = items.map((it) => ({
+            bucket: it.date || it.bucket || "",
+            total: Number(it.total || 0),
+          }));
+          setActiveTrend(mapped);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setActiveTrend([]);
+          setTrendError(e?.message || "Failed to load active users trend");
+        }
+      } finally {
+        if (!cancelled) setTrendLoading(false);
+      }
+    }
+    run();
+    return () => { cancelled = true; };
+  }, [granularity, startISO, endISO]);
+
+  // Optional on-demand per-user projects, guarded by enablePerUserDetails
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      if (!enablePerUserDetails) {
+        setProjectsByUser({});
+        setProjectsLoading(false);
+        setProjectsError("");
+        return;
+      }
       if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
         setProjectsByUser({});
         return;
@@ -105,7 +196,6 @@ export default function UsersAnalyticsPanel({
       const api = getApiClient();
       const acc = {};
       try {
-        // Fetch in small batches to avoid overloading backend
         const batchSize = 8;
         for (let i = 0; i < users.length; i += batchSize) {
           const slice = users.slice(i, i + batchSize);
@@ -124,7 +214,6 @@ export default function UsersAnalyticsPanel({
                 const list = Array.isArray(payload?.projects) ? payload.projects : [];
                 acc[String(u._id)] = list;
               } catch {
-                // Ignore individual user fetch errors; rely on others or fallback
                 acc[String(u._id)] = acc[String(u._id)] || [];
               }
             })
@@ -142,98 +231,40 @@ export default function UsersAnalyticsPanel({
       }
     }
     run();
-    return () => {
-      cancelled = true;
-    };
-  }, [users, activeTenantId, startISO, endISO]);
+    return () => { cancelled = true; };
+  }, [enablePerUserDetails, users, activeTenantId, startISO, endISO]);
 
   // Aggregations
   const aggregates = useMemo(() => {
-    // Projects by user count
-    const projectsCountByUser = [];
-    // Projects by department (from users)
+    // Projects by User (from aggregated usage as primary)
+    const projectsCountByUser = usageByUser.slice(0, 200);
+
+    // Projects by department (from users only, no per-user projects needed by default)
     const projectsByDepartment = new Map();
-    // Timeline map by day/week
-    const byBucket = new Map();
-
-    const bucketKey = (iso) => {
-      const d = new Date(iso);
-      if (granularity === "week") {
-        // ISO week key: YYYY-Www (simple approach: year + week start Monday)
-        const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-        // get Monday
-        const day = tmp.getUTCDay() || 7;
-        if (day !== 1) tmp.setUTCDate(tmp.getUTCDate() - (day - 1));
-        const y = tmp.getUTCFullYear();
-        const m = tmp.getUTCMonth() + 1;
-        const dayNum = tmp.getUTCDate();
-        const label = `${y}-${String(m).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
-        return `WEEK-${label}`;
-      }
-      return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString().slice(0, 10);
-    };
-
     const departmentOf = (u) =>
       u?.department || u?.profile?.department || u?.metadata?.department || u?.details?.department || "Unknown";
-
-    // Iterate users
     for (const u of users || []) {
-      const uid = String(u?._id || u?.id || "");
       const dept = String(departmentOf(u) || "Unknown");
+      // approximate department count from presence; if on-demand detail is enabled, sum projects lengths
+      const uid = String(u?._id || u?.id || "");
       const projs = projectsByUser[uid];
-
-      if (Array.isArray(projs)) {
-        // Projects by User count
-        projectsCountByUser.push({
-          user: u?.name || u?.full_name || u?.email || uid,
-          user_id: uid,
-          count: projs.length,
-        });
-
-        // Department contribution: number of projects for user's department
-        const prev = projectsByDepartment.get(dept) || 0;
-        projectsByDepartment.set(dept, prev + projs.length);
-
-        // Timeline
-        for (const p of projs) {
-          const lastAct = p?.last_activity || p?.lastActivity || p?.created_at || p?.createdAt;
-          if (!lastAct) continue;
-          const k = bucketKey(lastAct);
-          byBucket.set(k, (byBucket.get(k) || 0) + 1);
-        }
-      } else {
-        // No project list; fall back to user presence (count 0 projects)
-        projectsCountByUser.push({
-          user: u?.name || u?.full_name || u?.email || uid,
-          user_id: uid,
-          count: 0,
-        });
-        const prev = projectsByDepartment.get(dept) || 0;
-        projectsByDepartment.set(dept, prev);
-      }
+      const inc = enablePerUserDetails && Array.isArray(projs) ? projs.length : 1;
+      projectsByDepartment.set(dept, (projectsByDepartment.get(dept) || 0) + inc);
     }
-
-    // Normalize department pie data
     const departmentData = Array.from(projectsByDepartment.entries())
       .map(([department, count]) => ({ department, count }))
       .filter((d) => d.department && String(d.department).trim().toLowerCase() !== "unknown");
 
-    // Normalize timeline
-    const timeline = Array.from(byBucket.entries())
-      .map(([bucket, total]) => ({ bucket, total }))
-      .sort((a, b) => (a.bucket > b.bucket ? 1 : -1));
-
-    // Sort projectsCountByUser desc
-    projectsCountByUser.sort((a, b) => b.count - a.count);
+    // Timeline from aggregated active trend
+    const timeline = activeTrend.slice().sort((a, b) => (a.bucket > b.bucket ? 1 : -1));
 
     return { projectsCountByUser, departmentData, timeline };
-  }, [users, projectsByUser, granularity]);
+  }, [usageByUser, users, projectsByUser, enablePerUserDetails, activeTrend]);
 
   // Theme colors
   const primary = "#2563EB";
   const secondary = "#F59E0B";
   const grid = "#E5E7EB";
-  const text = "#111827";
   const subtle = "#6B7280";
   const palette = ["#2563EB", "#F59E0B", "#10B981", "#EF4444", "#6366F1", "#14B8A6", "#F97316", "#84CC16", "#06B6D4", "#A855F7"];
 
@@ -245,7 +276,6 @@ export default function UsersAnalyticsPanel({
     setCustomEnd(null);
     setDays(d);
   };
-
   const onCustomStartChange = (e) => setCustomStart(e.target.value || null);
   const onCustomEndChange = (e) => setCustomEnd(e.target.value || null);
 
@@ -257,7 +287,7 @@ export default function UsersAnalyticsPanel({
             <h3 className="card-title">Users Analytics</h3>
             <div className="card-subtitle">Projects distribution and timeline</div>
           </div>
-          <div className="card-actions" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <div className="card-actions" style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 12, color: subtle }}>Aggregation</span>
               <select
@@ -296,20 +326,21 @@ export default function UsersAnalyticsPanel({
             </label>
 
             <div role="group" aria-label="Custom date range" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <input
-                type="date"
-                aria-label="Start date"
-                className="ui-input"
-                onChange={onCustomStartChange}
-              />
+              <input type="date" aria-label="Start date" className="ui-input" onChange={onCustomStartChange} />
               <span aria-hidden="true" style={{ color: subtle }}>to</span>
-              <input
-                type="date"
-                aria-label="End date"
-                className="ui-input"
-                onChange={onCustomEndChange}
-              />
+              <input type="date" aria-label="End date" className="ui-input" onChange={onCustomEndChange} />
             </div>
+
+            {/* On-demand toggle for per-user detail requests; off by default */}
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, marginLeft: 8 }}>
+              <input
+                type="checkbox"
+                checked={enablePerUserDetails}
+                onChange={(e) => setEnablePerUserDetails(Boolean(e.target.checked))}
+                aria-label="Enable per-user project details (on-demand)"
+              />
+              <span style={{ fontSize: 12, color: subtle }}>Per-user details (on demand)</span>
+            </label>
           </div>
         </div>
         <div className="card-content" style={{ paddingTop: 8 }}>
@@ -332,7 +363,7 @@ export default function UsersAnalyticsPanel({
                 <div className="card-subtitle">Number of projects per user</div>
               </div>
               <div className="card-content" style={{ height: 340 }}>
-                {usersLoading || projectsLoading ? (
+                {usersLoading || usageLoading ? (
                   <div aria-busy="true">
                     <Skeleton width="60%" height={14} className="mb-2" />
                     <Skeleton width="50%" height={12} className="mb-2" />
@@ -340,8 +371,8 @@ export default function UsersAnalyticsPanel({
                   </div>
                 ) : usersError ? (
                   <div className="error" role="alert">{usersError.message || "Failed to load users"}</div>
-                ) : projectsError ? (
-                  <div className="error" role="alert">{projectsError}</div>
+                ) : usageError ? (
+                  <div className="error" role="alert">{usageError}</div>
                 ) : aggregates.projectsCountByUser.length === 0 ? (
                   <div className="screen-center">No project data</div>
                 ) : (
@@ -366,7 +397,7 @@ export default function UsersAnalyticsPanel({
                 <div className="card-subtitle">Distribution of projects by department</div>
               </div>
               <div className="card-content" style={{ height: 340 }}>
-                {usersLoading || projectsLoading ? (
+                {usersLoading ? (
                   <div aria-busy="true">
                     <div className="skeleton" style={{ height: 14, width: "60%", marginBottom: 8 }} />
                     <div className="skeleton" style={{ height: 12, width: "50%", marginBottom: 8 }} />
@@ -374,8 +405,6 @@ export default function UsersAnalyticsPanel({
                   </div>
                 ) : usersError ? (
                   <div className="error" role="alert">{usersError.message || "Failed to load users"}</div>
-                ) : projectsError ? (
-                  <div className="error" role="alert">{projectsError}</div>
                 ) : aggregates.departmentData.length === 0 ? (
                   <div className="screen-center">No department project data</div>
                 ) : (
@@ -402,23 +431,21 @@ export default function UsersAnalyticsPanel({
               </div>
             </div>
 
-            {/* Timeline across full width */}
+            {/* Timeline */}
             <div className="card" style={{ gridColumn: "1 / span 2" }} aria-label="Projects timeline">
               <div className="card-header" style={{ paddingBottom: 0 }}>
                 <h4 className="card-title">Projects timeline</h4>
-                <div className="card-subtitle">Projects created over time</div>
+                <div className="card-subtitle">User activity over time</div>
               </div>
               <div className="card-content" style={{ height: 320 }}>
-                {usersLoading || projectsLoading ? (
+                {trendLoading ? (
                   <div aria-busy="true">
                     <Skeleton width="60%" height={14} className="mb-2" />
                     <Skeleton width="50%" height={12} className="mb-2" />
                     <Skeleton width="100%" height={260} />
                   </div>
-                ) : usersError ? (
-                  <div className="error" role="alert">{usersError.message || "Failed to load users"}</div>
-                ) : projectsError ? (
-                  <div className="error" role="alert">{projectsError}</div>
+                ) : trendError ? (
+                  <div className="error" role="alert">{trendError}</div>
                 ) : aggregates.timeline.length === 0 ? (
                   <div className="screen-center">No timeline data</div>
                 ) : (
@@ -429,13 +456,23 @@ export default function UsersAnalyticsPanel({
                       <YAxis tick={{ fill: subtle, fontSize: 12 }} allowDecimals={false} />
                       <Tooltip />
                       <Legend />
-                      <Line type="monotone" dataKey="total" name="Projects" stroke={secondary} strokeWidth={2} dot={false} />
+                      <Line type="monotone" dataKey="total" name="Users" stroke={secondary} strokeWidth={2} dot={false} />
                     </LineChart>
                   </ResponsiveContainer>
                 )}
               </div>
             </div>
           </div>
+
+          {/* If user explicitly enables per-user detail, show minor info note */}
+          {enablePerUserDetails && projectsLoading && (
+            <div className="muted" style={{ fontSize: 12, marginTop: 8, color: subtle }}>
+              Loading per-user projects on demand…
+            </div>
+          )}
+          {enablePerUserDetails && projectsError && (
+            <div className="error" role="alert" style={{ marginTop: 8 }}>{projectsError}</div>
+          )}
         </div>
       </div>
     </div>
