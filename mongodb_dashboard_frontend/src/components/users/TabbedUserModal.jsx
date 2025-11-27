@@ -15,6 +15,7 @@ import { useUserProjects } from '../../hooks/useUserProjects';
 function UserDetailsView({ user }) {
   if (!user) return <div className="text-gray-500">No user selected</div>;
 
+  // compute once and only use within this component to avoid unused var warnings elsewhere
   const name =
     user?.name ||
     user?.full_name ||
