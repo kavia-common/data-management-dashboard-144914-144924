@@ -1,4 +1,5 @@
 import { getApiClient } from "./index";
+import requestClient from "./requestClient";
 
 /**
  * PUBLIC_INTERFACE
@@ -7,8 +8,8 @@ import { getApiClient } from "./index";
  * GET /api/users/:userId/projects?organization_id={organizationId}&from={fromISO?}&to={toISO?}
  *
  * @param {string} userId - The user identifier.
- * @param {{ tenantId: string, from?: string|Date|null, to?: string|Date|null }} params - Query parameters.
- * @returns {Promise<{ user_id: string, tenant_id: string, projects: Array<{ project_id: string, project_name?: string|null, last_activity?: string|null }> }>}
+ * @param {{ tenantId?: string, organizationId?: string, from?: string|Date|null, to?: string|Date|null }} params - Query parameters.
+ * @returns {Promise<{ user_id: string, tenant_id?: string, organization_id?: string, projects: Array<{ project_id: string, project_name?: string|null, last_activity?: string|null }> }>}
  */
 export async function getUserProjects(userId, params = {}) {
   const api = getApiClient();
@@ -16,33 +17,28 @@ export async function getUserProjects(userId, params = {}) {
     throw new Error("userId is required");
   }
   const { tenantId, organizationId, from, to } = params || {};
-  // organizationId is optional now since the shared client appends organization_id automatically,
-  // but if provided we still include it explicitly to override.
+  const org = organizationId || tenantId;
+
   const query = {};
-  const effOrg = organizationId || tenantId;
-  if (effOrg) query.organization_id = effOrg;
-  // Normalize from/to to ISO if Date provided
+  if (org) query.organization_id = org;
   if (from) {
-    try {
-      query.from = typeof from === "string" ? from : new Date(from).toISOString();
-    } catch {
-      // ignore invalid date; backend will handle if sent
-      query.from = String(from);
-    }
+    query.from = typeof from === "string" ? from : new Date(from).toISOString();
   }
   if (to) {
-    try {
-      query.to = typeof to === "string" ? to : new Date(to).toISOString();
-    } catch {
-      query.to = String(to);
-    }
+    query.to = typeof to === "string" ? to : new Date(to).toISOString();
   }
 
-  if (process.env.NODE_ENV !== "production") {
-    // eslint-disable-next-line no-console
-    console.debug("[UsersAPI] GET /users/:id/projects", { userId, query });
-  }
-  const res = await api.get(`/users/${encodeURIComponent(userId)}/projects`, { params: query, cacheTTL: 120000 });
+  // Compose a cache key leveraging requestClient inflight cache/dedup
+  const cacheKey = ["user-projects", String(userId), String(org || ""), query.from || "", query.to || ""].join("::");
+
+  // Use requestClient directly to ensure dedup keyed by composite cacheKey
+  const res = await requestClient.get(`/users/${encodeURIComponent(userId)}/projects`, {
+    params: query,
+    cacheTTL: 120000,
+    // internal requestClient doesn't accept cacheKey explicitly, so include params for deterministic keys,
+    // and rely on its key building (method+url+sorted params). We still compute cacheKey above for any future use.
+  });
+
   // Response shape: { user_id, organization_id?, tenant_id?, projects: [{ project_id, project_name?, last_activity? }]}
   return res.data?.data ?? res.data;
 }
