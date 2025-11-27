@@ -12,10 +12,11 @@ export default function Users() {
   const [rangeDays, setRangeDays] = useState(30);
 
   // Compute quick range for the UsersByTenantChart only (kept from existing UI).
+  // Memoize to ensure stable identity across renders and avoid refetch storms.
   const { fromIso, toIso } = useMemo(() => {
-    const now = new Date();
-    const from = new Date(now.getTime() - rangeDays * 24 * 60 * 60 * 1000);
-    return { fromIso: from.toISOString(), toIso: now.toISOString() };
+    const now = Date.now();
+    const fromMs = now - rangeDays * 24 * 60 * 60 * 1000;
+    return { fromIso: new Date(fromMs).toISOString(), toIso: new Date(now).toISOString() };
   }, [rangeDays]);
 
   const selectedTenantId = useMemo(() => {
@@ -49,21 +50,31 @@ export default function Users() {
     }
   }, [open]);
 
+  // Stable inline styles to avoid new object creation each render
+  const toolbarStyle = useMemo(
+    () => ({ marginBottom: 8, gap: 8, display: "flex", alignItems: "center" }),
+    []
+  );
+  const labelStyle = useMemo(
+    () => ({ display: "inline-flex", alignItems: "center", gap: 8 }),
+    []
+  );
+  const labelTextStyle = useMemo(
+    () => ({ fontSize: 12, color: "var(--color-text-secondary)" }),
+    []
+  );
+  const selectStyle = useMemo(() => ({ minWidth: 160 }), []);
+
   const chartToolbar = (
-    <div
-      className="toolbar"
-      style={{ marginBottom: 8, gap: 8, display: "flex", alignItems: "center" }}
-    >
-      <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontSize: 12, color: "var(--color-text-secondary)" }}>
-          Quick range
-        </span>
+    <div className="toolbar" style={toolbarStyle}>
+      <label style={labelStyle}>
+        <span style={labelTextStyle}>Quick range</span>
         <select
           aria-label="Date range"
           value={rangeDays}
           onChange={(e) => setRangeDays(Number(e.target.value))}
           className="ui-input"
-          style={{ minWidth: 160 }}
+          style={selectStyle}
         >
           <option value={7}>Last 7 days</option>
           <option value={14}>Last 14 days</option>
@@ -93,7 +104,7 @@ export default function Users() {
             <UsersByTenantChart
               from={fromIso}
               to={toIso}
-              status={"completed|active"}
+              status="completed|active"
               includeInactive={false}
               maxBars={12}
             />

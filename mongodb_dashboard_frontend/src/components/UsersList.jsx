@@ -138,7 +138,7 @@ export default function UsersList({
         <div
           className="toolbar"
           aria-label="Users toolbar"
-          style={{ flexWrap: "wrap", gap: 8, display: "flex", alignItems: "center" }}
+          style={useMemo(() => ({ flexWrap: "wrap", gap: 8, display: "flex", alignItems: "center" }), [])}
         >
           {/* 🔎 Search */}
           <input

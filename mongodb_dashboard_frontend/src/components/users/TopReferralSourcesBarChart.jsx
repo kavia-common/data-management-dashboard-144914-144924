@@ -32,20 +32,21 @@ export default function TopReferralSourcesBarChart({
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
+  const fetchKey = useMemo(() => `top-referral:${Number.isFinite(top) ? top : 10}`, [top]);
+
   useEffect(() => {
     let mounted = true;
     async function run() {
       setLoading(true);
       setErr("");
       try {
-        const res = await getReferralSources({ limit: top });
+        const res = await getReferralSources({ limit: Number.isFinite(top) ? top : 10 });
         if (!mounted) return;
         const items = Array.isArray(res?.items) ? res.items : [];
-        // Sort desc by count
         const sorted = [...items].sort(
           (a, b) => (b?.count || 0) - (a?.count || 0)
         );
-        setRows(sorted.slice(0, typeof top === "number" ? top : 10));
+        setRows(sorted.slice(0, Number.isFinite(top) ? top : 10));
       } catch (e) {
         if (!mounted) return;
         setRows([]);
@@ -58,7 +59,7 @@ export default function TopReferralSourcesBarChart({
     return () => {
       mounted = false;
     };
-  }, [top]);
+  }, [fetchKey, top]);
 
   const t = getChartTheme();
   const primary = t.primary;
@@ -190,11 +191,11 @@ export default function TopReferralSourcesBarChart({
               />
               <Tooltip
                 content={<CustomTooltip />}
-                contentStyle={{
+                contentStyle={useMemo(() => ({
                   background: "transparent",
                   border: "none",
                   boxShadow: "none",
-                }}
+                }), [])}
                 cursor={{ fill: "transparent" }}
               />
               <Bar

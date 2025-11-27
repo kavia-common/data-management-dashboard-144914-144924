@@ -30,6 +30,12 @@ const UsersByTenantBarChart = ({
   const [error, setError] = useState(null);
 
   // Fetch data from API
+  // Memoized fetch key (only include values that affect request)
+  const fetchKey = useMemo(() => {
+    // currently backend call ignores these filters; keep a compact key to avoid storms
+    return "tenant-users-summary:v1";
+  }, []);
+
   useEffect(() => {
     let mounted = true;
 
@@ -37,15 +43,12 @@ const UsersByTenantBarChart = ({
       setLoading(true);
       setError(null);
       try {
-        // getTenantUsersSummary will construct a strict request containing only organization_id
         const res = await getTenantUsersSummary();
         if (!mounted) return;
         const data = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [];
-        // Sort by user_count desc by default
         const sorted = [...data].sort((a, b) => (b?.user_count || 0) - (a?.user_count || 0));
         setItems(sorted);
       } catch (e) {
-        console.error("Failed to load tenant users summary:", e);
         if (!mounted) return;
         setError(e?.message || "Failed to load data");
       } finally {
@@ -57,7 +60,7 @@ const UsersByTenantBarChart = ({
     return () => {
       mounted = false;
     };
-  }, [from, to, status, includeInactive]);
+  }, [fetchKey]);
 
   // Prepare chart data and scales
   const { maxValue, bars } = useMemo(() => {
@@ -102,74 +105,106 @@ const UsersByTenantBarChart = ({
   }
 
   // Styles aligned with existing minimalist, responsive design
-  const containerStyle = {
-    background: "#ffffff",
-    borderRadius: 12,
-    padding: 16,
-    boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
-  };
+  const containerStyle = useMemo(
+    () => ({
+      background: "#ffffff",
+      borderRadius: 12,
+      padding: 16,
+      boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+    }),
+    []
+  );
 
-  const headerStyle = {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  };
+  const headerStyle = useMemo(
+    () => ({
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 12,
+    }),
+    []
+  );
 
-  const titleStyle = {
-    fontSize: 16,
-    fontWeight: 600,
-    color: "#111827",
-  };
+  const titleStyle = useMemo(
+    () => ({
+      fontSize: 16,
+      fontWeight: 600,
+      color: "#111827",
+    }),
+    []
+  );
 
-  const subtitleStyle = {
-    fontSize: 12,
-    color: "#6B7280",
-  };
+  const subtitleStyle = useMemo(
+    () => ({
+      fontSize: 12,
+      color: "#6B7280",
+    }),
+    []
+  );
 
-  const listStyle = {
-    display: "flex",
-    flexDirection: "column",
-    gap: 10,
-  };
+  const listStyle = useMemo(
+    () => ({
+      display: "flex",
+      flexDirection: "column",
+      gap: 10,
+    }),
+    []
+  );
 
-  const rowStyle = {
-    display: "grid",
-    gridTemplateColumns: "minmax(120px, 280px) 1fr auto",
-    alignItems: "center",
-    gap: 12,
-  };
+  const rowStyle = useMemo(
+    () => ({
+      display: "grid",
+      gridTemplateColumns: "minmax(120px, 280px) 1fr auto",
+      alignItems: "center",
+      gap: 12,
+    }),
+    []
+  );
 
-  const labelStyle = {
-    fontSize: 13,
-    color: "#111827",
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-  };
+  const labelStyle = useMemo(
+    () => ({
+      fontSize: 13,
+      color: "#111827",
+      whiteSpace: "nowrap",
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+    }),
+    []
+  );
 
-  const barTrackStyle = {
-    position: "relative",
-    width: "100%",
-    height: 12,
-    background: "linear-gradient(to right, rgba(37,99,235,0.08), rgba(107,114,128,0.08))",
-    borderRadius: 9999,
-    overflow: "hidden",
-  };
+  const barTrackStyle = useMemo(
+    () => ({
+      position: "relative",
+      width: "100%",
+      height: 12,
+      background:
+        "linear-gradient(to right, rgba(37,99,235,0.08), rgba(107,114,128,0.08))",
+      borderRadius: 9999,
+      overflow: "hidden",
+    }),
+    []
+  );
 
-  const valueStyle = {
-    fontSize: 12,
-    color: "#111827",
-    fontVariantNumeric: "tabular-nums",
-  };
+  const valueStyle = useMemo(
+    () => ({
+      fontSize: 12,
+      color: "#111827",
+      fontVariantNumeric: "tabular-nums",
+    }),
+    []
+  );
 
-  const barFillBase = {
-    position: "absolute",
-    left: 0,
-    top: 0,
-    bottom: 0,
-    background: "linear-gradient(90deg, rgba(37,99,235,0.9) 0%, rgba(37,99,235,0.75) 100%)",
-  };
+  const barFillBase = useMemo(
+    () => ({
+      position: "absolute",
+      left: 0,
+      top: 0,
+      bottom: 0,
+      background:
+        "linear-gradient(90deg, rgba(37,99,235,0.9) 0%, rgba(37,99,235,0.75) 100%)",
+    }),
+    []
+  );
 
   return (
     <div className="card" style={containerStyle}>

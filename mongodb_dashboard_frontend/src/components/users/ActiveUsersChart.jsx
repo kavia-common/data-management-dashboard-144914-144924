@@ -53,9 +53,10 @@ export default function ActiveUsersChart({
 
   // Loading/error are surfaced by child chart; keep subtle placeholders here for structure consistency
   // and to allow future data prefetch into cacheRef if needed.
+  // No-op state sync; child chart handles its own loading/errors.
+  // Keep a minimal effect to avoid StrictMode double-fire side effects.
   useEffect(() => {
-    setLoading(false);
-    setError("");
+    // Intentionally left blank to keep dependency linkage without triggering extra work.
   }, [apiGranularity, status, tenant_id]);
 
   return (

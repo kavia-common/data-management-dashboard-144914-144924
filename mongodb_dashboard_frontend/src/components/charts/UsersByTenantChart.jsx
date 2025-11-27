@@ -46,6 +46,9 @@ export default function UsersByTenantChart({
   const [err, setErr] = useState("");
 
   // Fetch data
+  // Memoized fetch key — API currently not using date/status filters for this summary
+  const fetchKey = useMemo(() => "tenant-users-summary:v1", []);
+
   useEffect(() => {
     let mounted = true;
     async function run() {
@@ -55,7 +58,6 @@ export default function UsersByTenantChart({
         const res = await getTenantUsersSummary();
         if (!mounted) return;
         const items = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [];
-        // Sort desc by count
         const sorted = [...items].sort(
           (a, b) => (b?.user_count || 0) - (a?.user_count || 0)
         );
@@ -72,7 +74,7 @@ export default function UsersByTenantChart({
     return () => {
       mounted = false;
     };
-  }, [from, to, status, includeInactive, maxBars]);
+  }, [fetchKey, maxBars]);
 
   const totalUsers = useMemo(
     () => rows.reduce((sum, r) => sum + Number(r?.user_count || 0), 0),
@@ -103,6 +105,18 @@ export default function UsersByTenantChart({
   const primaryDark = t.primaryActive;
   const secondary = t.primaryHover;
   const gridStroke = t.grid;
+
+  // Memoized static style objects used inside JSX to prevent new identity each render
+  const tooltipContentStyle = useMemo(
+    () => ({
+      background: "transparent",
+      border: "none",
+      boxShadow: "none",
+    }),
+    []
+  );
+  const tooltipWrapperStyle = useMemo(() => ({ outline: "none" }), []);
+  const tooltipCursor = useMemo(() => ({ fill: "transparent" }), []);
 
   const CustomTooltip = ({ active, payload, label }) => {
     if (active && payload && payload.length) {
@@ -211,13 +225,9 @@ export default function UsersByTenantChart({
               <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: t.axisTick }} width={80} />
               <Tooltip
                 content={<CustomTooltip />}
-                wrapperStyle={{ outline: "none" }}
-                contentStyle={{
-                  background: "transparent",
-                  border: "none",
-                  boxShadow: "none",
-                }}
-                cursor={{ fill: "transparent" }}
+                wrapperStyle={tooltipWrapperStyle}
+                contentStyle={tooltipContentStyle}
+                cursor={tooltipCursor}
               />
               <Legend
                 verticalAlign="top"
