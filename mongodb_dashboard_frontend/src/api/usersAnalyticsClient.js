@@ -6,6 +6,13 @@ import { buildQueryString } from './util';
  * PUBLIC_INTERFACE
  * fetchUsersByTenant
  * Standardized wrapper returning the backend response for /api/users/tenant-summary
+ *
+ * Note:
+ * - Prefer using getTenantUsersSummary from ./usersAnalytics for components.
+ *   That helper normalizes response shapes and is the single source used by:
+ *     - components/users/UsersByTenantBarChart.jsx
+ *     - components/charts/UsersByTenantChart.jsx
+ * - Keep this low-level client for non-visual consumers or future hooks.
  */
 export async function fetchUsersByTenant({ status, includeInactive } = {}) {
   const base = { status, includeInactive };
