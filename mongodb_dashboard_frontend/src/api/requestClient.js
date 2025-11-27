@@ -20,6 +20,9 @@ const cache = new Map();    // key => { timestamp, data, status, headersSummary 
 
 const DEFAULT_TTL_MS = 90 * 1000;
 
+// Diagnostics toggle for verifying Authorization and response codes on users widgets
+const DEBUG_API = String(process.env.REACT_APP_DEBUG_API_USERS || '').trim() === '1';
+
 // Utilities
 
 function isAbsoluteUrl(url) {
@@ -116,11 +119,36 @@ async function parseResponse(res) {
   }
 }
 
+function isTargetUsersEndpoint(url) {
+  return (
+    (url.includes('/api/tenants/') && url.includes('/users/usage')) ||
+    url.includes('/api/analytics/users/active-trend')
+  );
+}
+
 // Core request with in-flight dedupe and cache for GET
 async function coreRequest(method, pathOrUrl, { params, headers, signal, body, cacheTTL } = {}) {
   const url = buildUrlWithParams(pathOrUrl, params);
   const key = makeKey(method, url);
   const upperMethod = method.toUpperCase();
+
+  // Debug: request start
+  if (DEBUG_API && isTargetUsersEndpoint(url)) {
+    try {
+      const authHeader = (headers && (headers.Authorization || headers.authorization)) || '';
+      // Avoid dumping token; log presence and length only
+      // eslint-disable-next-line no-console
+      console.log('[API DEBUG][request]', {
+        method: upperMethod,
+        url,
+        hasAuthorization: !!authHeader,
+        authorizationLength: typeof authHeader === 'string' ? authHeader.length : 0,
+      });
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.warn('[API DEBUG] request log error:', e);
+    }
+  }
 
   // GET cache check
   const allowCache = upperMethod === 'GET';
@@ -171,18 +199,44 @@ async function performFetch(method, url, { headers, signal, body }, key, isReval
   // We implement consumer-level cancellation by returning a promise that rejects if the caller's signal aborts first.
 
   const fetchPromise = (async () => {
+    const builtHeaders = buildAuthHeaders({
+      Accept: 'application/json',
+      ...(method !== 'GET' ? { 'Content-Type': 'application/json' } : {}),
+      ...(headers || {}),
+    });
+
     const res = await fetch(url, {
       method,
-      headers: buildAuthHeaders({
-        Accept: 'application/json',
-        ...(method !== 'GET' ? { 'Content-Type': 'application/json' } : {}),
-        ...(headers || {}),
-      }),
+      headers: builtHeaders,
       body: body !== undefined ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined,
       signal: finalSignal,
       credentials: 'omit',
     });
+
     const parsed = await parseResponse(res);
+
+    // Debug: response info
+    if (DEBUG_API && isTargetUsersEndpoint(url)) {
+      try {
+        const authHeader = builtHeaders.Authorization || builtHeaders.authorization || '';
+        // eslint-disable-next-line no-console
+        console.log('[API DEBUG][response]', {
+          url,
+          status: parsed.status,
+          ok: parsed.ok,
+          hasAuthorization: !!authHeader,
+          authorizationLength: typeof authHeader === 'string' ? authHeader.length : 0,
+          payloadType: typeof parsed.payload,
+          hasLabels: !!parsed?.payload?.labels,
+          hasDatasets: !!parsed?.payload?.datasets,
+          hasItems: Array.isArray(parsed?.payload?.items),
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('[API DEBUG] response log error:', e);
+      }
+    }
+
     if (!parsed.ok) {
       const message =
         (parsed.payload && typeof parsed.payload === 'object' && (parsed.payload.message || parsed.payload.detail)) ||
@@ -190,8 +244,19 @@ async function performFetch(method, url, { headers, signal, body }, key, isReval
       const err = new Error(message);
       err.status = parsed.status;
       err.payload = parsed.payload;
+
+      if (DEBUG_API && isTargetUsersEndpoint(url)) {
+        // eslint-disable-next-line no-console
+        console.error('[API DEBUG][response error]', {
+          url,
+          status: parsed.status,
+          message,
+        });
+      }
+
       throw err;
     }
+
     // Cache GET responses
     if (allowCache && method === 'GET') {
       cache.set(key, {
