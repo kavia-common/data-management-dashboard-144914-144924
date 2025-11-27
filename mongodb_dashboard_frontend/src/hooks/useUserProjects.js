@@ -1,12 +1,13 @@
+
 import { useCallback, useMemo, useState, useEffect } from "react";
-import { fetchUserProjects } from "../api/userProjects";
+import { getUserProjects } from "../api/users";
 
 /**
  * PUBLIC_INTERFACE
  * useUserProjects
  * React hook to fetch projects for a given user when enabled.
  *
- * @param {{ userId?: string, tenantId?: string, organization_id?: string, from?: string|Date|null, to?: string|Date|null, enabled?: boolean }} options
+ * @param {{ userId?: string, tenantId?: string, from?: string|Date|null, to?: string|Date|null, enabled?: boolean }} options
  * @returns {{
  *   projects: Array<{ project_id: string, project_name?: string|null, last_activity?: string|null }>,
  *   loading: boolean,
@@ -15,39 +16,21 @@ import { fetchUserProjects } from "../api/userProjects";
  * }}
  */
 export function useUserProjects(options = {}) {
-  const {
-    userId,
-    tenantId,
-    organization_id: organizationIdProp,
-    from = undefined,
-    to = undefined,
-    enabled = true,
-  } = options || {};
-
-  const organization_id = organizationIdProp || tenantId;
+  const { userId, tenantId, from = undefined, to = undefined, enabled = true } = options || {};
 
   const [projects, setProjects] = useState([]);
-  const [loading, setLoading] = useState(Boolean(enabled && userId && organization_id));
+  const [loading, setLoading] = useState(Boolean(enabled && userId && tenantId));
   const [error, setError] = useState("");
 
-  const canFetch = useMemo(
-    () => Boolean(enabled && userId && organization_id),
-    [enabled, userId, organization_id]
-  );
+  const canFetch = useMemo(() => Boolean(enabled && userId && tenantId), [enabled, userId, tenantId]);
 
   const load = useCallback(async () => {
     if (!canFetch) return;
     setLoading(true);
     setError("");
     try {
-      // Use the API helper that leverages requestClient cache/dedup with composite key
-      const res = await fetchUserProjects(String(userId), String(organization_id), {
-        from: from ? (typeof from === "string" ? from : new Date(from).toISOString()) : undefined,
-        to: to ? (typeof to === "string" ? to : new Date(to).toISOString()) : undefined,
-        enabled: true,
-      });
-      const payload = res?.data ?? res;
-      const list = Array.isArray(payload?.projects) ? payload.projects : Array.isArray(payload) ? payload : [];
+      const data = await getUserProjects(userId, { tenantId, from, to });
+      const list = Array.isArray(data?.projects) ? data.projects : [];
       setProjects(list);
     } catch (e) {
       setProjects([]);
@@ -55,7 +38,7 @@ export function useUserProjects(options = {}) {
     } finally {
       setLoading(false);
     }
-  }, [canFetch, userId, organization_id, from, to]);
+  }, [canFetch, userId, tenantId, from, to]);
 
   useEffect(() => {
     load();
@@ -63,5 +46,3 @@ export function useUserProjects(options = {}) {
 
   return { projects, loading, error, refetch: load };
 }
-
-export default useUserProjects;
