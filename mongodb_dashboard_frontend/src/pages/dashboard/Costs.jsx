@@ -6,12 +6,12 @@ import TreeView from "../../components/TreeView.jsx";
 
 import { renderCreditsWithUsd } from "../../utils/currency";
 import { listLlmCosts } from "../../api";
-
+import useLlmCostsHierarchy from "../../hooks/useLlmCostsHierarchy";
 
 /**
  * PUBLIC_INTERFACE
  * Costs page
- * - Keeps compact LLM costs table with inspector for large fields.
+ * - Update to show enriched per-user columns using hierarchy endpoint when available.
  */
 export default function Costs() {
   const [allItems, setAllItems] = useState([]);
@@ -26,60 +26,8 @@ export default function Costs() {
   const [inspectTitle, setInspectTitle] = useState("Details");
   const [inspectPayload, setInspectPayload] = useState(null);
 
-  const dateFieldHints = useMemo(
-    () =>
-      new Set([
-        "timestamp",
-        "created_at",
-        "updated_at",
-        "createdAt",
-        "updatedAt",
-        "date",
-      ]),
-    []
-  );
-  // Normalize currency-like field names across various API shapes.
-  // Handles: snake_case, camelCase, and *_usd variants.
-  const CURRENCY_FIELDS = useMemo(
-    () =>
-      new Set(
-        [
-          "total_cost",
-          "totalcost",
-          "cost",
-          "organization_cost",
-          "organizationcost",
-          "price",
-          "amount",
-          "usd",
-          "usd_cost",
-          "total_usd",
-          "totalusd",
-          "amount_usd",
-          "charge",
-        ].map((s) => s.toLowerCase())
-      ),
-    []
-  );
-
-  function isCurrencyKey(key) {
-    const k = String(key || "").toLowerCase();
-    if (CURRENCY_FIELDS.has(k)) return true;
-    // Also treat anything ending with _usd or usd_... as currency-like
-    if (/_usd\b|\busd_|\busd$/i.test(k)) return true;
-    return false;
-  }
-  const numericPrettyHints = useMemo(
-    () =>
-      new Set(["total_tokens", "input_tokens", "output_tokens", "tokens", "count"]),
-    []
-  );
-
-  function toLabel(k) {
-    return k === "_id"
-      ? "ID"
-      : k.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
-  }
+  // Prefer hierarchy dataset for enriched view
+  const { data: hierarchyData, loading: hierarchyLoading, error: hierarchyError } = useLlmCostsHierarchy();
 
   // PUBLIC_INTERFACE
   function openInspector(title, payload) {
@@ -92,195 +40,173 @@ export default function Costs() {
     setInspectPayload(null);
   }
 
-  const renderText = (value) => {
-    const text = value == null || value === "" ? "—" : String(value);
-    return (
-      <span
-        title={text}
-        style={{
-          display: "inline-block",
-          maxWidth: 280,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          verticalAlign: "middle",
-        }}
-      >
-        {text}
-      </span>
-    );
+  // Helpers
+  const toNumber = (v) => {
+    if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+    if (typeof v === "string") {
+      const n = Number(v.replace(/[$,]/g, "").trim());
+      return Number.isFinite(n) ? n : 0;
+    }
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 0;
   };
 
-  const renderNumber = (value, key) => {
-    if (value == null || value === "") return "—";
-
-    // Coerce to number when possible (e.g., "0.123", "$0.12")
-    const num = typeof value === "number" ? value : Number(String(value).replace(/[$,]/g, ""));
-    const isFiniteNum = Number.isFinite(num);
-
-    if (isCurrencyKey(key) && isFiniteNum) {
-      return (
-        <span className="amount-positive" style={{ whiteSpace: "nowrap" }}>
-          {renderCreditsWithUsd(num)}
-        </span>
-      );
-    }
-
-    if (isFiniteNum && (numericPrettyHints.has(key) || /token|count|total/i.test(String(key)))) {
-      const txt = num.toLocaleString();
-      return (
-        <span title={txt} style={{ whiteSpace: "nowrap" }}>
-          {txt}
-        </span>
-      );
-    }
-
-    return renderText(value);
-  };
-
-  const renderDate = (value) => {
-    if (!value) return "—";
-    try {
-      const txt = new Date(value).toLocaleString();
-      return <span title={txt}>{txt}</span>;
-    } catch {
-      return renderText(value);
-    }
-  };
-
-  function renderCompact(value, fieldLabel = "Details") {
-    if (Array.isArray(value)) {
-      const len = value.length;
-      if (len === 0) return "0 items";
-      const previewMax = 2;
-      const shown = value.slice(0, previewMax);
-      const previewText = shown
-        .map((v) => {
-          if (v && typeof v === "object") {
-            return v.name || v.id || v._id || JSON.stringify(v);
-          }
-          return String(v);
-        })
-        .join(", ");
-      const overflow = len > previewMax ? ` +${len - previewMax} more` : "";
-      const summary = `${previewText}${overflow}`;
-      return (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span
-            title={summary}
-            style={{
-              display: "inline-block",
-              maxWidth: 320,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-          >
-            {summary}
-          </span>
-          <button
-            className="btn btn-ghost"
-            style={{ padding: "4px 8px", height: 28 }}
-            onClick={() => openInspector(fieldLabel, value)}
-            aria-label={`View details for ${fieldLabel}`}
-            title={`View details for ${fieldLabel}`}
-          >
-            View details
-          </button>
-        </div>
-      );
-    }
-    if (value && typeof value === "object") {
-      const keys = Object.keys(value);
-      const shown = keys.slice(0, 2);
-      const summary = `${shown.join(", ")}${keys.length > 2 ? ` +${keys.length - 2} more` : ""}`;
-      return (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <span title={summary} style={{ maxWidth: 320, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "inline-block" }}>
-            {summary || "—"}
-          </span>
-          <button
-            className="btn btn-ghost"
-            style={{ padding: "4px 8px", height: 28 }}
-            onClick={() => openInspector(fieldLabel, value)}
-            aria-label={`View ${fieldLabel}`}
-            title={`View ${fieldLabel}`}
-          >
-            View
-          </button>
-        </div>
-      );
-    }
-    return renderText(value);
-  }
-
-  function buildColumnsFromSample(rows = []) {
-    const sample = rows[0] || {};
-    const preferredOrder = [
-      "_id",
-      "tenant_id",
-      "project_id",
-      "user_id",
-      "llm_model",
-      "total_cost",
-      "total_tokens",
-      "timestamp",
-      "created_at",
-      "updated_at",
-    ];
-
-    const nestedCandidates = ["users", "projects", "agents", "details", "metadata", "params", "prompt", "response"];
-    const presentMain = preferredOrder.filter((k) => Object.prototype.hasOwnProperty.call(sample, k));
-    const mainFields = presentMain.length ? presentMain : Object.keys(sample).slice(0, 5);
-
-    const cols = [];
-
-    mainFields.forEach((k) => {
-      cols.push({
-        key: k,
-        label: toLabel(k),
-        render: (v, row) => {
-          const val = v ?? row?.[k];
-          if (val == null) return "—";
-          if (dateFieldHints.has(k)) return renderDate(val);
-          if (typeof val === "number") return renderNumber(val, k);
-          return renderText(val);
-        },
-        priority: ["_id", "llm_model", "total_cost"].includes(k) ? 1 : 2,
-      });
+  // Map hierarchy response into rows for table
+  const mapHierarchyToRows = (payload) => {
+    if (!payload) return [];
+    // Accept both array or object with .items or .data
+    const root = Array.isArray(payload) ? payload : (payload.items || payload.data || payload.nodes || payload);
+    // Expected shapes:
+    // - Array of user nodes or tenant->groups->users; try to find users collection too for name resolution
+    const allUsersList = Array.isArray(payload?.users) ? payload.users : (Array.isArray(payload?.data?.users) ? payload.data.users : []);
+    const usersIndex = new Map();
+    allUsersList.forEach((u) => {
+      const id = String(u?.user_id ?? u?.id ?? u?._id ?? "");
+      if (id) usersIndex.set(id, u);
     });
 
-    const nestedCols = [];
-    nestedCandidates.forEach((name) => {
-      if (Object.prototype.hasOwnProperty.call(sample, name)) {
-        nestedCols.push({
-          key: name,
-          label: toLabel(name),
-          render: (v) => renderCompact(v, toLabel(name)),
-          priority: 3,
-        });
+    // Flatten nodes that represent users with feature/type and projects
+    const rows = [];
+
+    const pushUserNode = (uNode, parentFeature) => {
+      if (!uNode) return;
+      const userId = String(uNode.user_id ?? uNode.id ?? uNode._id ?? "");
+      const refUser = (userId && usersIndex.get(userId)) || null;
+
+      // derive name
+      const name =
+        uNode.user_name ||
+        uNode.name ||
+        refUser?.name ||
+        refUser?.full_name ||
+        refUser?.username ||
+        refUser?.email ||
+        userId ||
+        "Unknown";
+
+      // feature/type
+      const feature =
+        uNode.feature ||
+        uNode.type ||
+        uNode.Feature ||
+        parentFeature ||
+        "—";
+
+      // costs
+      // prefer user_cost; fallback to total_cost or cost
+      const costsUsed = toNumber(uNode.user_cost ?? uNode.total_cost ?? uNode.cost ?? uNode.amount ?? 0);
+
+      // projects array length
+      const projectsArr = Array.isArray(uNode.projects) ? uNode.projects : (Array.isArray(uNode.children) ? uNode.children.filter((c) => c?.project_id || c?.project) : []);
+      const projectsCount = Array.isArray(projectsArr) ? projectsArr.length : 0;
+
+      rows.push({
+        user_id: userId || undefined,
+        user_name: name,
+        feature,
+        costs_used: costsUsed,
+        credits_consumed: costsUsed, // rendered with renderCreditsWithUsd
+        projects: projectsCount,
+        _raw: uNode,
+      });
+    };
+
+    const visit = (node, ctx = {}) => {
+      if (!node) return;
+      if (Array.isArray(node)) {
+        node.forEach((n) => visit(n, ctx));
+        return;
+      }
+      // If it looks like a user node
+      const isUserish =
+        node.user_id != null ||
+        node.type === "User" ||
+        node.kind === "user" ||
+        (node.role === "user" && node.user_cost != null);
+
+      if (isUserish) {
+        pushUserNode(node, ctx.feature);
+      }
+
+      // Recurse into common containers
+      const children = node.children || node.users || node.nodes || node.projects || [];
+      const nextCtx = { ...ctx, feature: node.feature || node.type || ctx.feature };
+      if (Array.isArray(children)) {
+        children.forEach((c) => visit(c, nextCtx));
+      }
+    };
+
+    visit(root);
+
+    // De-duplicate by user_id+feature if repeated
+    const uniq = new Map();
+    rows.forEach((r) => {
+      const key = `${r.user_id || r.user_name}::${r.feature}`;
+      if (!uniq.has(key)) uniq.set(key, r);
+      else {
+        // Merge costs/projects if duplicates
+        const existing = uniq.get(key);
+        existing.costs_used += toNumber(r.costs_used);
+        existing.credits_consumed = existing.costs_used;
+        existing.projects = Math.max(existing.projects || 0, r.projects || 0);
       }
     });
 
-    cols.push(...nestedCols.slice(0, 3));
+    return Array.from(uniq.values());
+  };
 
-    return cols.length ? cols : [{ key: "_id", label: "ID" }];
+  // Fixed columns for enriched view
+  const enrichedColumns = useMemo(() => {
+    return [
+      {
+        key: "user_name",
+        label: "User Name",
+        className: "td--emphasis-name",
+      },
+      {
+        key: "feature",
+        label: "Feature",
+      },
+      {
+        key: "costs_used",
+        label: "Costs Used",
+        render: (v, row) => renderCreditsWithUsd(Number(row?.costs_used ?? v)),
+      },
+      {
+        key: "credits_consumed",
+        label: "Credits Consumed",
+        render: (v, row) => renderCreditsWithUsd(Number(row?.credits_consumed ?? row?.costs_used ?? v)),
+      },
+      {
+        key: "projects",
+        label: "Projects",
+        render: (v) => {
+          const n = Number(v);
+          return Number.isFinite(n) ? n.toLocaleString() : "0";
+        },
+      },
+    ];
+  }, []);
+
+  // Fallback table supports dynamic columns for raw list mode
+  function buildColumnsFromSample(rows = []) {
+    // Minimal fallback if hierarchy not available; keep previous behavior
+    const sample = rows[0] || {};
+    const fields = Object.keys(sample);
+    if (!fields.length) return [{ key: "id", label: "ID" }];
+    return fields.slice(0, 6).map((k) => ({
+      key: k,
+      label: k.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase()),
+    }));
   }
 
-  async function load(page = 1, limit = meta.limit || 10, sortKey, sortDir) {
-    /**
-     * Loads costs with optional server-side sorting.
-     * When sortKey is provided, we pass `sort` param to backend using the format:
-     *  - asc: field
-     *  - desc: -field
-     */
+  // Loaders
+  async function loadList(page = 1, limit = meta.limit || 10, sortKey, sortDir) {
     setLoading(true);
     setError("");
     try {
       const params = { page, limit };
-      if (sortKey) {
-        params.sort = sortDir === "desc" ? `-${sortKey}` : String(sortKey);
-      }
+      if (sortKey) params.sort = sortDir === "desc" ? `-${sortKey}` : String(sortKey);
       const res = await listLlmCosts(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
@@ -299,14 +225,30 @@ export default function Costs() {
     }
   }
 
+  // On mount, if hierarchy is loading we wait; if hierarchy errors, fall back to list endpoint.
   useEffect(() => {
-    // initial load on mount
-    load();
-    // load is stable (declared in component scope) but depends on meta.limit if changed externally
-    // We intentionally do not include 'load' in deps to avoid ref churn and infinite loops.
+    if (hierarchyLoading) {
+      setLoading(true);
+      return;
+    }
+    if (hierarchyError) {
+      // fallback mode
+      loadList();
+      return;
+    }
+    if (hierarchyData) {
+      // Map and paginate client-side for enriched rows; sorting handled client-side via DataTable
+      const rows = mapHierarchyToRows(hierarchyData);
+      setAllItems(rows);
+      setItems(rows);
+      setMeta((m) => ({ ...m, page: 1, total: rows.length }));
+      setLoading(false);
+      setError("");
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hierarchyLoading, hierarchyError, hierarchyData]);
 
+  // Search filter
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
     if (!q) {
@@ -317,10 +259,7 @@ export default function Costs() {
       return Object.entries(doc || {}).some(([k, v]) => {
         if (v == null) return false;
         try {
-          const s =
-            typeof v === "object"
-              ? JSON.stringify(v)
-              : String(v);
+          const s = typeof v === "object" ? JSON.stringify(v) : String(v);
           return s.toLowerCase().includes(q);
         } catch {
           return false;
@@ -330,21 +269,25 @@ export default function Costs() {
     setItems(filtered);
   }, [query, allItems]);
 
+  const usingHierarchy = !!hierarchyData && !hierarchyError;
+
   const columns = useMemo(() => {
-    // buildColumnsFromSample is a pure function defined in this file; items is the only reactive input
-    const base = buildColumnsFromSample(items || []);
-    return base.slice();
-  }, [items]);
+    if (usingHierarchy) return enrichedColumns;
+    return buildColumnsFromSample(items || []);
+  }, [usingHierarchy, enrichedColumns, items]);
+
+  // Sorting behavior:
+  // - In hierarchy mode (client data), allow client-side sorting by costs_used and projects (DataTable already does client sorting).
+  // - In fallback list mode (server data), we rely on server sorting via fetchPage params.
 
   return (
     <div>
-      {/* Table section */}
       <Card
         title="Costs"
-        subtitle="LLM usage cost records — compact view with expandable details"
+        subtitle={usingHierarchy ? "Per-user feature costs (hierarchy)" : "LLM usage cost records — compact view"}
         className="mt-4"
       >
-        <div className="toolbar" aria-label="Costs toolbar" style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <div className="toolbar" aria-label="Costs toolbar" style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <input
             className="input-search"
             placeholder="Search costs..."
@@ -353,7 +296,6 @@ export default function Costs() {
             onChange={(e) => setQuery(e.target.value)}
           />
           <div style={{ flex: 1 }} />
-          {/* View All button removed per requirements */}
         </div>
         {error && <div className="error" role="alert">{error}</div>}
         <DataTable
@@ -362,30 +304,30 @@ export default function Costs() {
           loading={loading}
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
-          serverTotal={meta.total}
-          fetchPage={async (page, limit, sortKey, sortDir) => {
-            await load(page, limit, sortKey, sortDir);
-          }}
-          paginationTitle="Cost records pages"
+          serverTotal={usingHierarchy ? undefined : meta.total}
+          fetchPage={
+            usingHierarchy
+              ? undefined // client-side paginate/sort for hierarchy rows
+              : async (page, limit, sortKey, sortDir) => {
+                  await loadList(page, limit, sortKey, sortDir);
+                }
+          }
+          paginationTitle={usingHierarchy ? "Users pages" : "Cost records pages"}
         />
       </Card>
 
-      {/* Modal inspector for arrays/objects to avoid expanding inside table cells */}
       <Modal
         title={inspectTitle}
         open={inspectOpen}
         onClose={closeInspector}
         headerOffset={60}
         width="min(96vw, 880px)"
-        /* Costs-context variant to ensure subtle canvas tint on white surface */
         className="modal--costs"
         footer={
           <button className="btn btn-ghost" onClick={closeInspector} aria-label="Close details">Close</button>
         }
       >
-        <CostsTreeInspector
-          payload={inspectPayload}
-        />
+        <CostsTreeInspector payload={inspectPayload} />
       </Modal>
     </div>
   );
@@ -396,44 +338,28 @@ function CostsTreeInspector({ payload }) {
   const [search, setSearch] = React.useState("");
   const treeRef = React.useRef(null);
 
-  // Progressive expansion controller hook
-  // eslint-disable-next-line import/no-useless-path-segments
-  // PUBLIC_INTERFACE
-  // useProgressiveExpand is a React hook that wraps a progressive controller to batch-expand tree nodes without blocking the UI.
   const { default: useProgressiveExpand } = require("../../hooks/useProgressiveExpand");
   const { running, progress, counts, startFromItems, cancel } = useProgressiveExpand({
-    // Apply one batch by passing it to TreeView's batch expander
     applyBatch: (batch) => treeRef.current?.applyExpandBatch?.(batch),
-    // Slightly larger slices for big payloads; default inside hook is adaptive too
     timeSliceMs: 8,
-    onDone: () => {
-      // no-op; UI state handled by hook
-    },
-    onCancel: () => {
-      // no-op
-    },
   });
 
   const onSearchChange = (e) => setSearch(e.target.value);
 
   const expandAll = React.useCallback(() => {
     const all = treeRef.current?.getAllExpandablePaths?.() || [];
-    // Fast path for small datasets to preserve minimal overhead and UX
     if (all.length <= 300) {
       treeRef.current?.expandAll?.();
       return;
     }
-    // Progressive expansion for large datasets
     startFromItems(all);
   }, [startFromItems]);
 
   const collapseAll = React.useCallback(() => {
-    // Cancel any in-flight expansion to avoid racing updates
     if (running) cancel();
     treeRef.current?.collapseAll?.();
   }, [running, cancel]);
 
-  // Auto-cancel if unmounted while expansion is running
   React.useEffect(() => {
     return () => {
       try {
@@ -451,8 +377,6 @@ function CostsTreeInspector({ payload }) {
       <div className="sticky-header" style={{
         top: 0,
         zIndex: 1,
-        // GxP: Accessibility/contrast fix for Costs View Details modal (REQ-UI-COSTS-MODAL-BG)
-        // Use application canvas background inside the costs inspector header to avoid light-on-light contrast.
         background: "var(--bg-canvas, var(--ocean-bg, #f9fafb))",
         borderBottom: "1px solid var(--border-subtle)",
         padding: "12px 16px",
@@ -471,7 +395,6 @@ function CostsTreeInspector({ payload }) {
         />
         <div style={{ flex: 1 }} />
 
-        {/* Progress indicator */}
         {running ? (
           <div aria-live="polite" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
             <div title={`Expanding... ${progress}%`} style={{
@@ -480,7 +403,7 @@ function CostsTreeInspector({ payload }) {
               borderRadius: 999,
               background: "#E5E7EB",
               overflow: "hidden",
-              border: "1px solid #E5E7EB"
+              border: "1px solid #E5E7EB",
             }}>
               <div style={{
                 width: `${Math.max(4, progress)}%`,
@@ -495,12 +418,7 @@ function CostsTreeInspector({ payload }) {
           </div>
         ) : null}
 
-        <button
-          className="btn btn-secondary"
-          onClick={expandAll}
-          title="Expand all"
-          disabled={running}
-        >
+        <button className="btn btn-secondary" onClick={expandAll} title="Expand all" disabled={running}>
           {running ? "Expanding..." : "Expand all"}
         </button>
 
@@ -517,8 +435,6 @@ function CostsTreeInspector({ payload }) {
         padding: "12px 16px",
         maxHeight: "60vh",
         overflow: "auto",
-        // GxP: Accessibility/contrast fix for Costs View Details modal (REQ-UI-COSTS-MODAL-BG)
-        // Enforce application canvas background in modal content area.
         background: "var(--bg-canvas, var(--ocean-bg, #f9fafb))",
       }}>
         <TreeView
