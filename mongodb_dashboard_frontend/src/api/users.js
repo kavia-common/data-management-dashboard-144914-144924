@@ -42,7 +42,7 @@ export async function getUserProjects(userId, params = {}) {
     // eslint-disable-next-line no-console
     console.debug("[UsersAPI] GET /users/:id/projects", { userId, query });
   }
-  const res = await api.get(`/users/${encodeURIComponent(userId)}/projects`, { params: query });
+  const res = await api.get(`/users/${encodeURIComponent(userId)}/projects`, { params: query, cacheTTL: 120000 });
   // Response shape: { user_id, organization_id?, tenant_id?, projects: [{ project_id, project_name?, last_activity? }]}
   return res.data?.data ?? res.data;
 }

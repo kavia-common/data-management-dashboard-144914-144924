@@ -1,5 +1,6 @@
 import { getApiBase } from "./config";
 import { buildAuthHeaders, getOrganizationId } from "./authTokenProvider";
+import requestClient from "./requestClient";
 
 /**
  * Internal helper: detect absolute URLs.
@@ -177,48 +178,21 @@ function buildUrlWithParams(pathOrUrl, effParams) {
 }
 
 /**
- * Internal helper: parse response and return { ok, status, data|text }.
+ * Axios-like "get" returning { data } using requestClient (with dedupe/cache/abort).
  */
-async function parseResponse(res) {
-  const contentType = res.headers.get("content-type") || "";
-  const isJson = contentType.includes("application/json");
-  try {
-    const payload = isJson ? await res.json() : await res.text();
-    return { ok: res.ok, status: res.status, payload };
-  } catch {
-    return { ok: res.ok, status: res.status, payload: null };
-  }
-}
-
-/**
- * Axios-like "get" returning { data }.
- */
-async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
+async function httpGet(pathOrUrl, { params, headers, signal, cacheTTL } = {}) {
   const effParams = sanitizeEndpointParams(
     pathOrUrl,
     ensureScopedQueryParams(pathOrUrl, params)
   );
   const url = buildUrlWithParams(pathOrUrl, effParams);
-  const res = await fetch(url, {
-    method: "GET",
-    headers: buildAuthHeaders({
-      Accept: "application/json",
-      ...(headers || {}),
-    }),
+  // Delegate to requestClient; keep response shape consistent
+  const res = await requestClient.get(url, {
+    headers: buildAuthHeaders({ ...(headers || {}) }),
     signal,
-    credentials: "omit",
+    cacheTTL,
   });
-  const { ok, status, payload } = await parseResponse(res);
-  if (!ok) {
-    const message =
-      (payload && typeof payload === "object" && (payload.message || payload.detail)) ||
-      (typeof payload === "string" ? payload : `Request failed (${status})`);
-    const err = new Error(message);
-    err.status = status;
-    err.payload = payload;
-    throw err;
-  }
-  return { data: payload };
+  return { data: res?.data ?? res };
 }
 
 async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {}) {
@@ -228,28 +202,11 @@ async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {
     ensureScopedQueryParams(pathOrUrl, params)
   );
   const url = buildUrlWithParams(pathOrUrl, effParams);
-  const res = await fetch(url, {
-    method,
-    headers: buildAuthHeaders({
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...(headers || {}),
-    }),
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+  const res = await requestClient[method.toLowerCase()](url, body, {
+    headers: buildAuthHeaders({ ...(headers || {}) }),
     signal,
-    credentials: "omit",
   });
-  const { ok, status, payload } = await parseResponse(res);
-  if (!ok) {
-    const message =
-      (payload && typeof payload === "object" && (payload.message || payload.detail)) ||
-      (typeof payload === "string" ? payload : `Request failed (${status})`);
-    const err = new Error(message);
-    err.status = status;
-    err.payload = payload;
-    throw err;
-  }
-  return { data: payload };
+  return { data: res?.data ?? res };
 }
 
 function normalizeListPayload(payload) {
@@ -288,7 +245,7 @@ export async function health() {
 // PUBLIC_INTERFACE
 export async function listUsers(params = {}) {
   /** Lists users; for /api/users only organization_id is sent. All other params (e.g., limit, page, sort, filter) are ignored for this endpoint by design. Returns normalized { items, total, meta }. */
-  const res = await httpGet("/api/users", { params });
+  const res = await httpGet("/api/users", { params, cacheTTL: 90000 });
   return normalizeListPayload(res.data);
 }
 
@@ -297,21 +254,21 @@ export async function listSessions(params = {}) {
   /** Lists session tracking records normalized to { items, total, meta }.
    * Tenant scoping is enforced via tenant_id in the query.
    */
-  const res = await httpGet("/api/session-tracking", { params });
+  const res = await httpGet("/api/session-tracking", { params, cacheTTL: 60000 });
   return normalizeListPayload(res.data);
 }
 
 // PUBLIC_INTERFACE
 export async function listDeployments(params = {}) {
   /** Lists app deployments normalized to { items, total, meta }. */
-  const res = await httpGet("/api/app-deployments", { params });
+  const res = await httpGet("/api/app-deployments", { params, cacheTTL: 60000 });
   return normalizeListPayload(res.data);
 }
 
 // PUBLIC_INTERFACE
 export async function listLlmCosts(params = {}) {
   /** Lists LLM cost records normalized to { items, total, meta }. */
-  const res = await httpGet("/api/llm-costs", { params });
+  const res = await httpGet("/api/llm-costs", { params, cacheTTL: 60000 });
   return normalizeListPayload(res.data);
 }
 
@@ -322,7 +279,7 @@ export async function listLlmCosts(params = {}) {
  * Any additional params provided are ignored to prevent accidental leakage of unsupported params.
  */
 export async function getTenantUsersSummaryStrict() {
-  const res = await httpGet("/api/users/tenant-summary", { params: {} });
+  const res = await httpGet("/api/users/tenant-summary", { params: {}, cacheTTL: 120000 });
   return res.data;
 }
 

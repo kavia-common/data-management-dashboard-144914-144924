@@ -10,7 +10,7 @@ import { buildQueryString } from './util';
 export async function fetchUsersByTenant({ status, includeInactive } = {}) {
   const base = { status, includeInactive };
   const qs = buildQueryString(base);
-  const res = await getApiClient().get(`/api/users/tenant-summary${qs}`);
+  const res = await getApiClient().get(`/api/users/tenant-summary${qs}`, { cacheTTL: 120000 });
   return res.data ?? res;
 }
 
@@ -22,7 +22,7 @@ export async function fetchUsersByTenant({ status, includeInactive } = {}) {
 export async function fetchReferralSources({ limit = 10 } = {}) {
   const base = { limit };
   const qs = buildQueryString(base);
-  const res = await getApiClient().get(`/api/users/referral-sources${qs}`);
+  const res = await getApiClient().get(`/api/users/referral-sources${qs}`, { cacheTTL: 120000 });
   return res.data ?? res;
 }
 

@@ -44,7 +44,7 @@ export async function getActiveUsersTrend(params = {}) {
 
   // Removed failing endpoint '/api/users/active-trend-from-users'
   const url = `${baseUrl}/users/active-trend?${legacyQuery.toString()}`;
-  const res = await api.get(url);
+  const res = await api.get(url, { cacheTTL: 120000 });
   const data = res?.data ?? res;
   if (!data || typeof data !== 'object') {
     throw new Error('Invalid response');
