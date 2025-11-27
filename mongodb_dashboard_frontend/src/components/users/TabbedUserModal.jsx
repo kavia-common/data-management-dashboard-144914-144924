@@ -18,8 +18,7 @@ function UserDetailsView({ user }) {
   const name =
     user?.name ||
     user?.full_name ||
-    `${user?.first_name ?? ''} ${user?.last_name ?? ''}`.trim() ||
-    '';
+    `${user?.first_name ?? ''} ${user?.last_name ?? ''}`.trim();
   const email = user?.email || '';
   const department =
     user?.department ??

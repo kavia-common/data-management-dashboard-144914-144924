@@ -308,7 +308,7 @@ function SessionDetailsModal({ open, onClose, session }) {
     }
 
     return details;
-  }, [session, userIdRef, displayUserResolved, fetchedUserName, fetchingUserName, createdAt, lastUpdatedAt, sessionId]);
+  }, [session, userIdRef, displayUserResolved, fetchedUserName, fetchingUserName, createdAt, lastUpdatedAt, sessionId, computeDurationPretty]);
 
   // Normalize and memoize session_breakdown list
   const breakdownList = useMemo(() => {
@@ -332,7 +332,7 @@ function SessionDetailsModal({ open, onClose, session }) {
         agent: agentText,
       };
     });
-  }, [session]);
+  }, [session, computeDurationPretty]);
 
   const title = useMemo(() => {
     const id = session?.sessionId || session?._id || session?.id || '';

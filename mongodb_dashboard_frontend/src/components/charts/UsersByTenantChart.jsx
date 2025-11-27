@@ -101,7 +101,7 @@ export default function UsersByTenantChart({
   const t = getChartTheme();
   const primary = t.primary;
   const primaryDark = t.primaryActive;
-  const secondary = t.primaryHover;
+  // removed unused variable to satisfy lint
   const gridStroke = t.grid;
 
   const CustomTooltip = ({ active, payload, label }) => {

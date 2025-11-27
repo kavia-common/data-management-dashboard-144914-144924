@@ -233,7 +233,7 @@ export default function UsersAnalyticsPanel({
   const primary = "#2563EB";
   const secondary = "#F59E0B";
   const grid = "#E5E7EB";
-  const text = "#111827";
+  // removed unused variable 'text' to satisfy lint
   const subtle = "#6B7280";
   const palette = ["#2563EB", "#F59E0B", "#10B981", "#EF4444", "#6366F1", "#14B8A6", "#F97316", "#84CC16", "#06B6D4", "#A855F7"];
 
