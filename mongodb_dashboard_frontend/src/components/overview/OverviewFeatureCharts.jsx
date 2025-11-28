@@ -3,7 +3,7 @@ import PropTypes from "prop-types";
 import Card from "../ui/Card.jsx";
 import Skeleton from "../ui/Skeleton.jsx";
 import ErrorState from "../common/ErrorState.jsx";
-import { fetchSessionTracking } from "../../api/sessionTracking";
+import { fetchSessionsByType } from "../../api/sessionsByType";
 import {
   ResponsiveContainer,
   BarChart,
@@ -67,27 +67,23 @@ export default function OverviewFeatureCharts({
     "#F43F5E", // rose
   ];
 
-  // Fetch session tracking filtered by date range and tenant. The backend helper ignores unknown params safely.
+  // Fetch aggregated sessions-by-type in a single backend call
   useEffect(() => {
     let cancelled = false;
     async function load() {
       try {
         setLoading(true);
         setErr(null);
-        const params = {
-          // pagination large enough for overview aggregation; backend will cap as needed
-          limit: 2000,
-          sort: "-session_start",
-        };
-        if (organization_id) params.tenant_id = organization_id;
-        // The backend's session-tracking GET supports text search via 'q'; we'll apply pattern there.
-        if (pattern) params.q = pattern;
 
-        // Even if backend doesn't enforce date in filter param anymore, many datasets still include recent items at top.
-        // We'll client-filter using from/to after fetch to be robust.
-        const { items: raw } = await fetchSessionTracking(params);
+        const params = {};
+        if (organization_id) params.tenant_id = organization_id;
+        if (from) params.from = from;
+        if (to) params.to = to;
+
+        const { items: aggItems } = await fetchSessionsByType(params);
         if (cancelled) return;
-        setItems(Array.isArray(raw) ? raw : []);
+        // Map to existing shape used by charts: { feature, count }
+        setItems(Array.isArray(aggItems) ? aggItems : []);
       } catch (e) {
         if (cancelled) return;
         setErr(e);
@@ -101,52 +97,19 @@ export default function OverviewFeatureCharts({
     return () => {
       cancelled = true;
     };
-  }, [organization_id, pattern, from, to]);
+  }, [organization_id, from, to]);
 
-  // Client-side filter by date range and aggregation by service_type
+  // Items already aggregated by backend: normalize/sort for chart
   const { chartData, totalCount } = useMemo(() => {
-    // Normalize date window
-    const start = from ? new Date(from) : null;
-    const end = to ? new Date(to) : null;
-
-    const inRange = (row) => {
-      if (!start && !end) return true;
-      const tStr =
-        row.session_start ||
-        row.last_updated ||
-        row.updated_at ||
-        row.startedAt ||
-        row.createdAt ||
-        row.timestamp ||
-        row.endedAt ||
-        row.date;
-      if (!tStr) return false;
-      const t = new Date(tStr);
-      if (Number.isNaN(t.getTime())) return false;
-      if (start && t < start) return false;
-      if (end && t > end) return false;
-      return true;
-    };
-
-    const map = new Map();
-    let total = 0;
-    (items || []).forEach((row) => {
-      if (!inRange(row)) return;
-      const key =
-        row.service_type ||
-        row.feature ||
-        (row.session_data && (row.session_data.feature || row.session_data.service_type)) ||
-        "Unknown";
-      const k = String(key);
-      map.set(k, (map.get(k) || 0) + 1);
-      total += 1;
-    });
-
-    const data = Array.from(map.entries())
-      .map(([name, count]) => ({ feature: name, count }))
+    const data = (items || [])
+      .map((row) => ({
+        feature: String(row.feature ?? 'Unknown'),
+        count: Number(row.count ?? 0),
+      }))
       .sort((a, b) => b.count - a.count);
+    const total = data.reduce((acc, it) => acc + (it.count || 0), 0);
     return { chartData: data, totalCount: total };
-  }, [items, from, to]);
+  }, [items]);
 
   const empty = !loading && (!chartData || chartData.length === 0);
 
