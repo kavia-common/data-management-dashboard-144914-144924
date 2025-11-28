@@ -8,19 +8,26 @@ import { renderCreditsWithUsd, parseUsdToNumber } from "../../utils/currency";
 import { listLlmCosts, getApiClient } from "../../api";
 import { getOrganizationId } from "../../api/authTokenProvider";
 import { getUserProjects } from "../../api/users";
+import useDebouncedValue from "../../hooks/useDebouncedValue";
+import ErrorState from "../../components/common/ErrorState.jsx";
 
 /**
  * PUBLIC_INTERFACE
  * Costs page
  * - Keeps compact LLM costs table with inspector for large fields.
  * - Enhancements: resolve User Name, Total Projects per user, and include User Cost column.
+ * - Resilience: conservative pagination, client-side timeouts with backoff, debounced filters, micro-batched enrichment, progressive skeleton UI, friendly errors.
  */
 export default function Costs() {
   const [allItems, setAllItems] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [partialLoading, setPartialLoading] = useState(false); // enrichment/progressive fill
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, 350);
+
+  // Conservative default pagination
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   // Enrichment caches
@@ -31,6 +38,28 @@ export default function Costs() {
   const [inspectOpen, setInspectOpen] = useState(false);
   const [inspectTitle, setInspectTitle] = useState("Details");
   const [inspectPayload, setInspectPayload] = useState(null);
+
+  // Internal memo caches for enrichment to avoid refetching within session
+  const userNameMemo = React.useRef(new Map()); // id -> name|null
+  const userProjectsMemo = React.useRef(new Map()); // id -> number|null
+
+  // Request controller ref to cancel slow inflight call on filter/pagination changes
+  const inflightRef = React.useRef(null);
+
+  // Client-side request timeout (AbortController)
+  const withTimeout = useCallback(async (promiseFactory, ms = 22000) => {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(new Error("Request timeout")), ms);
+    inflightRef.current = controller;
+
+    try {
+      const res = await promiseFactory(controller.signal);
+      return res;
+    } finally {
+      clearTimeout(id);
+      if (inflightRef.current === controller) inflightRef.current = null;
+    }
+  }, []);
 
   const dateFieldHints = useMemo(
     () =>
@@ -232,7 +261,6 @@ export default function Costs() {
       // Determine user_cost if present on row
       let userCost = row.user_cost ?? row.userCost ?? null;
       if (userCost == null) {
-        // Fallback: sometimes cost per user equals total_cost per record when grouped; leave null if ambiguous
         userCost = null;
       }
       return {
@@ -248,24 +276,11 @@ export default function Costs() {
   // Build columns including enriched fields
   const buildColumnsFromSample = useCallback((rows = []) => {
     const sample = rows[0] || {};
-    const preferredOrder = [
-      "_id",
-      "tenant_id",
-      "project_id",
-      // Swap out user_id for enriched user name (we'll still include user_id at lower priority)
-      "__userName",
-      "llm_model",
-      "total_cost",
-      "total_tokens",
-      "timestamp",
-      "created_at",
-      "updated_at",
-    ];
 
     const nestedCandidates = ["users", "projects", "agents", "details", "metadata", "params", "prompt", "response"];
     const cols = [];
 
-    // Inject enriched columns up-front if not present in sample
+    // Enriched columns
     cols.push({
       key: "__userName",
       label: "User Name",
@@ -300,7 +315,6 @@ export default function Costs() {
         const val = row.__userCost;
         const num = parseUsdToNumber(val);
         if (num == null) return "—";
-        // Show "$X (Y credits)"
         return (
           <span className="amount-positive" style={{ whiteSpace: "nowrap" }}>
             {renderCreditsWithUsd(num)}
@@ -311,7 +325,7 @@ export default function Costs() {
       minWidth: 160,
     });
 
-    // Standard main fields (keeping user_id as a lower-priority column if present)
+    // Main fields from sample
     const basePreferred = [
       "_id",
       "tenant_id",
@@ -341,6 +355,7 @@ export default function Costs() {
       });
     });
 
+    // Nested compact fields
     const nestedCols = [];
     nestedCandidates.forEach((name) => {
       if (Object.prototype.hasOwnProperty.call(sample, name)) {
@@ -373,15 +388,15 @@ export default function Costs() {
     return base.slice();
   }, [enrichedItems, buildColumnsFromSample]);
 
-  // Search filter on enriched items
+  // Debounced search filter
   useEffect(() => {
-    const q = (query || "").trim().toLowerCase();
+    const q = (debouncedQuery || "").trim().toLowerCase();
     if (!q) {
       setItems(allItems);
       return;
     }
     const filtered = (allItems || []).filter((doc) => {
-      return Object.entries(doc || {}).some(([k, v]) => {
+      return Object.entries(doc || {}).some(([, v]) => {
         if (v == null) return false;
         try {
           const s = typeof v === "object" ? JSON.stringify(v) : String(v);
@@ -392,16 +407,42 @@ export default function Costs() {
       });
     });
     setItems(filtered);
-  }, [query, allItems]);
+  }, [debouncedQuery, allItems]);
+
+  // Utility: limited concurrency map for fallback enrichment
+  async function mapWithConcurrency(inputs, worker, concurrency = 2) {
+    const results = {};
+    const queue = [...inputs];
+    const workers = new Array(Math.min(concurrency, queue.length)).fill(0).map(async () => {
+      while (queue.length) {
+        const id = queue.shift();
+        // eslint-disable-next-line no-await-in-loop
+        const value = await worker(id);
+        results[String(id)] = value;
+      }
+    });
+    await Promise.all(workers);
+    return results;
+  }
 
   // Efficient batched fetching of user names for current page
   const fetchUserNamesBatch = useCallback(async (userIds) => {
     if (!userIds || userIds.length === 0) return {};
+    // Use memo cache first
+    const pending = [];
+    const fromCache = {};
+    userIds.forEach((id) => {
+      if (userNameMemo.current.has(id)) fromCache[id] = userNameMemo.current.get(id);
+      else pending.push(id);
+    });
     const api = getApiClient();
     const orgId = getOrganizationId();
+
+    if (pending.length === 0) return fromCache;
+
     // Try bulk endpoint: /api/users?ids=...
     try {
-      const params = { ids: userIds, ...(orgId ? { organization_id: orgId } : {}) };
+      const params = { ids: pending, ...(orgId ? { organization_id: orgId } : {}) };
       const res = await api.get("/api/users", { params });
       const payload = res?.data;
       const list = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : (payload?.items || []);
@@ -412,98 +453,182 @@ export default function Costs() {
         const name = u?.name || u?.full_name || u?.username || u?.email || null;
         mapping[String(id)] = name;
       });
-      return mapping;
+      // Merge cache
+      Object.entries(mapping).forEach(([id, name]) => userNameMemo.current.set(id, name));
+      return { ...fromCache, ...mapping };
     } catch {
-      // Fallback: per-user fetch GET /api/users/:id
-      const mapping = {};
-      await Promise.all(userIds.map(async (id) => {
-        try {
-          const res = await api.get(`/api/users/${encodeURIComponent(id)}`, { params: orgId ? { organization_id: orgId } : {} });
-          const u = res?.data;
-          const name = u?.name || u?.full_name || u?.username || u?.email || null;
-          mapping[String(id)] = name;
-        } catch {
-          mapping[String(id)] = null;
-        }
-      }));
-      return mapping;
+      // Fallback: per-user fetch GET /api/users/:id with limited concurrency
+      const mapping = await mapWithConcurrency(
+        pending,
+        async (id) => {
+          try {
+            const res = await api.get(`/api/users/${encodeURIComponent(id)}`, { params: orgId ? { organization_id: orgId } : {} });
+            const u = res?.data;
+            return u?.name || u?.full_name || u?.username || u?.email || null;
+          } catch {
+            return null;
+          }
+        },
+        2
+      );
+      Object.entries(mapping).forEach(([id, name]) => userNameMemo.current.set(id, name));
+      return { ...fromCache, ...mapping };
     }
   }, []);
 
   // Efficient batched fetching of projects per user for current page
   const fetchProjectsCountBatch = useCallback(async (userIds) => {
     if (!userIds || userIds.length === 0) return {};
+    // Use memo cache first
+    const pending = [];
+    const fromCache = {};
+    userIds.forEach((id) => {
+      if (userProjectsMemo.current.has(id)) fromCache[id] = userProjectsMemo.current.get(id);
+      else pending.push(id);
+    });
     const orgId = getOrganizationId();
-    const mapping = {};
-    await Promise.all(userIds.map(async (id) => {
-      try {
-        const res = await getUserProjects(String(id), { tenantId: orgId });
-        const projects = Array.isArray(res?.projects) ? res.projects : [];
-        mapping[String(id)] = projects.length;
-      } catch {
-        mapping[String(id)] = null;
-      }
-    }));
-    return mapping;
+    if (pending.length === 0) return fromCache;
+
+    const mapping = await mapWithConcurrency(
+      pending,
+      async (id) => {
+        try {
+          const res = await getUserProjects(String(id), { tenantId: orgId });
+          const projects = Array.isArray(res?.projects) ? res.projects : [];
+          return projects.length;
+        } catch {
+          return null;
+        }
+      },
+      2
+    );
+    Object.entries(mapping).forEach(([id, n]) => userProjectsMemo.current.set(id, n));
+    return { ...fromCache, ...mapping };
   }, []);
 
-  async function load(page = 1, limit = meta.limit || 10, sortKey, sortDir) {
-    /**
-     * Loads costs with optional server-side sorting.
-     * When sortKey is provided, we pass `sort` param to backend using the format:
-     *  - asc: field
-     *  - desc: -field
-     */
+  // Backoff helper (exponential backoff up to maxAttempts)
+  const fetchWithBackoff = useCallback(async (fn, { maxAttempts = 2, initialDelay = 800 } = {}) => {
+    let attempt = 0;
+    let lastError;
+    while (attempt < maxAttempts) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        return await fn();
+      } catch (e) {
+        lastError = e;
+        const status = e?.status;
+        if (![502, 503, 504].includes(status)) break;
+        // exponential backoff
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => setTimeout(r, initialDelay * Math.pow(2, attempt)));
+        attempt += 1;
+      }
+    }
+    throw lastError;
+  }, []);
+
+  // Progressive enrichment
+  const runEnrichment = useCallback(async (arr) => {
+    const ids = Array.from(
+      new Set(
+        (arr || [])
+          .map((r) => r.user_id || r.userId || r.user || r.userID || r.user_id_str)
+          .filter(Boolean)
+          .map(String)
+      )
+    );
+
+    if (ids.length === 0) return;
+
+    setPartialLoading(true);
+    try {
+      const [namesMap, projectsMap] = await Promise.all([
+        fetchUserNamesBatch(ids),
+        fetchProjectsCountBatch(ids),
+      ]);
+      setUserNames((prev) => ({ ...prev, ...namesMap }));
+      setUserProjectCounts((prev) => ({ ...prev, ...projectsMap }));
+    } catch {
+      // Ignore enrichment errors, data table will still render base attributes
+    } finally {
+      setPartialLoading(false);
+    }
+  }, [fetchProjectsCountBatch, fetchUserNamesBatch]);
+
+  // Load function with timeout and graceful degradation on limit/time range
+  const load = useCallback(async (page = 1, limit = meta.limit || 10, sortKey, sortDir) => {
+    // cancel previous request if any
+    if (inflightRef.current) {
+      try { inflightRef.current.abort(); } catch {}
+      inflightRef.current = null;
+    }
+
     setLoading(true);
     setError("");
-    try {
-      const params = { page, limit };
-      if (sortKey) {
-        params.sort = sortDir === "desc" ? `-${sortKey}` : String(sortKey);
-      }
+
+    // Server-side sort param
+    const sortParam = sortKey ? (sortDir === "desc" ? `-${sortKey}` : String(sortKey)) : undefined;
+
+    // Conservative request builder
+    const requestOnce = async (effLimit, signal) => {
+      const params = { page, limit: effLimit };
+      if (sortParam) params.sort = sortParam;
+      // Defensive: allow user smaller ranges via limit control (DataTable page size)
       const res = await listLlmCosts(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      setAllItems(arr);
-      setItems(arr);
-      setMeta({
+      const nextMeta = {
         page: res?.meta?.page || page,
-        limit: res?.meta?.limit || limit,
+        limit: res?.meta?.limit || effLimit,
         total: res?.meta?.total ?? arr.length,
-      });
+      };
+      return { arr, meta: nextMeta };
+    };
 
-      // Collect unique userIds from this page for enrichment
-      const ids = Array.from(
-        new Set(
-          (arr || [])
-            .map((r) => r.user_id || r.userId || r.user || r.userID || r.user_id_str)
-            .filter(Boolean)
-            .map(String)
-        )
-      );
+    // Attempt with timeout and backoff; on timeout or 502/503/504, retry with smaller limit
+    const limitsToTry = [Math.min(Math.max(1, limit), 25), 15, 10];
+    let result = null;
+    let lastErr = null;
 
-      if (ids.length > 0) {
-        // Fetch names and projects in parallel
-        const [namesMap, projectsMap] = await Promise.all([
-          fetchUserNamesBatch(ids),
-          fetchProjectsCountBatch(ids),
-        ]);
-        setUserNames((prev) => ({ ...prev, ...namesMap }));
-        setUserProjectCounts((prev) => ({ ...prev, ...projectsMap }));
+    for (let i = 0; i < limitsToTry.length; i += 1) {
+      const effLimit = limitsToTry[i];
+      try {
+        // Wrap request with timeout and backoff for gateway errors
+        // eslint-disable-next-line no-loop-func
+        const attempt = async () =>
+          withTimeout((signal) => requestOnce(effLimit, signal), 22000);
+        // eslint-disable-next-line no-await-in-loop
+        result = await fetchWithBackoff(attempt, { maxAttempts: 2, initialDelay: 700 });
+        setAllItems(result.arr);
+        setItems(result.arr);
+        setMeta(result.meta);
+        // Trigger enrichment in background
+        runEnrichment(result.arr);
+        lastErr = null;
+        break;
+      } catch (e) {
+        lastErr = e;
+        // on final failure we'll show a friendly inline error
       }
-    } catch (e) {
+    }
+
+    if (lastErr) {
       setAllItems([]);
       setItems([]);
-      setError(e?.response?.data?.message || e?.message || "Failed to load LLM costs.");
-    } finally {
-      setLoading(false);
+      const status = lastErr?.status;
+      const msgBase =
+        status && [502, 503, 504].includes(status)
+          ? "The server is busy. Try a smaller page size or narrower time range."
+          : (lastErr?.message || "Failed to load LLM costs.");
+      setError(msgBase);
     }
-  }
+
+    setLoading(false);
+  }, [meta.limit, fetchWithBackoff, runEnrichment, withTimeout]);
 
   useEffect(() => {
-    // initial load on mount
-    load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // initial load on mount with conservative page size (10)
+    load(1, 10);
+  }, [load]);
 
   return (
     <div>
@@ -523,16 +648,28 @@ export default function Costs() {
           />
           <div style={{ flex: 1 }} />
         </div>
-        {error && <div className="error" role="alert">{error}</div>}
+
+        {error ? (
+          <ErrorState
+            message={error}
+            onRetry={() => {
+              // Suggest smaller page size retry (limit 10)
+              load(meta.page || 1, 10);
+            }}
+          />
+        ) : null}
+
         <DataTable
           columns={columns}
           data={enrichedItems}
-          loading={loading}
-          pageSize={meta.limit || 10}
+          loading={loading || partialLoading}
+          pageSize={Math.min(Math.max(1, meta.limit || 10), 25)}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
           fetchPage={async (page, limit, sortKey, sortDir) => {
-            await load(page, limit, sortKey, sortDir);
+            // Retry with user-selected smaller limit to avoid 504s
+            const effLimit = Math.min(Math.max(1, limit || 10), 25);
+            await load(page, effLimit, sortKey, sortDir);
           }}
           paginationTitle="Cost records pages"
         />
@@ -565,43 +702,31 @@ function CostsTreeInspector({ payload }) {
   const treeRef = React.useRef(null);
 
   // Progressive expansion controller hook
-  // eslint-disable-next-line import/no-useless-path-segments
   // PUBLIC_INTERFACE
-  // useProgressiveExpand is a React hook that wraps a progressive controller to batch-expand tree nodes without blocking the UI.
   const { default: useProgressiveExpand } = require("../../hooks/useProgressiveExpand");
   const { running, progress, counts, startFromItems, cancel } = useProgressiveExpand({
-    // Apply one batch by passing it to TreeView's batch expander
     applyBatch: (batch) => treeRef.current?.applyExpandBatch?.(batch),
-    // Slightly larger slices for big payloads; default inside hook is adaptive too
     timeSliceMs: 8,
-    onDone: () => {
-      // no-op; UI state handled by hook
-    },
-    onCancel: () => {
-      // no-op
-    },
+    onDone: () => {},
+    onCancel: () => {},
   });
 
   const onSearchChange = (e) => setSearch(e.target.value);
 
   const expandAll = React.useCallback(() => {
     const all = treeRef.current?.getAllExpandablePaths?.() || [];
-    // Fast path for small datasets to preserve minimal overhead and UX
     if (all.length <= 300) {
       treeRef.current?.expandAll?.();
       return;
     }
-    // Progressive expansion for large datasets
     startFromItems(all);
   }, [startFromItems]);
 
   const collapseAll = React.useCallback(() => {
-    // Cancel any in-flight expansion to avoid racing updates
     if (running) cancel();
     treeRef.current?.collapseAll?.();
   }, [running, cancel]);
 
-  // Auto-cancel if unmounted while expansion is running
   React.useEffect(() => {
     return () => {
       try {
@@ -619,8 +744,6 @@ function CostsTreeInspector({ payload }) {
       <div className="sticky-header" style={{
         top: 0,
         zIndex: 1,
-        // GxP: Accessibility/contrast fix for Costs View Details modal (REQ-UI-COSTS-MODAL-BG)
-        // Use application canvas background inside the costs inspector header to avoid light-on-light contrast.
         background: "var(--bg-canvas, var(--ocean-bg, #f9fafb))",
         borderBottom: "1px solid var(--border-subtle)",
         padding: "12px 16px",
@@ -639,7 +762,6 @@ function CostsTreeInspector({ payload }) {
         />
         <div style={{ flex: 1 }} />
 
-        {/* Progress indicator */}
         {running ? (
           <div aria-live="polite" style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
             <div title={`Expanding... ${progress}%`} style={{
@@ -685,8 +807,6 @@ function CostsTreeInspector({ payload }) {
         padding: "12px 16px",
         maxHeight: "60vh",
         overflow: "auto",
-        // GxP: Accessibility/contrast fix for Costs View Details modal (REQ-UI-COSTS-MODAL-BG)
-        // Enforce application canvas background in modal content area.
         background: "var(--bg-canvas, var(--ocean-bg, #f9fafb))",
       }}>
         <TreeView
