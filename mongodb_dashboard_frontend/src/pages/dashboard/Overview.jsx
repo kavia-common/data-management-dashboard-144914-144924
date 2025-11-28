@@ -8,6 +8,17 @@ import ErrorState from "../../components/common/ErrorState";
 import KPIChart from "../../components/charts/KPIChart.jsx";
 import TimeBucketFilter from "../../components/common/TimeBucketFilter.jsx";
 import { getActiveUsersTrend } from "../../api/usersActiveTrend";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  CartesianGrid,
+  Cell,
+} from "recharts";
 
 /**
  * Utility functions to bucket timestamps by day/week and compute counts.
@@ -85,6 +96,11 @@ export default function Overview() {
   const [usersSeries, setUsersSeries] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState(null);
+
+  // Overall Features (service_type) state
+  const [featuresData, setFeaturesData] = useState([]);
+  const [featuresLoading, setFeaturesLoading] = useState(false);
+  const [featuresError, setFeaturesError] = useState(null);
 
   // KPI metrics
   useEffect(() => {
@@ -332,6 +348,55 @@ export default function Overview() {
       aborted = true;
     };
   }, [usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries]);
+
+  // Overall Features chart fetcher — reuse sessions date range to stay in sync
+  useEffect(() => {
+    let cancelled = false;
+    async function loadFeatures() {
+      setFeaturesLoading(true);
+      setFeaturesError(null);
+      try {
+        const { startISO, endISO } = sessionsRange;
+        // Fetch sessions in the current sessionsRange
+        const { items } = await fetchSessionTracking({
+          from: startISO,
+          to: endISO,
+          limit: 500,
+          sort: "-session_start",
+        });
+
+        if (cancelled) return;
+
+        // Aggregate counts by service_type, normalize labels
+        const counts = new Map();
+        (items || []).forEach((it) => {
+          const raw = it.service_type || it.serviceType || it.service || it.type || "Unknown";
+          const key = String(raw || "Unknown").trim() || "Unknown";
+          counts.set(key, (counts.get(key) || 0) + 1);
+        });
+
+        // Shape to recharts-friendly objects and sort desc
+        const rows = Array.from(counts.entries())
+          .map(([service_type, count]) => ({
+            service_type,
+            count: Number(count) || 0,
+          }))
+          .sort((a, b) => b.count - a.count);
+
+        setFeaturesData(rows);
+      } catch (e) {
+        if (cancelled) return;
+        setFeaturesError(e);
+        setFeaturesData([]);
+      } finally {
+        if (!cancelled) setFeaturesLoading(false);
+      }
+    }
+    if (sessionsRange.startISO && sessionsRange.endISO) loadFeatures();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionsRange.startISO, sessionsRange.endISO]);
 
 
 
@@ -647,7 +712,59 @@ export default function Overview() {
         </Card>
       </div>
 
-
+      {/* Overall Features (service_type) */}
+      <div className="block-full" style={{ gridColumn: "1 / -1" }}>
+        <Card
+          title="Overall Features"
+          subtitle="Session counts grouped by service type"
+        >
+          {featuresLoading && (
+            <LoadingState message="Loading feature usage…" height={300} />
+          )}
+          {featuresError && (
+            <ErrorState message={featuresError?.message || "Failed to load features."} />
+          )}
+          {!featuresLoading && !featuresError && (
+            (Array.isArray(featuresData) ? featuresData.length : 0) === 0 ? (
+              <div className="screen-center" style={{ color: "#6B7280", padding: 12 }}>
+                No data for selected range
+              </div>
+            ) : (
+              <div style={{ width: "100%", height: 320 }}>
+                <ResponsiveContainer>
+                  <BarChart
+                    data={featuresData}
+                    margin={{ top: 8, right: 24, bottom: 0, left: 0 }}
+                    barCategoryGap={18}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                    <XAxis
+                      dataKey="service_type"
+                      tick={{ fontSize: 12, fill: "#6B7280" }}
+                      minTickGap={10}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis tick={{ fontSize: 12, fill: "#6B7280" }} allowDecimals={false} />
+                    <Tooltip />
+                    <Legend />
+                    <Bar
+                      dataKey="count"
+                      name="Sessions"
+                      aria-label="Sessions by service type"
+                      fill="#2563EB"
+                      radius={[4, 4, 0, 0]}
+                    >
+                      {featuresData.map((row, idx) => (
+                        <Cell key={`${row.service_type}-${idx}`} fill={idx % 2 === 0 ? "#2563EB" : "#0EA5E9"} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )
+          )}
+        </Card>
+      </div>
 
       {error && (
         <div className="block-full" role="alert" style={{ alignSelf: "start" }}>
