@@ -129,7 +129,7 @@ export default function Costs() {
     setInspectPayload(null);
   }
 
-  const renderText = (value) => {
+  const renderText = useCallback((value) => {
     const text = value == null || value === "" ? "—" : String(value);
     return (
       <span
@@ -146,9 +146,9 @@ export default function Costs() {
         {text}
       </span>
     );
-  };
+  }, []);
 
-  const renderNumber = (value, key) => {
+  const renderNumber = useCallback((value, key) => {
     if (value == null || value === "") return "—";
 
     // Coerce to number when possible (e.g., "0.123", "$0.12")
@@ -173,9 +173,9 @@ export default function Costs() {
     }
 
     return renderText(value);
-  };
+  }, [numericPrettyHints, renderText]);
 
-  const renderDate = (value) => {
+  const renderDate = useCallback((value) => {
     if (!value) return "—";
     try {
       const txt = new Date(value).toLocaleString();
@@ -183,9 +183,9 @@ export default function Costs() {
     } catch {
       return renderText(value);
     }
-  };
+  }, [renderText]);
 
-  function renderCompact(value, fieldLabel = "Details") {
+  const renderCompact = useCallback(function renderCompact(value, fieldLabel = "Details") {
     if (Array.isArray(value)) {
       const len = value.length;
       if (len === 0) return "0 items";
@@ -249,7 +249,7 @@ export default function Costs() {
       );
     }
     return renderText(value);
-  }
+  }, [renderText]);
 
   // Memoized normalize of items enriched with user info
   const enrichedItems = useMemo(() => {
@@ -380,7 +380,7 @@ export default function Costs() {
     }
 
     return unique.length ? unique : [{ key: "_id", label: "ID" }];
-  }, [dateFieldHints, numericPrettyHints]); // depends on stable memoized sets
+  }, [dateFieldHints, numericPrettyHints, renderCompact, renderDate, renderNumber, renderText]); // include render helpers for stable deps
 
   // Memo columns based on enriched items
   const columns = useMemo(() => {
@@ -574,7 +574,7 @@ export default function Costs() {
       const params = { page, limit: effLimit };
       if (sortParam) params.sort = sortParam;
       // Defensive: allow user smaller ranges via limit control (DataTable page size)
-      const res = await listLlmCosts(params);
+      const res = await listLlmCosts(params, { signal });
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       const nextMeta = {
         page: res?.meta?.page || page,
