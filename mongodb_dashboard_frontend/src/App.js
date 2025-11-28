@@ -9,15 +9,14 @@ import { useVerifyUsersUrlOnce } from "./hooks/useVerifyUsersUrlOnce";
  * Listens to window resize and updates reactively.
  */
 function useIsBelowDesktopBreakpoint(breakpoint = 1024) {
-  // Memoize to satisfy exhaustive-deps; stable across renders unless breakpoint changes
-  const getState = React.useCallback(() => {
+  const getState = () => {
     if (typeof window === "undefined") return false;
     try {
       return window.innerWidth < breakpoint;
     } catch {
       return false;
     }
-  }, [breakpoint]);
+  };
 
   const [isBelow, setIsBelow] = useState(getState);
 
@@ -29,7 +28,7 @@ function useIsBelowDesktopBreakpoint(breakpoint = 1024) {
     // initialize once in case the first render occurred before CSS/layout settled
     onResize();
     return () => window.removeEventListener("resize", onResize);
-  }, [getState]);
+  }, []);
 
   return isBelow;
 }

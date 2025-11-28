@@ -407,9 +407,8 @@ export default function Sessions() {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, q, key, dir);
     loadAggregates(q);
-    // dependencies: debouncedQuery + date filters change query results; meta.limit is stable via state setter.
-    // load and loadAggregates are stable within component scope.
-  }, [debouncedQuery, startDate, endDate, meta.limit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedQuery, startDate, endDate]);
 
   // Immediate refetch when dropdown filters change (no debounce)
   useEffect(() => {
