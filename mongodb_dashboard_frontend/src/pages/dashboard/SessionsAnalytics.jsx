@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import SessionsPerDayBarChart from '../../components/charts/SessionsPerDayBarChart';
 import Card from '../../components/ui/Card';
+import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import './SessionsAnalytics.css';
 

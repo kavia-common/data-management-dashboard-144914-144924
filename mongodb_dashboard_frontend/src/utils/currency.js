@@ -4,6 +4,7 @@
 // Centralizes the conversion rate so the entire app stays consistent.
 //
 
+import React from "react";
 import { formatCurrencyAmount } from "./formatCurrency";
 
 // PUBLIC_INTERFACE

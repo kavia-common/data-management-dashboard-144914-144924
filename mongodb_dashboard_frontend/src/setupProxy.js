@@ -4,26 +4,28 @@ const { createProxyMiddleware } = require("http-proxy-middleware");
  * PUBLIC_INTERFACE
  * CRA dev server proxy.
  *
- * Behavior:
- * - If REACT_APP_BACKEND_URL or REACT_APP_API_BASE_URL/REACT_APP_API_URL is set, we honor it as absolute URL and proxy to it.
- * - Otherwise, default to http://127.0.0.1:{port} instead of localhost to avoid EADDRNOTAVAIL when specific interfaces are unavailable.
- * - We do not bind to a specific network interface; http-proxy-middleware handles routing.
+ * Proxies API calls and OpenAPI docs to the backend target to avoid mixed-content and CORS issues.
+ * Target is chosen using:
+ * - REACT_APP_API_BASE_URL or REACT_APP_API_URL if provided
+ * - otherwise http://{REACT_APP_PROXY_HOST||localhost}:${REACT_APP_BACKEND_PORT || PORT || 3001}
  *
- * Memory-friendly dev notes:
- * - Avoid heavy proxy logging (logLevel: "warn").
- * - When pointing directly to a remote BACKEND_URL, you can skip proxy by making fetches absolute (client uses env).
+ * Notes:
+ * - changeOrigin: true allows virtual hosted sites
+ * - secure: false permits self-signed certs if target is https (dev only)
  */
 module.exports = function setupProxy(app) {
-  const explicitBackend =
-    process.env.REACT_APP_BACKEND_URL ||
-    process.env.REACT_APP_API_BASE_URL ||
-    process.env.REACT_APP_API_URL;
-
   const port = process.env.REACT_APP_BACKEND_PORT || process.env.PORT || "3001";
-  // Force loopback IP to avoid EADDRNOTAVAIL on systems where "localhost" resolves to IPv6 or unavailable interface.
-  const host = "127.0.0.1";
-  const fallbackTarget = `http://${host}:${port}`;
-  const target = explicitBackend || fallbackTarget;
+  // Prefer explicit base URL if set; otherwise, infer from current host to avoid localhost/IP mismatch in preview
+  let inferredHost = "localhost";
+  try {
+    // CRA proxy runs in node (dev server). We cannot access window here, but we can use the host header at runtime.
+    // http-proxy-middleware will rewrite based on target; we'll keep protocol http for local dev.
+    inferredHost = process.env.REACT_APP_PROXY_HOST || "localhost";
+  } catch {}
+  const target =
+    process.env.REACT_APP_API_BASE_URL ||
+    process.env.REACT_APP_API_URL ||
+    `http://${inferredHost}:${port}`;
 
   const commonOpts = {
     target,
@@ -32,13 +34,19 @@ module.exports = function setupProxy(app) {
     logLevel: "warn",
   };
 
-  // If pointing to an absolute BACKEND_URL with different origin and the app itself already uses absolute URLs,
-  // you could avoid proxy entirely. CRA requires a function; we keep proxy but just forward.
-  const createHandler = () => createProxyMiddleware(commonOpts);
-
   // Proxy API prefix
-  app.use("/api", createHandler());
+  app.use(
+    "/api",
+    createProxyMiddleware({
+      ...commonOpts,
+    })
+  );
 
   // Proxy OpenAPI spec for connectivity/health checks
-  app.use("/openapi.json", createHandler());
+  app.use(
+    "/openapi.json",
+    createProxyMiddleware({
+      ...commonOpts,
+    })
+  );
 };

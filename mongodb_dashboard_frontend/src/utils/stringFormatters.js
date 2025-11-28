@@ -76,9 +76,9 @@ export function toTitleCaseName(value) {
   const latinLetter = "A-Za-zÀ-ÖØ-öø-ÿ";
   const titleCased = lower
     // Start-of-word capitalization
-    .replace(new RegExp(`\\b([${latinLetter}])`, "g"), (_, ch) => ch.toUpperCase())
-    // After apostrophe (straight or curly). Remove unnecessary escape in the pattern.
-    .replace(new RegExp(`([’'])(\\s*)([${latinLetter}])`, "g"), (_, quote, spaces, ch) => quote + spaces + ch.toUpperCase());
+    .replace(new RegExp(`\\b([${latinLetter}])`, 'g'), (_, ch) => ch.toUpperCase())
+    // After apostrophe (straight or curly)
+    .replace(new RegExp(`([’'])(\\s*)([${latinLetter}])`, 'g'), (_, quote, spaces, ch) => quote + spaces + ch.toUpperCase());
 
   return titleCased;
 }
