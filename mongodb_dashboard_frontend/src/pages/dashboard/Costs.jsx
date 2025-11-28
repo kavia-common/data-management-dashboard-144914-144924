@@ -4,7 +4,7 @@ import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import TreeView from "../../components/TreeView.jsx";
 
-import { renderCreditsWithUsd, usdToCredits, formatCredits, parseUsdToNumber } from "../../utils/currency";
+import { renderCreditsWithUsd, parseUsdToNumber } from "../../utils/currency";
 import { listLlmCosts, getApiClient } from "../../api";
 import { getOrganizationId } from "../../api/authTokenProvider";
 import { getUserProjects } from "../../api/users";
@@ -246,7 +246,7 @@ export default function Costs() {
   }, [items, userNames, userProjectCounts]);
 
   // Build columns including enriched fields
-  function buildColumnsFromSample(rows = []) {
+  const buildColumnsFromSample = useCallback((rows = []) => {
     const sample = rows[0] || {};
     const preferredOrder = [
       "_id",
@@ -263,9 +263,6 @@ export default function Costs() {
     ];
 
     const nestedCandidates = ["users", "projects", "agents", "details", "metadata", "params", "prompt", "response"];
-    const presentMain = preferredOrder.filter((k) => Object.prototype.hasOwnProperty.call(sample, k));
-    const mainFields = presentMain.length ? presentMain : Object.keys(sample).slice(0, 5);
-
     const cols = [];
 
     // Inject enriched columns up-front if not present in sample
@@ -368,13 +365,13 @@ export default function Costs() {
     }
 
     return unique.length ? unique : [{ key: "_id", label: "ID" }];
-  }
+  }, [dateFieldHints, numericPrettyHints]); // depends on stable memoized sets
 
   // Memo columns based on enriched items
   const columns = useMemo(() => {
     const base = buildColumnsFromSample(enrichedItems || []);
     return base.slice();
-  }, [enrichedItems]);
+  }, [enrichedItems, buildColumnsFromSample]);
 
   // Search filter on enriched items
   useEffect(() => {
