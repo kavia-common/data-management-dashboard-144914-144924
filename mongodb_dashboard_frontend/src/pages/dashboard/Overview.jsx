@@ -41,6 +41,7 @@ function startOfMonth(date) {
  * Compute ISO start/end based on a range key and optional custom date inputs.
  */
 function computeRange(rangeKey, customRange) {
+  // Normalize to UTC boundary by using local midnight but emitting ISO.
   const now = new Date();
   const end = new Date(now);
   end.setHours(23, 59, 59, 999);
@@ -55,6 +56,7 @@ function computeRange(rangeKey, customRange) {
     e.setHours(23, 59, 59, 999);
     return { startISO: s.toISOString(), endISO: e.toISOString() };
   } else {
+    // default last 30 days
     start.setDate(end.getDate() - 29);
   }
   start.setHours(0, 0, 0, 0);
@@ -185,7 +187,7 @@ export default function Overview() {
   );
 
 
-  // Sessions trend: fetch session-tracking and aggregate client-side by day/week/month
+  // Sessions trend: fetch session-tracking list and aggregate count of sessions CREATED per bucket (uses session_start)
   useEffect(() => {
     let aborted = false;
 
@@ -195,99 +197,69 @@ export default function Overview() {
       try {
         const { startISO, endISO } = sessionsRange;
 
-        // Heuristic to estimate how many items we need: number of buckets * avg per day
-        // but stay within API max 200 per page and paginate a few pages if needed.
+        // We fetch multiple pages because the list API is generic and may be large.
         const maxPerPage = 200;
-        const pagesToFetch = 4; // fetch up to 800 rows client-side to cover range
+        const pagesToFetch = 4; // up to 800 items
         const baseParams = {
-          sort: '-session_start,-last_updated,-createdAt,-timestamp',
+          sort: '-session_start,-createdAt,-timestamp',
         };
 
-        // Fetch multiple pages in sequence to respect API
         let items = [];
         for (let page = 1; page <= pagesToFetch; page += 1) {
           const params = { ...baseParams, page, limit: maxPerPage };
           let pageItems = [];
           try {
             const res = await listSessions(params);
-            // listSessions may return: array OR { data, meta } OR { items }
             const arr = res?.items || res?.data || (Array.isArray(res) ? res : []);
             pageItems = Array.isArray(arr) ? arr : [];
           } catch (e) {
-            // Fallback to direct session-tracking client if needed
+            // fallback to explicit session-tracking client
             try {
               const mod = await import('../../api/sessionTracking');
               const alt = await mod.fetchSessionTracking({ ...params });
               const arr = alt?.items || alt?.data || [];
               pageItems = Array.isArray(arr) ? arr : [];
             } catch (e2) {
-              // if first page already failed on both paths, propagate error
               if (page === 1) throw e;
               break;
             }
           }
           items = items.concat(pageItems);
-          // Stop early if we got fewer than maxPerPage
           if (!pageItems || pageItems.length < maxPerPage) break;
         }
 
-        // Build two timestamp arrays per business rules:
-        // 1) starts: session_start if present; if absent we DO NOT use last_updated here.
-        // 2) ends: session_end if present; otherwise if session_start missing and we only have end/last_updated,
-        //          we'll count end; this helps include sessions where start wasn't recorded.
-        const starts = [];
-        const ends = [];
-
+        // Aggregate by session creation date ONLY.
+        // Creation equals session_start when present; else fallback to createdAt/timestamp.
         const ds = new Date(startISO).getTime();
         const de = new Date(endISO).getTime();
+        const bucketMap = new Map();
 
-        (items || []).forEach((it) => {
-          const startTs = it.session_start || it.sessionStart || it.start_time || it.started_at;
-          const endTs = it.session_end || it.sessionEnd || it.end_time || it.ended_at;
-          const lastUpd = it.last_updated || it.lastUpdated || it.timestamp || it.updatedAt;
-
-          if (startTs) {
-            const d = new Date(startTs);
-            const t = d.getTime();
-            if (!Number.isNaN(t) && t >= ds && t <= de) starts.push(d);
-          }
-
-          // Count ends if present within range
-          if (endTs) {
-            const d = new Date(endTs);
-            const t = d.getTime();
-            if (!Number.isNaN(t) && t >= ds && t <= de) ends.push(d);
-          } else if (!startTs && lastUpd) {
-            // If no start but there is last_updated in range, treat as an end proxy
-            const d = new Date(lastUpd);
-            const t = d.getTime();
-            if (!Number.isNaN(t) && t >= ds && t <= de) ends.push(d);
-          }
-        });
-
-        // Combine into a single count series per bucket: starts + ends
-        const map = new Map();
-
-        const addToMap = (d) => {
+        const addDate = (d) => {
           if (sessionsGranularity === 'weekly') {
             const key = toYMD(startOfWeek(d));
-            map.set(key, (map.get(key) || 0) + 1);
+            bucketMap.set(key, (bucketMap.get(key) || 0) + 1);
           } else if (sessionsGranularity === 'monthly') {
             const mStart = startOfMonth(d);
             const key = `${mStart.getFullYear()}-${String(mStart.getMonth() + 1).padStart(2, '0')}-01`;
-            map.set(key, (map.get(key) || 0) + 1);
+            bucketMap.set(key, (bucketMap.get(key) || 0) + 1);
           } else {
             const key = toYMD(d);
-            map.set(key, (map.get(key) || 0) + 1);
+            bucketMap.set(key, (bucketMap.get(key) || 0) + 1);
           }
         };
 
-        starts.forEach(addToMap);
-        ends.forEach(addToMap);
+        (items || []).forEach((it) => {
+          const startTs = it.session_start || it.sessionStart || it.start_time || it.started_at || it.createdAt || it.timestamp;
+          if (!startTs) return;
+          const d = new Date(startTs);
+          const t = d.getTime();
+          if (!Number.isNaN(t) && t >= ds && t <= de) {
+            addDate(d);
+          }
+        });
 
-        const s = new Date(startISO);
-        const e = new Date(endISO);
-        const series = fillSeries(map, s, e, sessionsGranularity);
+        // Build continuous series including zero-count days
+        const series = fillSeries(bucketMap, startISO, endISO, sessionsGranularity);
 
         if (!aborted) {
           setSessionsSeries(series);
@@ -305,9 +277,7 @@ export default function Overview() {
     if (sessionsRange.startISO && sessionsRange.endISO) {
       loadSessions();
     }
-    return () => {
-      aborted = true;
-    };
+    return () => { aborted = true; };
   }, [sessionsRangeDepsKey, sessionsGranularity, sessionsRange.startISO, sessionsRange.endISO, fillSeries]);
 
   // Users trend fetcher — independent
@@ -682,7 +652,12 @@ export default function Overview() {
           {sessionsLoading && <LoadingState message="Loading sessions trend…" height={220} />}
           {sessionsError && <ErrorState message={sessionsError?.message || "Failed to load sessions."} />}
           {!sessionsLoading && !sessionsError && sessionsSeries && sessionsSeries.length > 0 && (
-            <KPIChart data={sessionsSeries} xKey="label" yKey="value" color="#2563EB" />
+            <>
+              <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 6 }}>
+                X: Date (UTC, YYYY-MM-DD) • Y: Sessions created per {sessionsGranularity.replace('ly','')}
+              </div>
+              <KPIChart data={sessionsSeries} xKey="label" yKey="value" color="#2563EB" />
+            </>
           )}
           {!sessionsLoading && !sessionsError && sessionsSeries && sessionsSeries.length === 0 && (
             <div style={{ padding: 16, color: '#6B7280', fontSize: 14 }}>
