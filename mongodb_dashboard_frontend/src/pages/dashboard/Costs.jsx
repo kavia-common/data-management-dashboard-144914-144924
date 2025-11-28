@@ -1,17 +1,19 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import TreeView from "../../components/TreeView.jsx";
 
-import { renderCreditsWithUsd } from "../../utils/currency";
-import { listLlmCosts } from "../../api";
-
+import { renderCreditsWithUsd, usdToCredits, formatCredits, parseUsdToNumber } from "../../utils/currency";
+import { listLlmCosts, getApiClient } from "../../api";
+import { getOrganizationId } from "../../api/authTokenProvider";
+import { getUserProjects } from "../../api/users";
 
 /**
  * PUBLIC_INTERFACE
  * Costs page
  * - Keeps compact LLM costs table with inspector for large fields.
+ * - Enhancements: resolve User Name, Total Projects per user, and include User Cost column.
  */
 export default function Costs() {
   const [allItems, setAllItems] = useState([]);
@@ -20,6 +22,10 @@ export default function Costs() {
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
+
+  // Enrichment caches
+  const [userNames, setUserNames] = useState({}); // { userId: name|null }
+  const [userProjectCounts, setUserProjectCounts] = useState({}); // { userId: number }
 
   // Inspector modal state
   const [inspectOpen, setInspectOpen] = useState(false);
@@ -57,6 +63,8 @@ export default function Costs() {
           "totalusd",
           "amount_usd",
           "charge",
+          "user_cost",
+          "usercost",
         ].map((s) => s.toLowerCase())
       ),
     []
@@ -214,13 +222,38 @@ export default function Costs() {
     return renderText(value);
   }
 
+  // Memoized normalize of items enriched with user info
+  const enrichedItems = useMemo(() => {
+    if (!Array.isArray(items)) return [];
+    return items.map((row) => {
+      const userId = row.user_id || row.userId || row.user || row.userID || row.user_id_str || null;
+      const userName = userId ? userNames[userId] ?? null : null;
+      const projectsCount = userId ? userProjectCounts[userId] ?? null : null;
+      // Determine user_cost if present on row
+      let userCost = row.user_cost ?? row.userCost ?? null;
+      if (userCost == null) {
+        // Fallback: sometimes cost per user equals total_cost per record when grouped; leave null if ambiguous
+        userCost = null;
+      }
+      return {
+        ...row,
+        __userId: userId,
+        __userName: userName,
+        __projectsCount: projectsCount,
+        __userCost: userCost,
+      };
+    });
+  }, [items, userNames, userProjectCounts]);
+
+  // Build columns including enriched fields
   function buildColumnsFromSample(rows = []) {
     const sample = rows[0] || {};
     const preferredOrder = [
       "_id",
       "tenant_id",
       "project_id",
-      "user_id",
+      // Swap out user_id for enriched user name (we'll still include user_id at lower priority)
+      "__userName",
       "llm_model",
       "total_cost",
       "total_tokens",
@@ -235,7 +268,68 @@ export default function Costs() {
 
     const cols = [];
 
-    mainFields.forEach((k) => {
+    // Inject enriched columns up-front if not present in sample
+    cols.push({
+      key: "__userName",
+      label: "User Name",
+      render: (v, row) => {
+        const name = row.__userName;
+        if (name === undefined) return "—";
+        return name == null || name === "" ? "Unknown" : renderText(name);
+      },
+      priority: 1,
+      minWidth: 140,
+    });
+    cols.push({
+      key: "__projectsCount",
+      label: "Total Projects",
+      render: (v, row) => {
+        const n = row.__projectsCount;
+        if (n == null) return "—";
+        try {
+          const txt = Number(n).toLocaleString();
+          return <span title={txt}>{txt}</span>;
+        } catch {
+          return String(n);
+        }
+      },
+      priority: 1,
+      minWidth: 120,
+    });
+    cols.push({
+      key: "__userCost",
+      label: "User Cost",
+      render: (v, row) => {
+        const val = row.__userCost;
+        const num = parseUsdToNumber(val);
+        if (num == null) return "—";
+        // Show "$X (Y credits)"
+        return (
+          <span className="amount-positive" style={{ whiteSpace: "nowrap" }}>
+            {renderCreditsWithUsd(num)}
+          </span>
+        );
+      },
+      priority: 1,
+      minWidth: 160,
+    });
+
+    // Standard main fields (keeping user_id as a lower-priority column if present)
+    const basePreferred = [
+      "_id",
+      "tenant_id",
+      "project_id",
+      "user_id",
+      "llm_model",
+      "total_cost",
+      "total_tokens",
+      "timestamp",
+      "created_at",
+      "updated_at",
+    ];
+    const present = basePreferred.filter((k) => Object.prototype.hasOwnProperty.call(sample, k));
+    const main = present.length ? present : Object.keys(sample).slice(0, 5);
+    main.forEach((k) => {
       cols.push({
         key: k,
         label: toLabel(k),
@@ -246,7 +340,7 @@ export default function Costs() {
           if (typeof val === "number") return renderNumber(val, k);
           return renderText(val);
         },
-        priority: ["_id", "llm_model", "total_cost"].includes(k) ? 1 : 2,
+        priority: ["_id", "llm_model", "total_cost"].includes(k) ? 2 : 3,
       });
     });
 
@@ -257,15 +351,104 @@ export default function Costs() {
           key: name,
           label: toLabel(name),
           render: (v) => renderCompact(v, toLabel(name)),
-          priority: 3,
+          priority: 4,
         });
       }
     });
 
     cols.push(...nestedCols.slice(0, 3));
 
-    return cols.length ? cols : [{ key: "_id", label: "ID" }];
+    // Ensure uniqueness by key
+    const seen = new Set();
+    const unique = [];
+    for (const c of cols) {
+      if (seen.has(c.key)) continue;
+      seen.add(c.key);
+      unique.push(c);
+    }
+
+    return unique.length ? unique : [{ key: "_id", label: "ID" }];
   }
+
+  // Memo columns based on enriched items
+  const columns = useMemo(() => {
+    const base = buildColumnsFromSample(enrichedItems || []);
+    return base.slice();
+  }, [enrichedItems]);
+
+  // Search filter on enriched items
+  useEffect(() => {
+    const q = (query || "").trim().toLowerCase();
+    if (!q) {
+      setItems(allItems);
+      return;
+    }
+    const filtered = (allItems || []).filter((doc) => {
+      return Object.entries(doc || {}).some(([k, v]) => {
+        if (v == null) return false;
+        try {
+          const s = typeof v === "object" ? JSON.stringify(v) : String(v);
+          return s.toLowerCase().includes(q);
+        } catch {
+          return false;
+        }
+      });
+    });
+    setItems(filtered);
+  }, [query, allItems]);
+
+  // Efficient batched fetching of user names for current page
+  const fetchUserNamesBatch = useCallback(async (userIds) => {
+    if (!userIds || userIds.length === 0) return {};
+    const api = getApiClient();
+    const orgId = getOrganizationId();
+    // Try bulk endpoint: /api/users?ids=...
+    try {
+      const params = { ids: userIds, ...(orgId ? { organization_id: orgId } : {}) };
+      const res = await api.get("/api/users", { params });
+      const payload = res?.data;
+      const list = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : (payload?.items || []);
+      const mapping = {};
+      (list || []).forEach((u) => {
+        const id = u?._id || u?.id;
+        if (!id) return;
+        const name = u?.name || u?.full_name || u?.username || u?.email || null;
+        mapping[String(id)] = name;
+      });
+      return mapping;
+    } catch {
+      // Fallback: per-user fetch GET /api/users/:id
+      const mapping = {};
+      await Promise.all(userIds.map(async (id) => {
+        try {
+          const res = await api.get(`/api/users/${encodeURIComponent(id)}`, { params: orgId ? { organization_id: orgId } : {} });
+          const u = res?.data;
+          const name = u?.name || u?.full_name || u?.username || u?.email || null;
+          mapping[String(id)] = name;
+        } catch {
+          mapping[String(id)] = null;
+        }
+      }));
+      return mapping;
+    }
+  }, []);
+
+  // Efficient batched fetching of projects per user for current page
+  const fetchProjectsCountBatch = useCallback(async (userIds) => {
+    if (!userIds || userIds.length === 0) return {};
+    const orgId = getOrganizationId();
+    const mapping = {};
+    await Promise.all(userIds.map(async (id) => {
+      try {
+        const res = await getUserProjects(String(id), { tenantId: orgId });
+        const projects = Array.isArray(res?.projects) ? res.projects : [];
+        mapping[String(id)] = projects.length;
+      } catch {
+        mapping[String(id)] = null;
+      }
+    }));
+    return mapping;
+  }, []);
 
   async function load(page = 1, limit = meta.limit || 10, sortKey, sortDir) {
     /**
@@ -290,6 +473,26 @@ export default function Costs() {
         limit: res?.meta?.limit || limit,
         total: res?.meta?.total ?? arr.length,
       });
+
+      // Collect unique userIds from this page for enrichment
+      const ids = Array.from(
+        new Set(
+          (arr || [])
+            .map((r) => r.user_id || r.userId || r.user || r.userID || r.user_id_str)
+            .filter(Boolean)
+            .map(String)
+        )
+      );
+
+      if (ids.length > 0) {
+        // Fetch names and projects in parallel
+        const [namesMap, projectsMap] = await Promise.all([
+          fetchUserNamesBatch(ids),
+          fetchProjectsCountBatch(ids),
+        ]);
+        setUserNames((prev) => ({ ...prev, ...namesMap }));
+        setUserProjectCounts((prev) => ({ ...prev, ...projectsMap }));
+      }
     } catch (e) {
       setAllItems([]);
       setItems([]);
@@ -302,39 +505,8 @@ export default function Costs() {
   useEffect(() => {
     // initial load on mount
     load();
-    // load is stable (declared in component scope) but depends on meta.limit if changed externally
-    // We intentionally do not include 'load' in deps to avoid ref churn and infinite loops.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useEffect(() => {
-    const q = (query || "").trim().toLowerCase();
-    if (!q) {
-      setItems(allItems);
-      return;
-    }
-    const filtered = (allItems || []).filter((doc) => {
-      return Object.entries(doc || {}).some(([k, v]) => {
-        if (v == null) return false;
-        try {
-          const s =
-            typeof v === "object"
-              ? JSON.stringify(v)
-              : String(v);
-          return s.toLowerCase().includes(q);
-        } catch {
-          return false;
-        }
-      });
-    });
-    setItems(filtered);
-  }, [query, allItems]);
-
-  const columns = useMemo(() => {
-    // buildColumnsFromSample is a pure function defined in this file; items is the only reactive input
-    const base = buildColumnsFromSample(items || []);
-    return base.slice();
-  }, [items]);
 
   return (
     <div>
@@ -353,12 +525,11 @@ export default function Costs() {
             onChange={(e) => setQuery(e.target.value)}
           />
           <div style={{ flex: 1 }} />
-          {/* View All button removed per requirements */}
         </div>
         {error && <div className="error" role="alert">{error}</div>}
         <DataTable
           columns={columns}
-          data={items}
+          data={enrichedItems}
           loading={loading}
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
