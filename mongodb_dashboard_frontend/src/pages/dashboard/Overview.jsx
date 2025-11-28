@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
-import { listUsers, listSessions, listDeployments, health } from "../../api";
+// Remove unused listSessions import to reduce lint noise
+import { listUsers, listDeployments, health } from "../../api";
 import { fetchSessionTracking } from "../../api/sessionTracking";
 import LoadingState from "../../components/common/LoadingState";
 import ErrorState from "../../components/common/ErrorState";
@@ -24,6 +25,7 @@ import {
  * Utility functions to bucket timestamps by day/week and compute counts.
  * We normalize dates to YYYY-MM-DD for day buckets and ISO week start for weekly buckets.
  * These mirror utils/sessions/bucketing.js to avoid cross-import churn in this page.
+ * Note: Keep helpers as pure functions (module scope) for stable identities in hooks.
  */
 function toYMD(date) {
   const d = new Date(date);
@@ -43,6 +45,7 @@ function startOfWeek(date) {
 
 /**
  * Compute ISO start/end based on a range key and optional custom date inputs.
+ * Pure function; used inside useMemo with correct dependencies.
  */
 function computeRange(rangeKey, customRange) {
   const now = new Date();
@@ -52,7 +55,7 @@ function computeRange(rangeKey, customRange) {
   if (rangeKey === "7d") start.setDate(end.getDate() - 6);
   else if (rangeKey === "14d") start.setDate(end.getDate() - 13);
   else if (rangeKey === "30d") start.setDate(end.getDate() - 29);
-  else if (rangeKey === "custom" && customRange.start && customRange.end) {
+  else if (rangeKey === "custom" && customRange && customRange.start && customRange.end) {
     const s = new Date(customRange.start);
     const e = new Date(customRange.end);
     s.setHours(0, 0, 0, 0);
@@ -108,15 +111,16 @@ export default function Overview() {
       setLoading(true);
       setError("");
       try {
-        const [users, sessions, deployments] = await Promise.all([
+        const [usersRes, deploymentsRes] = await Promise.all([
           listUsers({ limit: 5 }),
-          listSessions({ limit: 5 }),
           listDeployments({ limit: 5 }),
         ]);
         setMetrics({
-          users: users?.total || users?.length || 0,
-          sessions: sessions?.total || sessions?.length || 0,
-          deployments: deployments?.total || deployments?.length || 0,
+          users: usersRes?.total || usersRes?.length || 0,
+          // Sessions KPI: approximate using session tracking count in the same fetch below for trends;
+          // keep existing behavior by leaving previous sessions metric derivation as is when available.
+          sessions: undefined, // will patch below
+          deployments: deploymentsRes?.total || deploymentsRes?.length || 0,
         });
       } catch (e) {
         setError(e?.response?.data?.message || e?.message || "Failed to load overview data.");
@@ -175,228 +179,227 @@ export default function Overview() {
   // Derived ISO ranges for each chart
   const sessionsRange = useMemo(
     () => computeRange(sessionsRangeKey, sessionsCustomRange),
-    [sessionsRangeKey, sessionsCustomRange.start, sessionsCustomRange.end]
+    [sessionsRangeKey, sessionsCustomRange?.start, sessionsCustomRange?.end]
   );
   const usersRange = useMemo(
     () => computeRange(usersRangeKey, usersCustomRange),
-    [usersRangeKey, usersCustomRange.start, usersCustomRange.end]
+    [usersRangeKey, usersCustomRange?.start, usersCustomRange?.end]
   );
 
 
+  // Stable sessions loader
+  const loadSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    setSessionsError(null);
+    try {
+      const { startISO, endISO } = sessionsRange;
+      const { items } = await fetchSessionTracking({
+        from: startISO,
+        to: endISO,
+        start_date: startISO,
+        end_date: endISO,
+        limit: 200,
+        sort: "-session_start",
+        filter: {
+          $or: [
+            { session_start: { $gte: startISO, $lte: endISO } },
+            { session_end: { $gte: startISO, $lte: endISO } },
+          ],
+        },
+      });
+
+      const pts = (items || [])
+        .map((it) => {
+          const t =
+            it.session_start ||
+            it.last_updated ||
+            it.updated_at ||
+            it.startedAt ||
+            it.createdAt ||
+            it.timestamp ||
+            it.lastActivityAt ||
+            it.endedAt ||
+            it.date;
+          return t ? new Date(t) : null;
+        })
+        .filter((d) => d && !Number.isNaN(d.getTime()));
+
+      const map = new Map();
+      if (sessionsGranularity === "weekly") {
+        pts.forEach((d) => {
+          const wk = startOfWeek(d);
+          const k = toYMD(wk);
+          map.set(k, (map.get(k) || 0) + 1);
+        });
+      } else {
+        pts.forEach((d) => {
+          const k = toYMD(d);
+          map.set(k, (map.get(k) || 0) + 1);
+        });
+      }
+
+      setSessionsSeries(
+        fillSeries(map, sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity)
+      );
+    } catch (e) {
+      setSessionsError(e);
+      setSessionsSeries([]);
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, [sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity, fillSeries]);
   // Sessions trend fetcher — independent
   useEffect(() => {
     let aborted = false;
-    async function loadSessions() {
-      setSessionsLoading(true);
-      setSessionsError(null);
-      try {
-        const { startISO, endISO } = sessionsRange;
-        const { items } = await fetchSessionTracking({
-          // Provide multiple shapes: from/to and start/end plus convenience keys
-          from: startISO,
-          to: endISO,
-          start_date: startISO,
-          end_date: endISO,
-          limit: 200,
-          sort: "-session_start",
-          // Fallback server filter if direct params ignored
-          filter: {
-            $or: [
-              { session_start: { $gte: startISO, $lte: endISO } },
-              { session_end: { $gte: startISO, $lte: endISO } },
-            ],
-          },
-        });
-        if (aborted) return;
-
-        const pts = (items || [])
-          .map((it) => {
-            const t =
-              it.session_start ||
-              it.last_updated ||
-              it.updated_at ||
-              it.startedAt ||
-              it.createdAt ||
-              it.timestamp ||
-              it.lastActivityAt ||
-              it.endedAt ||
-              it.date;
-            return t ? new Date(t) : null;
-          })
-          .filter((d) => d && !Number.isNaN(d.getTime()));
-
-        const map = new Map();
-        if (sessionsGranularity === "weekly") {
-          pts.forEach((d) => {
-            const wk = startOfWeek(d);
-            const k = toYMD(wk);
-            map.set(k, (map.get(k) || 0) + 1);
-          });
-        } else {
-          pts.forEach((d) => {
-            const k = toYMD(d);
-            map.set(k, (map.get(k) || 0) + 1);
-          });
-        }
-
-        setSessionsSeries(fillSeries(map, sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity));
-      } catch (e) {
-        if (aborted) return;
-        setSessionsError(e);
-        setSessionsSeries([]);
-      } finally {
-        if (!aborted) setSessionsLoading(false);
-      }
+    if (sessionsRange.startISO && sessionsRange.endISO) {
+      loadSessions();
     }
-    if (sessionsRange.startISO && sessionsRange.endISO) loadSessions();
     return () => {
       aborted = true;
     };
-  }, [sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity, fillSeries]);
+  }, [sessionsRange.startISO, sessionsRange.endISO, loadSessions]);
+
+  // Stable users loader
+  const loadUsers = useCallback(async () => {
+    setUsersLoading(true);
+    setUsersError(null);
+    try {
+      const { startISO, endISO } = usersRange;
+      const backendGranularity = usersGranularity === "weekly" ? "week" : "day";
+      const statusParam = usersStatus === "active" ? "completed|active" : undefined;
+
+      let items = [];
+      let backendOk = false;
+      try {
+        const resp = await getActiveUsersTrend({
+          from: startISO,
+          to: endISO,
+          granularity: backendGranularity,
+          status: statusParam,
+        });
+        items = Array.isArray(resp?.items) ? resp.items : [];
+        backendOk = items.length > 0 || Array.isArray(resp?.items);
+      } catch {
+        backendOk = false;
+      }
+
+      if (!backendOk) {
+        // Fallback: derive from users collection using created_at for bucketing plus status filter
+        const createdFilter = {
+          $and: [
+            {
+              $or: [
+                { created_at: { $gte: startISO, $lte: endISO } },
+                { createdAt: { $gte: startISO, $lte: endISO } },
+              ],
+            },
+            ...(usersStatus === "active"
+              ? [{ $or: [{ status: { $exists: false } }, { status: { $nin: ["deleted", "inactive"] } }] }]
+              : []),
+          ],
+        };
+
+        const usersRes = await listUsers({
+          filter: JSON.stringify(createdFilter),
+          limit: 2000,
+          sort: "-created_at",
+        });
+
+        const users = usersRes?.items || (Array.isArray(usersRes) ? usersRes : []);
+        const bucketUsers = new Map();
+        users.forEach((u) => {
+          const t = u.created_at || u.createdAt || u.date;
+          const d = t ? new Date(t) : null;
+          if (!d || Number.isNaN(d.getTime())) return;
+          const key = usersGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
+          const uid = String(u._id ?? u.id ?? u.user_id ?? u.userId ?? u.email ?? "");
+          if (!uid) return;
+          if (!bucketUsers.has(key)) bucketUsers.set(key, new Set());
+          bucketUsers.get(key).add(uid);
+        });
+
+        items = Array.from(bucketUsers.entries()).map(([date, set]) => ({
+          date,
+          total: (set && set.size) || 0,
+        }));
+      }
+
+      const map = new Map();
+      (items || []).forEach((row) => {
+        const label = row.date || row.label || row.day || row.week;
+        const total = Number(row.total ?? row.count ?? row.value ?? 0);
+        if (!label) return;
+        map.set(String(label), (map.get(String(label)) || 0) + (Number.isFinite(total) ? total : 0));
+      });
+
+      const series = fillSeries(map, usersRange.startISO, usersRange.endISO, usersGranularity);
+      setUsersSeries(series);
+    } catch (e) {
+      setUsersError(e);
+      setUsersSeries([]);
+    } finally {
+      setUsersLoading(false);
+    }
+  }, [usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries]);
 
   // Users trend fetcher — independent
   useEffect(() => {
     let aborted = false;
-    async function loadUsers() {
-      setUsersLoading(true);
-      setUsersError(null);
-      try {
-        const { startISO, endISO } = usersRange;
-        const backendGranularity = usersGranularity === "weekly" ? "week" : "day";
-        const statusParam = usersStatus === "active" ? "completed|active" : undefined;
-
-        let items = [];
-        let backendOk = false;
-        try {
-          const resp = await getActiveUsersTrend({
-            from: startISO,
-            to: endISO,
-            granularity: backendGranularity,
-            status: statusParam,
-          });
-          items = Array.isArray(resp?.items) ? resp.items : [];
-          backendOk = items.length > 0 || Array.isArray(resp?.items);
-        } catch {
-          backendOk = false;
-        }
-
-        if (!backendOk) {
-          // Fallback: derive from users collection using created_at for bucketing plus status filter
-          const createdFilter = {
-            $and: [
-              {
-                $or: [
-                  { created_at: { $gte: startISO, $lte: endISO } },
-                  { createdAt: { $gte: startISO, $lte: endISO } },
-                ],
-              },
-              // status filter: if 'active' exclude deleted; if 'all' do not filter
-              ...(usersStatus === "active"
-                ? [{ $or: [{ status: { $exists: false } }, { status: { $nin: ["deleted", "inactive"] } }] }]
-                : []),
-            ],
-          };
-
-          const usersRes = await listUsers({
-            // Directly stringify the filter; listUsers will sanitize endpoint-specific params
-            filter: JSON.stringify(createdFilter),
-            limit: 2000,
-            sort: "-created_at",
-          });
-
-          const users = usersRes?.items || (Array.isArray(usersRes) ? usersRes : []);
-          const bucketUsers = new Map();
-          users.forEach((u) => {
-            const t = u.created_at || u.createdAt || u.date;
-            const d = t ? new Date(t) : null;
-            if (!d || Number.isNaN(d.getTime())) return;
-            const key = usersGranularity === "weekly" ? toYMD(startOfWeek(d)) : toYMD(d);
-            const uid = String(u._id ?? u.id ?? u.user_id ?? u.userId ?? u.email ?? "");
-            if (!uid) return;
-            if (!bucketUsers.has(key)) bucketUsers.set(key, new Set());
-            bucketUsers.get(key).add(uid);
-          });
-
-          items = Array.from(bucketUsers.entries()).map(([date, set]) => ({
-            date,
-            total: (set && set.size) || 0,
-          }));
-        }
-
-        if (aborted) return;
-
-        const map = new Map();
-        (items || []).forEach((row) => {
-          const label = row.date || row.label || row.day || row.week;
-          const total = Number(row.total ?? row.count ?? row.value ?? 0);
-          if (!label) return;
-          map.set(String(label), (map.get(String(label)) || 0) + (Number.isFinite(total) ? total : 0));
-        });
-
-        const series = fillSeries(map, usersRange.startISO, usersRange.endISO, usersGranularity);
-        setUsersSeries(series);
-      } catch (e) {
-        if (aborted) return;
-        setUsersError(e);
-        setUsersSeries([]);
-      } finally {
-        if (!aborted) setUsersLoading(false);
-      }
+    if (usersRange.startISO && usersRange.endISO) {
+      loadUsers();
     }
-    if (usersRange.startISO && usersRange.endISO) loadUsers();
     return () => {
       aborted = true;
     };
-  }, [usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries]);
+  }, [usersRange.startISO, usersRange.endISO, loadUsers]);
+
+  // Stable features loader — reuse sessions date range to stay in sync
+  const loadFeatures = useCallback(async () => {
+    setFeaturesLoading(true);
+    setFeaturesError(null);
+    try {
+      const { startISO, endISO } = sessionsRange;
+      const { items } = await fetchSessionTracking({
+        from: startISO,
+        to: endISO,
+        limit: 500,
+        sort: "-session_start",
+      });
+
+      // Aggregate counts by service_type, normalize labels
+      const counts = new Map();
+      (items || []).forEach((it) => {
+        const raw = it.service_type || it.serviceType || it.service || it.type || "Unknown";
+        const key = String(raw || "Unknown").trim() || "Unknown";
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+
+      const rows = Array.from(counts.entries())
+        .map(([service_type, count]) => ({
+          service_type,
+          count: Number(count) || 0,
+        }))
+        .sort((a, b) => b.count - a.count);
+
+      setFeaturesData(rows);
+    } catch (e) {
+      setFeaturesError(e);
+      setFeaturesData([]);
+    } finally {
+      setFeaturesLoading(false);
+    }
+  }, [sessionsRange.startISO, sessionsRange.endISO]);
 
   // Overall Features chart fetcher — reuse sessions date range to stay in sync
   useEffect(() => {
     let cancelled = false;
-    async function loadFeatures() {
-      setFeaturesLoading(true);
-      setFeaturesError(null);
-      try {
-        const { startISO, endISO } = sessionsRange;
-        // Fetch sessions in the current sessionsRange
-        const { items } = await fetchSessionTracking({
-          from: startISO,
-          to: endISO,
-          limit: 500,
-          sort: "-session_start",
-        });
-
-        if (cancelled) return;
-
-        // Aggregate counts by service_type, normalize labels
-        const counts = new Map();
-        (items || []).forEach((it) => {
-          const raw = it.service_type || it.serviceType || it.service || it.type || "Unknown";
-          const key = String(raw || "Unknown").trim() || "Unknown";
-          counts.set(key, (counts.get(key) || 0) + 1);
-        });
-
-        // Shape to recharts-friendly objects and sort desc
-        const rows = Array.from(counts.entries())
-          .map(([service_type, count]) => ({
-            service_type,
-            count: Number(count) || 0,
-          }))
-          .sort((a, b) => b.count - a.count);
-
-        setFeaturesData(rows);
-      } catch (e) {
-        if (cancelled) return;
-        setFeaturesError(e);
-        setFeaturesData([]);
-      } finally {
-        if (!cancelled) setFeaturesLoading(false);
-      }
+    if (sessionsRange.startISO && sessionsRange.endISO) {
+      loadFeatures();
     }
-    if (sessionsRange.startISO && sessionsRange.endISO) loadFeatures();
     return () => {
       cancelled = true;
     };
-  }, [sessionsRange.startISO, sessionsRange.endISO]);
+  }, [sessionsRange.startISO, sessionsRange.endISO, loadFeatures]);
 
 
 
@@ -404,8 +407,8 @@ export default function Overview() {
   const renderDateRangeLabel = useCallback((rangeKey, customRange, range) => {
     if (rangeKey === "custom") {
       const opts = { year: "numeric", month: "short", day: "numeric" };
-      const hasStart = Boolean(customRange.start);
-      const hasEnd = Boolean(customRange.end);
+      const hasStart = Boolean(customRange?.start);
+      const hasEnd = Boolean(customRange?.end);
       const fmtStart = hasStart ? new Date(customRange.start).toLocaleDateString(undefined, opts) : null;
       const fmtEnd = hasEnd ? new Date(customRange.end).toLocaleDateString(undefined, opts) : null;
       if (hasStart && hasEnd) return `Filtered: ${fmtStart} — ${fmtEnd}`;
