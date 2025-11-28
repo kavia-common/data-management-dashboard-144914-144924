@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { getDurationHistogram } from '../../api/sessionsAnalytics';
-import '../charts/KPIChart.jsx'; // ensure folder exists in build graph (no import usage)
  // Lightweight inline styles updated to match dark theme tokens (surface, border, accent)
 const styles = {
   container: {
