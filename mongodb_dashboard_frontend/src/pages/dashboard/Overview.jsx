@@ -76,11 +76,6 @@ export default function Overview() {
   const [usersGranularity, setUsersGranularity] = useState("daily");
   const [usersStatus, setUsersStatus] = useState("active"); // 'active' | 'all'
 
-  // Costs controls (kept separate)
-  const [costsRangeKey, setCostsRangeKey] = useState("30d");
-  const [costsCustomRange, setCostsCustomRange] = useState({ start: null, end: null });
-  const [costsGranularity, setCostsGranularity] = useState("daily");
-
   // Sessions chart state
   const [sessionsSeries, setSessionsSeries] = useState([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
@@ -90,11 +85,6 @@ export default function Overview() {
   const [usersSeries, setUsersSeries] = useState([]);
   const [usersLoading, setUsersLoading] = useState(false);
   const [usersError, setUsersError] = useState(null);
-
-  // Costs chart state
-  const [costsSeries, setCostsSeries] = useState([]);
-  const [costsLoading, setCostsLoading] = useState(false);
-  const [costsError, setCostsError] = useState(null);
 
   // KPI metrics
   useEffect(() => {
@@ -175,10 +165,7 @@ export default function Overview() {
     () => computeRange(usersRangeKey, usersCustomRange),
     [usersRangeKey, usersCustomRange.start, usersCustomRange.end]
   );
-  const costsRange = useMemo(
-    () => computeRange(costsRangeKey, costsCustomRange),
-    [costsRangeKey, costsCustomRange.start, costsCustomRange.end]
-  );
+
 
   // Sessions trend fetcher — independent
   useEffect(() => {
@@ -346,75 +333,7 @@ export default function Overview() {
     };
   }, [usersRange.startISO, usersRange.endISO, usersGranularity, usersStatus, fillSeries]);
 
-  // Costs trend fetcher — independent (analytics-only)
-  useEffect(() => {
-    let aborted = false;
-    async function loadCosts() {
-      setCostsLoading(true);
-      setCostsError(null);
-      try {
-        const { startISO, endISO } = costsRange;
 
-        // Map UI granularity to backend enum
-        const backendGranularity =
-          costsGranularity === "weekly" ? "week" : costsGranularity === "daily" ? "day" : "month";
-
-        const { getLlmCostsOverTime } = await import("../../api/llmCostsAnalytics.js"); // stable helper (aggregates from /api/llm-costs)
-        const analytics = await getLlmCostsOverTime({
-          granularity: backendGranularity,
-          from: startISO,
-          to: endISO,
-        });
-
-        // Normalize to aligned labels/data, parse currency to number
-        const labels = Array.isArray(analytics?.labels) ? analytics.labels : [];
-        const ds = Array.isArray(analytics?.datasets) ? analytics.datasets[0] : null;
-        const dataRaw = Array.isArray(ds?.data) ? ds.data : [];
-
-        const toNumber = (v) => {
-          if (typeof v === "number") return Number.isFinite(v) ? v : 0;
-          if (typeof v === "string") {
-            const n = Number(v.replace(/[$,]/g, ""));
-            return Number.isFinite(n) ? n : 0;
-          }
-          if (v == null) return 0;
-          const n = Number(v);
-          return Number.isFinite(n) ? n : 0;
-        };
-
-        const data = dataRaw.map(toNumber);
-        const L = Math.min(labels.length, data.length);
-        let series;
-
-        if (L > 0) {
-          series = labels.slice(0, L).map((label, idx) => ({
-            label: String(label),
-            value: data[idx],
-          }));
-        } else {
-          // Safeguard for empty analytics: render zeroed series across the selected period
-          const map = new Map();
-          series = fillSeries(map, startISO, endISO, costsGranularity).map((p) => ({
-            ...p,
-            value: 0,
-          }));
-        }
-
-        if (aborted) return;
-        setCostsSeries(series);
-      } catch (e) {
-        if (aborted) return;
-        setCostsError(e);
-        setCostsSeries([]);
-      } finally {
-        if (!aborted) setCostsLoading(false);
-      }
-    }
-    if (costsRange.startISO && costsRange.endISO) loadCosts();
-    return () => {
-      aborted = true;
-    };
-  }, [costsRange.startISO, costsRange.endISO, costsGranularity, fillSeries]);
 
   // Reusable controls renderers (per-chart)
   const renderDateRangeLabel = useCallback((rangeKey, customRange, range) => {
@@ -590,53 +509,7 @@ export default function Overview() {
     </div>
   );
 
-  const CostsControls = (
-    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-      <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
-        {["7d", "14d", "30d", "custom"].map((key) => (
-          <button
-            key={key}
-            onClick={() => setCostsRangeKey(key)}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 6,
-              border: "none",
-              background: costsRangeKey === key ? "#2563EB" : "transparent",
-              color: costsRangeKey === key ? "#fff" : "#111827",
-              cursor: "pointer",
-              transition: "background 120ms ease, color 120ms ease",
-            }}
-            aria-pressed={costsRangeKey === key}
-          >
-            {key.toUpperCase()}
-          </button>
-        ))}
-      </div>
-      <DateRangePill label={renderDateRangeLabel(costsRangeKey, costsCustomRange, costsRange)} />
-      <TimeBucketFilter
-        value={costsGranularity}
-        onChange={(v) => setCostsGranularity(v === "monthly" ? "weekly" : v)}
-        options={[
-          { value: "daily", label: "Daily" },
-          { value: "weekly", label: "Weekly" },
-          { value: "monthly", label: "Monthly" },
-        ]}
-      />
-      <button
-        type="button"
-        onClick={() => {
-          setCostsRangeKey("7d");
-          setCostsCustomRange({ start: null, end: null });
-          setCostsGranularity("daily");
-        }}
-        className="btn btn-ghost"
-        aria-label="Clear costs filters"
-        style={{ marginLeft: 8 }}
-      >
-        Clear
-      </button>
-    </div>
-  );
+
 
   return (
     <div className="grid">
@@ -774,64 +647,7 @@ export default function Overview() {
         </Card>
       </div>
 
-      {/* Costs Trend */}
-      <div className="block-full" style={{ gridColumn: "1 / -1" }}>
-        <Card
-          title="Costs over time"
-          subtitle="Total USD by day/week"
-          actions={CostsControls}
-        >
-          {costsRangeKey === "custom" ? (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-                <label style={{ fontSize: 12, color: "#6B7280" }}>
-                  Start:
-                  <input
-                    type="date"
-                    onChange={(e) => setCostsCustomRange((r) => ({ ...r, start: e.target.value }))}
-                    value={costsCustomRange.start || ""}
-                    style={{ marginLeft: 6 }}
-                    aria-label="Costs custom range start date"
-                  />
-                </label>
-                <label style={{ fontSize: 12, color: "#6B7280" }}>
-                  End:
-                  <input
-                    type="date"
-                    onChange={(e) => setCostsCustomRange((r) => ({ ...r, end: e.target.value }))}
-                    value={costsCustomRange.end || ""}
-                    style={{ marginLeft: 6 }}
-                    aria-label="Costs custom range end date"
-                  />
-                </label>
-              </div>
-            </div>
-          ) : (
-            costsRangeKey === "custom" && (!costsCustomRange.start || !costsCustomRange.end) ? (
-              <div style={{ marginBottom: 8, color: "#6B7280", fontSize: 12 }}>
-                Select start and end dates to apply custom range.
-              </div>
-            ) : null
-          )}
-          {costsLoading && <LoadingState message="Loading costs trend…" height={220} />}
-          {costsError && <ErrorState message={costsError?.message || "Failed to load costs trend."} />}
-          {!costsLoading && !costsError && (
-            <>
-              <KPIChart data={costsSeries} xKey="label" yKey="value" color="#F59E0B" />
-              {(Array.isArray(costsSeries) && costsSeries.length > 0 && costsSeries.every(d => !d.value)) && (
-                <div style={{ marginTop: 8, color: "#6B7280", fontSize: 12, textAlign: "center" }}>
-                  No cost data found for the selected range. Showing zeroed series.
-                </div>
-              )}
-              {Array.isArray(costsSeries) && costsSeries.length === 0 && (
-                <div style={{ marginTop: 8, color: "#6B7280", fontSize: 12, textAlign: "center" }}>
-                  No cost data available.
-                </div>
-              )}
-            </>
-          )}
-        </Card>
-      </div>
+
 
       {error && (
         <div className="block-full" role="alert" style={{ alignSelf: "start" }}>
