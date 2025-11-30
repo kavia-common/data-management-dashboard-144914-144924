@@ -64,7 +64,12 @@ export default function LlmCostsList() {
       {
         key: "organization_cost",
         label: "Organization Cost",
-        render: (v) => <span title={String(v ?? "—")}>{String(v ?? "—")}</span>,
+        // Render the value exactly as provided by API (e.g., "$3005.442509"); show "-" if undefined/null/empty string
+        render: (v, row) => {
+          const val = row?.organization_cost ?? v;
+          const display = (val === null || val === undefined || val === "") ? "—" : String(val);
+          return <span title={display}>{display}</span>;
+        },
       },
       {
         key: "users",
