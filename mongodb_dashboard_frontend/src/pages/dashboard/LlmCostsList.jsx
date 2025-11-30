@@ -4,13 +4,16 @@ import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import TreeView from "../../components/TreeView.jsx";
 import { getApiClient } from "../../api/baseClient";
+import { useSearchParams } from "react-router-dom";
 
 /**
  * PUBLIC_INTERFACE
  * LlmCostsList
- * A paginated listing consuming ListEnvelope from GET /api/llm-costs and rendering column-wise:
- * _id, organization_id, organization_name, organization_cost, counts (users.length, projects.length, agents.length).
- * Supports expandable details to view arrays (users, projects, agents). Null/empty guards show 0 counts.
+ * Paginated listing that calls GET /api/llm-costs and renders:
+ * _id, organization_id, organization_name, organization_cost, users_count, projects_count, agents_count.
+ * Uses backend envelope { success, data, meta } when page/limit are provided.
+ * Supports optional filtering by organization_id via query params (?organization_id or ?tenant_id).
+ * Renders empty states and basic pagination controls.
  */
 export default function LlmCostsList() {
   const [rows, setRows] = useState([]);
@@ -18,10 +21,16 @@ export default function LlmCostsList() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // details modal
+  // details modal (useful to inspect arrays)
   const [open, setOpen] = useState(false);
   const [detailTitle, setDetailTitle] = useState("");
   const [detailPayload, setDetailPayload] = useState(null);
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const organizationIdParam =
+    searchParams.get("organization_id") ||
+    searchParams.get("tenant_id") ||
+    undefined;
 
   const openDetails = (title, payload) => {
     setDetailTitle(title);
@@ -37,17 +46,37 @@ export default function LlmCostsList() {
 
   const columns = useMemo(() => {
     return [
-      { key: "_id", label: "ID", render: (v) => <span title={v || ""}>{String(v || "—")}</span> },
-      { key: "organization_id", label: "Organization ID", render: (v) => <span title={v || ""}>{String(v || "—")}</span> },
-      { key: "organization_name", label: "Organization Name", render: (v) => <span title={v || ""}>{String(v || "—")}</span> },
-      { key: "organization_cost", label: "Org Cost", render: (v) => <span title={String(v ?? "—")}>{String(v ?? "—")}</span> },
+      {
+        key: "_id",
+        label: "ID",
+        render: (v) => <span title={v || ""}>{String(v || "—")}</span>,
+      },
+      {
+        key: "organization_id",
+        label: "Organization ID",
+        render: (v) => <span title={v || ""}>{String(v || "—")}</span>,
+      },
+      {
+        key: "organization_name",
+        label: "Organization Name",
+        render: (v) => <span title={v || ""}>{String(v || "—")}</span>,
+      },
+      {
+        key: "organization_cost",
+        label: "Organization Cost",
+        render: (v) => <span title={String(v ?? "—")}>{String(v ?? "—")}</span>,
+      },
       {
         key: "users",
-        label: "Users",
+        label: "Users Count",
         render: (v, row) => {
           const n = countOrZero(row?.users);
           return (
-            <button className="btn btn-ghost" onClick={() => openDetails("Users", row?.users || [])} aria-label="Show users">
+            <button
+              className="btn btn-ghost"
+              onClick={() => openDetails("Users", row?.users || [])}
+              aria-label="Show users"
+            >
               {n.toString()}
             </button>
           );
@@ -55,11 +84,15 @@ export default function LlmCostsList() {
       },
       {
         key: "projects",
-        label: "Projects",
+        label: "Projects Count",
         render: (v, row) => {
           const n = countOrZero(row?.projects);
           return (
-            <button className="btn btn-ghost" onClick={() => openDetails("Projects", row?.projects || [])} aria-label="Show projects">
+            <button
+              className="btn btn-ghost"
+              onClick={() => openDetails("Projects", row?.projects || [])}
+              aria-label="Show projects"
+            >
               {n.toString()}
             </button>
           );
@@ -67,11 +100,15 @@ export default function LlmCostsList() {
       },
       {
         key: "agents",
-        label: "Agents",
+        label: "Agents Count",
         render: (v, row) => {
           const n = countOrZero(row?.agents);
           return (
-            <button className="btn btn-ghost" onClick={() => openDetails("Agents", row?.agents || [])} aria-label="Show agents">
+            <button
+              className="btn btn-ghost"
+              onClick={() => openDetails("Agents", row?.agents || [])}
+              aria-label="Show agents"
+            >
               {n.toString()}
             </button>
           );
@@ -80,29 +117,61 @@ export default function LlmCostsList() {
     ];
   }, []);
 
-  async function load(page = 1, limit = meta.limit || 20, params = {}) {
+  function normalizeEnvelope(respData, { page, limit }) {
+    // Expected: { success, data, meta }
+    if (respData && Array.isArray(respData.data) && respData.meta) {
+      return {
+        data: respData.data || [],
+        meta: {
+          page: respData.meta.page || page || 1,
+          limit: respData.meta.limit || limit || 20,
+          total: respData.meta.total || 0,
+        },
+      };
+    }
+    // Raw array fallback
+    if (Array.isArray(respData)) {
+      return {
+        data: respData,
+        meta: {
+          page: page || 1,
+          limit: limit || respData.length || 20,
+          total: respData.length || 0,
+        },
+      };
+    }
+    // Other shapes with items/page/limit/total
+    if (respData && Array.isArray(respData.items)) {
+      return {
+        data: respData.items,
+        meta: {
+          page: respData.page || page || 1,
+          limit: respData.limit || limit || 20,
+          total: respData.total || respData.items.length || 0,
+        },
+      };
+    }
+    return { data: [], meta: { page: page || 1, limit: limit || 20, total: 0 } };
+  }
+
+  async function load(page = 1, limit = meta.limit || 20) {
     setLoading(true);
     setError("");
     try {
       const api = getApiClient();
       const { data } = await api.get("/api/llm-costs", {
-        params: { page, limit, ...params },
+        params: {
+          page,
+          limit,
+          ...(organizationIdParam ? { organization_id: organizationIdParam } : {}),
+        },
       });
 
-      let items = [];
-      let nextMeta = { page, limit, total: 0 };
-      if (data && Array.isArray(data.data) && data.meta) {
-        items = data.data || [];
-        nextMeta = { page: data.meta.page || page, limit: data.meta.limit || limit, total: data.meta.total || 0 };
-      } else if (Array.isArray(data)) {
-        items = data;
-        nextMeta = { page, limit, total: items.length };
-      } else if (data && Array.isArray(data.items)) {
-        items = data.items;
-        nextMeta = { page: data.page || page, limit: data.limit || limit, total: data.total || items.length };
-      }
+      const { data: items, meta: nextMeta } = normalizeEnvelope(data, {
+        page,
+        limit,
+      });
 
-      // minimal log when no matches
       if (!items.length && process.env.NODE_ENV !== "production") {
         // eslint-disable-next-line no-console
         console.info("[llm-costs] no matches for current filter/page");
@@ -120,24 +189,109 @@ export default function LlmCostsList() {
   }
 
   useEffect(() => {
+    // initial and when org filter changes
     load(1, meta.limit || 20);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [organizationIdParam]);
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil((meta.total || 0) / (meta.limit || 20))
+  );
+
+  const handlePageChange = (newPage) => {
+    if (newPage < 1 || newPage > totalPages) return;
+    setMeta((m) => ({ ...m, page: newPage }));
+    load(newPage, meta.limit || 20);
+  };
+
+  const handleLimitChange = (e) => {
+    const newLimit = Number(e.target.value);
+    setMeta((m) => ({ ...m, page: 1, limit: newLimit }));
+    load(1, newLimit);
+  };
+
+  const handleOrgFilterCommit = (e) => {
+    const val = e.target.value.trim();
+    const next = new URLSearchParams(searchParams);
+    if (val) {
+      next.set("organization_id", val);
+      next.delete("tenant_id");
+    } else {
+      next.delete("organization_id");
+      next.delete("tenant_id");
+    }
+    setSearchParams(next, { replace: false });
+  };
 
   return (
     <div>
       <Card title="LLM Costs" subtitle="Raw LLM cost documents (as-is)">
-        {error && <div className="error" role="alert">{error}</div>}
-        <DataTable
-          columns={columns}
-          data={rows}
-          loading={loading}
-          pageSize={meta.limit || 20}
-          initialPage={meta.page || 1}
-          serverTotal={meta.total}
-          fetchPage={async (page, limit) => load(page, limit)}
-          paginationTitle="LLM costs pages"
-        />
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+          <div>
+            <label>
+              Organization ID:{" "}
+              <input
+                type="text"
+                placeholder="Filter by organization_id"
+                defaultValue={organizationIdParam || ""}
+                onBlur={handleOrgFilterCommit}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+              />
+            </label>
+          </div>
+          <div>
+            <label>
+              Page size:{" "}
+              <select value={meta.limit} onChange={handleLimitChange}>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        {error && (
+          <div className="error" role="alert">
+            {error}
+          </div>
+        )}
+
+        {loading ? (
+          <div>Loading...</div>
+        ) : rows.length === 0 ? (
+          <div>No LLM cost records found.</div>
+        ) : (
+          <>
+            <DataTable
+              columns={columns}
+              data={rows}
+              loading={loading}
+              pageSize={meta.limit || 20}
+            />
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
+              <button
+                onClick={() => handlePageChange((meta.page || 1) - 1)}
+                disabled={(meta.page || 1) <= 1}
+              >
+                Previous
+              </button>
+              <div>
+                Page {meta.page || 1} of {totalPages}
+              </div>
+              <button
+                onClick={() => handlePageChange((meta.page || 1) + 1)}
+                disabled={(meta.page || 1) >= totalPages}
+              >
+                Next
+              </button>
+            </div>
+          </>
+        )}
       </Card>
 
       <Modal
@@ -146,7 +300,11 @@ export default function LlmCostsList() {
         onClose={closeDetails}
         headerOffset={60}
         width="min(96vw, 900px)"
-        footer={<button className="btn btn-ghost" onClick={closeDetails}>Close</button>}
+        footer={
+          <button className="btn btn-ghost" onClick={closeDetails}>
+            Close
+          </button>
+        }
       >
         <div style={{ padding: "1rem" }}>
           <TreeView data={detailPayload || []} defaultExpandedDepth={1} />
