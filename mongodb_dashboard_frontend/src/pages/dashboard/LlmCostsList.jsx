@@ -123,18 +123,29 @@ export default function LlmCostsList() {
   }, []);
 
   function normalizeEnvelope(respData, { page, limit }) {
-    // Expected: { success, data, meta }
-    if (respData && Array.isArray(respData.data) && respData.meta) {
+    // Preferred: { success, data: [], meta: { page, limit, total } }
+    if (respData && typeof respData === "object" && Array.isArray(respData.data) && respData.meta) {
       return {
         data: respData.data || [],
         meta: {
           page: respData.meta.page || page || 1,
           limit: respData.meta.limit || limit || 20,
-          total: respData.meta.total || 0,
+          total: typeof respData.meta.total === "number" ? respData.meta.total : (respData.data?.length || 0),
         },
       };
     }
-    // Raw array fallback
+    // Some endpoints use { items, page, limit, total }
+    if (respData && typeof respData === "object" && Array.isArray(respData.items)) {
+      return {
+        data: respData.items,
+        meta: {
+          page: respData.page || page || 1,
+          limit: respData.limit || limit || 20,
+          total: typeof respData.total === "number" ? respData.total : (respData.items?.length || 0),
+        },
+      };
+    }
+    // Raw array fallback when pagination params not provided
     if (Array.isArray(respData)) {
       return {
         data: respData,
@@ -142,17 +153,6 @@ export default function LlmCostsList() {
           page: page || 1,
           limit: limit || respData.length || 20,
           total: respData.length || 0,
-        },
-      };
-    }
-    // Other shapes with items/page/limit/total
-    if (respData && Array.isArray(respData.items)) {
-      return {
-        data: respData.items,
-        meta: {
-          page: respData.page || page || 1,
-          limit: respData.limit || limit || 20,
-          total: respData.total || respData.items.length || 0,
         },
       };
     }

@@ -34,14 +34,31 @@ export async function fetchLlmCosts({ page = 1, limit = 20, organization_id, sor
  * { success, data, meta } so callers can rely on pagination controls.
  */
 export function normalizeEnvelope(response) {
+  // Preferred: { success, data: [], meta: { page, limit, total } }
   if (response && typeof response === 'object' && Array.isArray(response.data) && response.meta) {
     return {
-      success: Boolean(response.success),
+      success: typeof response.success === 'boolean' ? response.success : true,
       data: response.data,
-      meta: response.meta,
+      meta: {
+        page: response.meta.page || 1,
+        limit: response.meta.limit || (response.data?.length || 20),
+        total: typeof response.meta.total === 'number' ? response.meta.total : (response.data?.length || 0),
+      },
     };
   }
-  // Raw array fallback (when backend not given pagination params)
+  // Alternative: { items, page, limit, total }
+  if (response && typeof response === 'object' && Array.isArray(response.items)) {
+    return {
+      success: true,
+      data: response.items,
+      meta: {
+        page: response.page || 1,
+        limit: response.limit || (response.items?.length || 20),
+        total: typeof response.total === 'number' ? response.total : (response.items?.length || 0),
+      },
+    };
+  }
+  // Raw array fallback (no pagination supplied to server)
   if (Array.isArray(response)) {
     return {
       success: true,
@@ -60,3 +77,5 @@ export function normalizeEnvelope(response) {
     meta: { page: 1, limit: 20, total: 0 },
   };
 }
+// Note: organization_cost is a string like "$3005.442509" from the API; the UI should render this as-is,
+// not parse into a number. Use a fallback of "—" when null/undefined/empty.

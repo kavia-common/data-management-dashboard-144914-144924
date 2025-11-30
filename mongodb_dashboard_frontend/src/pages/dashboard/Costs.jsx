@@ -93,15 +93,24 @@ export default function Costs() {
         params: { organization_id, page, limit },
       });
 
-      // Normalize based on backend: envelope is either { success, data, meta } or { items, page, limit, total }
+      // Normalize based on backend envelope or fallbacks:
+      // Preferred: { success, data: [], meta: { page, limit, total } }
       let items = [];
       let nextMeta = { page, limit, total: 0 };
-      if (data && Array.isArray(data.items)) {
-        items = data.items;
-        nextMeta = { page: data.page || page, limit: data.limit || limit, total: data.total ?? items.length };
-      } else if (data && Array.isArray(data.data) && data.meta) {
+      if (data && Array.isArray(data.data) && data.meta) {
         items = data.data;
-        nextMeta = { page: data.meta.page || page, limit: data.meta.limit || limit, total: data.meta.total ?? items.length };
+        nextMeta = {
+          page: data.meta.page || page,
+          limit: data.meta.limit || limit,
+          total: typeof data.meta.total === "number" ? data.meta.total : (items.length || 0),
+        };
+      } else if (data && Array.isArray(data.items)) {
+        items = data.items;
+        nextMeta = {
+          page: data.page || page,
+          limit: data.limit || limit,
+          total: typeof data.total === "number" ? data.total : (items.length || 0),
+        };
       } else if (Array.isArray(data)) {
         items = data;
         nextMeta = { page, limit, total: items.length };
