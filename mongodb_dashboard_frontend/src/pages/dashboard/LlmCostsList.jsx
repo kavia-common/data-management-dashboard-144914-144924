@@ -1,27 +1,127 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, Fragment } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import TreeView from "../../components/TreeView.jsx";
-import { getApiClient } from "../../api/baseClient";
 import { useSearchParams } from "react-router-dom";
+import { listLlmCosts, normalizeEnvelope as normalizeCostsEnvelope } from "../../api/llmCosts";
+
+/**
+ * Renders a nested table of users for an organization row.
+ * Each user row is expandable to show projects with project_id and project_cost.
+ */
+function UsersNestedTable({ org }) {
+  const users = Array.isArray(org?.users) ? org.users : [];
+
+  if (!users.length) {
+    return (
+      <div style={{ padding: "8px 12px", fontStyle: "italic", color: "#6b7280" }}>
+        No users found for this organization.
+      </div>
+    );
+  }
+
+  return (
+    <table className="nested-table" style={{ width: "100%", borderCollapse: "collapse", marginTop: 8 }}>
+      <thead>
+        <tr style={{ textAlign: "left" }}>
+          <th style={{ padding: "6px 8px" }}>User ID</th>
+          <th style={{ padding: "6px 8px" }}>Type</th>
+          <th style={{ padding: "6px 8px" }}>User Cost</th>
+          <th style={{ padding: "6px 8px" }}>Projects Count</th>
+          <th style={{ padding: "6px 8px" }}>Details</th>
+        </tr>
+      </thead>
+      <tbody>
+        {users.map((u, idx) => {
+          const projectCount = Array.isArray(org?.projects) ? org.projects.length : (u?.project_count ?? 0);
+          const userCost = u?.user_cost ?? u?.cost ?? 0;
+          const type = u?.type ?? u?.role ?? "—";
+          const projects = Array.isArray(org?.projects) ? org.projects : [];
+          return (
+            <UserRowWithProjects
+              key={`${u?.user_id || u?._id || idx}`}
+              userId={u?.user_id || u?._id || "—"}
+              type={type}
+              userCost={userCost}
+              projectCount={projectCount}
+              projects={projects}
+            />
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
+
+function UserRowWithProjects({ userId, type, userCost, projectCount, projects }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Fragment>
+      <tr style={{ borderTop: "1px solid #e5e7eb" }}>
+        <td style={{ padding: "6px 8px" }}>{String(userId || "—")}</td>
+        <td style={{ padding: "6px 8px" }}>{type || "—"}</td>
+        <td style={{ padding: "6px 8px" }}>${Number(userCost || 0).toFixed(4)}</td>
+        <td style={{ padding: "6px 8px" }}>{Number(projectCount || 0)}</td>
+        <td style={{ padding: "6px 8px" }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setOpen((v) => !v)}
+            style={{ padding: "4px 8px", fontSize: 12 }}
+            aria-expanded={open}
+            aria-controls={`projects-${userId}`}
+          >
+            {open ? "Hide Projects" : "Show Projects"}
+          </button>
+        </td>
+      </tr>
+      {open && (
+        <tr id={`projects-${userId}`}>
+          <td colSpan={5} style={{ background: "#f9fafb" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", margin: "6px 0 8px 0" }}>
+              <thead>
+                <tr style={{ textAlign: "left" }}>
+                  <th style={{ padding: "4px 8px" }}>Project ID</th>
+                  <th style={{ padding: "4px 8px" }}>Project Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(Array.isArray(projects) ? projects : []).length ? (
+                  projects.map((p, idx) => (
+                    <tr key={`${p?.project_id || p?._id || idx}`} style={{ borderTop: "1px solid #e5e7eb" }}>
+                      <td style={{ padding: "4px 8px" }}>{p?.project_id || p?._id || "—"}</td>
+                      <td style={{ padding: "4px 8px" }}>${Number(p?.project_cost ?? p?.cost ?? 0).toFixed(4)}</td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={2} style={{ padding: "4px 8px", fontStyle: "italic", color: "#6b7280" }}>
+                      No projects found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      )}
+    </Fragment>
+  );
+}
 
 /**
  * PUBLIC_INTERFACE
- * LlmCostsList
- * Paginated listing that calls GET /api/llm-costs and renders:
- * _id, organization_id, organization_name, organization_cost, users_count, projects_count, agents_count.
- * Uses backend envelope { success, data, meta } when page/limit are provided.
- * Supports optional filtering by organization_id via query params (?organization_id or ?tenant_id).
- * Renders empty states and basic pagination controls.
+ * LlmCostsList with expandable organization rows to show users and per-user projects.
  */
 export default function LlmCostsList() {
   const [rows, setRows] = useState([]);
   const [meta, setMeta] = useState({ page: 1, limit: 20, total: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [expanded, setExpanded] = useState({});
 
-  // details modal (useful to inspect arrays)
   const [open, setOpen] = useState(false);
   const [detailTitle, setDetailTitle] = useState("");
   const [detailPayload, setDetailPayload] = useState(null);
@@ -44,143 +144,88 @@ export default function LlmCostsList() {
 
   const countOrZero = (arr) => (Array.isArray(arr) ? arr.length : 0);
 
-  const columns = useMemo(() => {
-    return [
-      {
-        key: "_id",
-        label: "ID",
-        render: (v) => <span title={v || ""}>{String(v || "—")}</span>,
-      },
+  const columns = useMemo(
+    () => [
       {
         key: "organization_id",
-        label: "Organization ID",
-        render: (v) => <span title={v || ""}>{String(v || "—")}</span>,
-      },
-      {
-        key: "organization_name",
-        label: "Organization Name",
-        render: (v) => <span title={v || ""}>{String(v || "—")}</span>,
+        label: "Organization",
+        render: (v, row) => String(v || row?.tenant_id || "—"),
       },
       {
         key: "organization_cost",
-        label: "Organization Cost",
-        // Render the value exactly as provided by API (e.g., "$3005.442509"); show "-" if undefined/null/empty string
+        label: "Total Cost",
         render: (v, row) => {
-          const val = row?.organization_cost ?? v;
-          const display = (val === null || val === undefined || val === "") ? "—" : String(val);
-          return <span title={display}>{display}</span>;
-        },
-      },
-      {
-        key: "users",
-        label: "Users Count",
-        render: (v, row) => {
-          const n = countOrZero(row?.users);
-          return (
-            <button
-              className="btn btn-ghost"
-              onClick={() => openDetails("Users", row?.users || [])}
-              aria-label="Show users"
-            >
-              {n.toString()}
-            </button>
-          );
+          const value = row?.total_cost ?? row?.organization_cost ?? row?.totalCost ?? 0;
+          return `$${Number(value || 0).toFixed(4)}`;
         },
       },
       {
         key: "projects",
-        label: "Projects Count",
-        render: (v, row) => {
-          const n = countOrZero(row?.projects);
-          return (
-            <button
-              className="btn btn-ghost"
-              onClick={() => openDetails("Projects", row?.projects || [])}
-              aria-label="Show projects"
-            >
-              {n.toString()}
-            </button>
-          );
-        },
+        label: "Projects",
+        render: (v, row) => countOrZero(row?.projects),
       },
       {
-        key: "agents",
-        label: "Agents Count",
-        render: (v, row) => {
-          const n = countOrZero(row?.agents);
+        key: "users",
+        label: "Users",
+        render: (v, row) => countOrZero(row?.users),
+      },
+      {
+        key: "updatedAt",
+        label: "Updated",
+        render: (v, row) => row.updatedAt || row.timestamp || row.createdAt || "—",
+      },
+      {
+        key: "__expander__",
+        label: "Details",
+        render: (_, row) => {
+          const id = row?.organization_id || row?.tenant_id || row?._id || JSON.stringify(row);
+          const isOpen = !!expanded[id];
           return (
             <button
-              className="btn btn-ghost"
-              onClick={() => openDetails("Agents", row?.agents || [])}
-              aria-label="Show agents"
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }))}
+              style={{ padding: "4px 8px", fontSize: 12 }}
+              aria-expanded={isOpen}
+              aria-controls={`users-${id}`}
             >
-              {n.toString()}
+              {isOpen ? "Hide Users" : "Show Users"}
             </button>
           );
         },
       },
-    ];
-  }, []);
+    ],
+    [expanded]
+  );
 
-  function normalizeEnvelope(respData, { page, limit }) {
-    // Preferred: { success, data: [], meta: { page, limit, total } }
-    if (respData && typeof respData === "object" && Array.isArray(respData.data) && respData.meta) {
-      return {
-        data: respData.data || [],
-        meta: {
-          page: respData.meta.page || page || 1,
-          limit: respData.meta.limit || limit || 20,
-          total: typeof respData.meta.total === "number" ? respData.meta.total : (respData.data?.length || 0),
-        },
-      };
-    }
-    // Some endpoints use { items, page, limit, total }
-    if (respData && typeof respData === "object" && Array.isArray(respData.items)) {
-      return {
-        data: respData.items,
-        meta: {
-          page: respData.page || page || 1,
-          limit: respData.limit || limit || 20,
-          total: typeof respData.total === "number" ? respData.total : (respData.items?.length || 0),
-        },
-      };
-    }
-    // Raw array fallback when pagination params not provided
-    if (Array.isArray(respData)) {
-      return {
-        data: respData,
-        meta: {
-          page: page || 1,
-          limit: limit || respData.length || 20,
-          total: respData.length || 0,
-        },
-      };
-    }
-    return { data: [], meta: { page: page || 1, limit: limit || 20, total: 0 } };
+  function normalize(res, { page, limit }) {
+    const env = normalizeCostsEnvelope(res);
+    return {
+      data: (env?.data || []).map((item) => ({
+        ...item,
+        users: Array.isArray(item?.users) ? item.users : [],
+        projects: Array.isArray(item?.projects) ? item.projects : [],
+      })),
+      meta: env?.meta || { page, limit, total: env?.data?.length || 0 },
+    };
   }
 
   async function load(page = 1, limit = meta.limit || 20) {
     setLoading(true);
     setError("");
     try {
-      const api = getApiClient();
-      const { data } = await api.get("/api/llm-costs", {
-        params: {
-          page,
-          limit,
-          ...(organizationIdParam ? { organization_id: organizationIdParam } : {}),
-        },
-      });
-
-      const { data: items, meta: nextMeta } = normalizeEnvelope(data, {
+      const res = await listLlmCosts({
         page,
         limit,
+        sort: "-updatedAt",
+        ...(organizationIdParam ? { organization_id: organizationIdParam } : {}),
       });
+
+      const { data: items, meta: nextMeta } = normalize(res, { page, limit });
 
       if (process.env.NODE_ENV !== "production") {
         // eslint-disable-next-line no-console
-        const first = Array.isArray(items) && items.length ? items[0] : null;
-        console.log("[llm-costs] sample row:", first);
+        console.log("[llm-costs] sample row:", Array.isArray(items) && items.length ? items[0] : null);
       }
 
       setRows(items);
@@ -195,15 +240,11 @@ export default function LlmCostsList() {
   }
 
   useEffect(() => {
-    // initial and when org filter changes
     load(1, meta.limit || 20);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organizationIdParam]);
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil((meta.total || 0) / (meta.limit || 20))
-  );
+  const totalPages = Math.max(1, Math.ceil((meta.total || 0) / (meta.limit || 20)));
 
   const handlePageChange = (newPage) => {
     if (newPage < 1 || newPage > totalPages) return;
@@ -232,7 +273,7 @@ export default function LlmCostsList() {
 
   return (
     <div>
-      <Card title="LLM Costs" subtitle="Raw LLM cost documents (as-is)">
+      <Card title="LLM Costs" subtitle="Nested view with Users and per-user Projects">
         <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
           <div>
             <label>
@@ -273,32 +314,35 @@ export default function LlmCostsList() {
           <div>No LLM cost records found.</div>
         ) : (
           <>
-            <DataTable
-              columns={columns}
-              data={rows}
-              loading={loading}
-              pageSize={meta.limit || 20}
-            />
+            <DataTable columns={columns} data={rows} loading={loading} pageSize={meta.limit || 20} />
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
-              <button
-                onClick={() => handlePageChange((meta.page || 1) - 1)}
-                disabled={(meta.page || 1) <= 1}
-              >
+              <button onClick={() => handlePageChange((meta.page || 1) - 1)} disabled={(meta.page || 1) <= 1}>
                 Previous
               </button>
-              <div>
-                Page {meta.page || 1} of {totalPages}
-              </div>
-              <button
-                onClick={() => handlePageChange((meta.page || 1) + 1)}
-                disabled={(meta.page || 1) >= totalPages}
-              >
+              <div>Page {meta.page || 1} of {totalPages}</div>
+              <button onClick={() => handlePageChange((meta.page || 1) + 1)} disabled={(meta.page || 1) >= totalPages}>
                 Next
               </button>
             </div>
           </>
         )}
       </Card>
+
+      {/* Row sub-components: rendered below main table based on expanded state */}
+      <div style={{ marginTop: 8 }}>
+        {rows.map((row) => {
+          const id = row?.organization_id || row?.tenant_id || row?._id || JSON.stringify(row);
+          if (!expanded[id]) return null;
+          return (
+            <div key={`sub-${id}`} id={`users-${id}`} style={{ padding: "8px 4px 12px 4px", background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, marginBottom: 12 }}>
+              <div style={{ fontWeight: 600, marginBottom: 8 }}>
+                Users — {String(row?.organization_id || row?.tenant_id || "—")}
+              </div>
+              <UsersNestedTable org={row} />
+            </div>
+          );
+        })}
+      </div>
 
       <Modal
         title={detailTitle}

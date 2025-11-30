@@ -1,45 +1,60 @@
 import client from './client';
-import buildFilterParam from './buildFilterParam';
+import { buildFilterParam } from './buildFilterParam';
 
 /**
- * PUBLIC_INTERFACE
- * Fetch a paginated list of LLM cost documents.
- * Supports optional filtering by organization_id via header or query params.
- * When page/limit are provided, backend returns { success, data, meta } envelope.
+ * Ensure the llm-costs document preserves users and projects arrays if provided by backend.
+ * We also guard against missing/null values without reshaping nested structures.
  */
-export async function fetchLlmCosts({ page = 1, limit = 20, organization_id, sort, filter } = {}) {
-  const params = {};
+function passThroughUsersProjects(item) {
+  const users = Array.isArray(item?.users) ? item.users : [];
+  const projects = Array.isArray(item?.projects) ? item.projects : [];
+  return { ...item, users, projects };
+}
 
+// PUBLIC_INTERFACE
+/**
+ * Fetch a paginated list of LLM cost documents from /api/llm-costs.
+ * If the backend returns an envelope, it is preserved with users/projects arrays passed through on each item.
+ * If the backend returns a raw array, we return an array with users/projects normalized to arrays.
+ */
+export async function listLlmCosts({ page, limit, sort, filter, organization_id, tenant_id } = {}) {
+  const params = {};
   if (page) params.page = page;
   if (limit) params.limit = limit;
   if (sort) params.sort = sort;
-
-  // Optional query filter: ignore tenant fields inside filter; server will enforce scoping.
-  if (filter && typeof filter === 'object') {
+  if (organization_id) params.organization_id = organization_id;
+  if (tenant_id) params.tenant_id = tenant_id;
+  if (filter) {
     params.filter = buildFilterParam(filter);
   }
 
-  if (organization_id) {
-    // Pass as query param so it works without auth header; backend prioritizes header when JWT present.
-    params.organization_id = organization_id;
-  }
-
   const res = await client.get('/api/llm-costs', { params });
-  // Return the raw API envelope or array; callers should use response.data (for axios) or normalize it.
+
+  // Pass through envelope or array while preserving users/projects arrays intact.
+  if (res && res.data) {
+    if (Array.isArray(res.data)) {
+      return res.data.map(passThroughUsersProjects);
+    }
+    if (res.data && Array.isArray(res.data.data)) {
+      return {
+        ...res.data,
+        data: res.data.data.map(passThroughUsersProjects),
+      };
+    }
+  }
   return res.data;
 }
 
+// PUBLIC_INTERFACE
 /**
- * PUBLIC_INTERFACE
  * Normalizes envelope or raw array responses to a consistent shape
- * { success, data, meta } so callers can rely on pagination controls.
+ * { success, data, meta }, while preserving users/projects on items.
  */
 export function normalizeEnvelope(response) {
-  // Preferred: { success, data: [], meta: { page, limit, total } }
   if (response && typeof response === 'object' && Array.isArray(response.data) && response.meta) {
     return {
       success: typeof response.success === 'boolean' ? response.success : true,
-      data: response.data,
+      data: response.data.map(passThroughUsersProjects),
       meta: {
         page: response.meta.page || 1,
         limit: response.meta.limit || (response.data?.length || 20),
@@ -47,11 +62,10 @@ export function normalizeEnvelope(response) {
       },
     };
   }
-  // Alternative: { items, page, limit, total }
   if (response && typeof response === 'object' && Array.isArray(response.items)) {
     return {
       success: true,
-      data: response.items,
+      data: response.items.map(passThroughUsersProjects),
       meta: {
         page: response.page || 1,
         limit: response.limit || (response.items?.length || 20),
@@ -59,11 +73,10 @@ export function normalizeEnvelope(response) {
       },
     };
   }
-  // Raw array fallback (no pagination supplied to server)
   if (Array.isArray(response)) {
     return {
       success: true,
-      data: response,
+      data: response.map(passThroughUsersProjects),
       meta: {
         page: 1,
         limit: response.length,
@@ -71,12 +84,14 @@ export function normalizeEnvelope(response) {
       },
     };
   }
-  // Unexpected shape
   return {
     success: false,
     data: [],
     meta: { page: 1, limit: 20, total: 0 },
   };
 }
-// Note: organization_cost is a string like "$3005.442509" from the API; the UI should render this as-is,
-// not parse into a number. Use a fallback of "—" when null/undefined/empty.
+
+export default {
+  listLlmCosts,
+  normalizeEnvelope,
+};
