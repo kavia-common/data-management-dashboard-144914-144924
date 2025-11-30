@@ -17,11 +17,11 @@ export default function LlmCostsUsers({ organizationId }) {
   const [loading, setLoading] = useState(false);
 
   const columns = useMemo(() => ([
-    { Header: 'Organization', accessor: r => r.organization_id || '—' },
-    { Header: 'User', accessor: r => r.user_id || '—' },
-    { Header: 'Type', accessor: r => r.type || '—' },
-    { Header: 'User Cost', accessor: r => `$${Number(r.user_cost || 0).toFixed(4)}` },
-    { Header: 'Projects', accessor: r => Number(r.project_count || 0) }
+    { key: 'organization_id', label: 'Organization' },
+    { key: 'user_id', label: 'User' },
+    { key: 'type', label: 'Type' },
+    { key: 'user_cost', label: 'User Cost', render: (v) => `$${Number(v || 0).toFixed(4)}` },
+    { key: 'project_count', label: 'Projects', render: (v) => Number(v || 0) }
   ]), []);
 
   async function fetchUsers(p = page, l = limit) {
@@ -55,7 +55,8 @@ export default function LlmCostsUsers({ organizationId }) {
           loading={loading}
           page={page}
           pageSize={limit}
-          total={total}
+          serverTotal={total}
+          fetchPage={(newPage, pageSize) => fetchUsers(newPage, pageSize)}
           onPageChange={(p) => fetchUsers(p, limit)}
           onPageSizeChange={(s) => fetchUsers(1, s)}
         />
