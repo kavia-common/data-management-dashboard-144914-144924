@@ -25,6 +25,7 @@ export async function fetchLlmCosts({ page = 1, limit = 20, organization_id, sor
   }
 
   const res = await client.get('/api/llm-costs', { params });
+  // Return the raw API envelope or array; callers should use response.data (for axios) or normalize it.
   return res.data;
 }
 

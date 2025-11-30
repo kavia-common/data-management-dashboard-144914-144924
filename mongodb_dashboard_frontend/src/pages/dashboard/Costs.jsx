@@ -74,7 +74,17 @@ export default function Costs() {
   const columns = useMemo(() => {
     return [
       { key: "id", label: "ID", render: (v, row) => renderText(v ?? row?.id), priority: 1, maxWidth: 260 },
-      { key: "organization_cost", label: "Organization Cost", render: (v) => renderCurrency(v), priority: 1 },
+      {
+        key: "organization_cost",
+        label: "Organization Cost",
+        render: (v, row) => {
+          const raw = row?.organization_cost ?? v;
+          // Render exactly as provided by API (string like "$3005.44"); show '-' if missing
+          const display = raw === null || raw === undefined || raw === "" ? "—" : String(raw);
+          return <span title={display} style={{ whiteSpace: "nowrap" }}>{display}</span>;
+        },
+        priority: 1
+      },
       { key: "user_id", label: "User ID", render: (v) => renderText(v), priority: 1 },
       { key: "type", label: "Type", render: (v) => renderText(v), priority: 2 },
       { key: "user_cost", label: "User Cost", render: (v) => renderCurrency(v), priority: 1 },
@@ -97,34 +107,40 @@ export default function Costs() {
       // Preferred: { success, data: [], meta: { page, limit, total } }
       let items = [];
       let nextMeta = { page, limit, total: 0 };
-      if (data && Array.isArray(data.data) && data.meta) {
+      if (data && Array.isArray(data?.data) && data?.meta) {
         items = data.data;
         nextMeta = {
-          page: data.meta.page || page,
-          limit: data.meta.limit || limit,
-          total: typeof data.meta.total === "number" ? data.meta.total : (items.length || 0),
+          page: data.meta?.page || page,
+          limit: data.meta?.limit || limit,
+          total: typeof data.meta?.total === "number" ? data.meta.total : (items.length || 0),
         };
-      } else if (data && Array.isArray(data.items)) {
+      } else if (data && Array.isArray(data?.items)) {
         items = data.items;
         nextMeta = {
-          page: data.page || page,
-          limit: data.limit || limit,
-          total: typeof data.total === "number" ? data.total : (items.length || 0),
+          page: data?.page || page,
+          limit: data?.limit || limit,
+          total: typeof data?.total === "number" ? data.total : (items.length || 0),
         };
       } else if (Array.isArray(data)) {
         items = data;
         nextMeta = { page, limit, total: items.length };
       }
 
-      // Ensure each row only has the specified fields to display
+      // Directly use fields; do not rename organization_cost
       const safeRows = (items || []).map((r) => ({
-        id: r.id ?? r._id ?? r.ID ?? r.Id ?? null,
-        organization_cost: r.organization_cost ?? r.org_cost ?? r.total_cost ?? null,
-        user_id: r.user_id ?? r.user ?? null,
-        type: r.type ?? null,
-        user_cost: r.user_cost ?? null,
-        project_count: r.project_count ?? r.projects_count ?? null,
+        id: r?.id ?? r?._id ?? null,
+        organization_cost: r?.organization_cost ?? null,
+        user_id: r?.user_id ?? null,
+        type: r?.type ?? null,
+        user_cost: r?.user_cost ?? null,
+        project_count: r?.project_count ?? null,
       }));
+
+      if (process.env.NODE_ENV !== "production") {
+        const sample = safeRows[0] || null;
+        // eslint-disable-next-line no-console
+        console.log("[costs] sample row:", sample);
+      }
 
       setRows(safeRows);
       setMeta(nextMeta);

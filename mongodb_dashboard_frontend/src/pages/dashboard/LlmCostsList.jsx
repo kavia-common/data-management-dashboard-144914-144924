@@ -177,9 +177,10 @@ export default function LlmCostsList() {
         limit,
       });
 
-      if (!items.length && process.env.NODE_ENV !== "production") {
+      if (process.env.NODE_ENV !== "production") {
         // eslint-disable-next-line no-console
-        console.info("[llm-costs] no matches for current filter/page");
+        const first = Array.isArray(items) && items.length ? items[0] : null;
+        console.log("[llm-costs] sample row:", first);
       }
 
       setRows(items);

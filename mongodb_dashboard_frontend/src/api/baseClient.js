@@ -253,11 +253,23 @@ async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {
 }
 
 function normalizeListPayload(payload) {
-  const items = Array.isArray(payload) ? payload : payload?.data || [];
-  const total =
-    (payload && payload.meta && typeof payload.meta.total === "number" && payload.meta.total) ||
-    (Array.isArray(items) ? items.length : 0);
-  return { items, total, meta: payload?.meta || null };
+  // Return the envelope shape unmodified when present so callers can use response.data.data
+  if (payload && typeof payload === "object" && Array.isArray(payload.data)) {
+    return { success: payload.success ?? true, data: payload.data, meta: payload.meta ?? null };
+  }
+  // Some endpoints return { items, page, limit, total }
+  if (payload && typeof payload === "object" && Array.isArray(payload.items)) {
+    return {
+      success: true,
+      data: payload.items,
+      meta: { page: payload.page ?? 1, limit: payload.limit ?? payload.items.length ?? 0, total: payload.total ?? payload.items.length ?? 0 },
+    };
+  }
+  // Raw array fallback
+  if (Array.isArray(payload)) {
+    return { success: true, data: payload, meta: { page: 1, limit: payload.length, total: payload.length } };
+  }
+  return { success: false, data: [], meta: { page: 1, limit: 0, total: 0 } };
 }
 
 // PUBLIC_INTERFACE
@@ -310,7 +322,7 @@ export async function listDeployments(params = {}) {
 
 // PUBLIC_INTERFACE
 export async function listLlmCosts(params = {}) {
-  /** Lists LLM cost records normalized to { items, total, meta }. */
+  /** Lists LLM cost records; returns API envelope when available: { success, data, meta }. */
   const res = await httpGet("/api/llm-costs", { params });
   return normalizeListPayload(res.data);
 }
