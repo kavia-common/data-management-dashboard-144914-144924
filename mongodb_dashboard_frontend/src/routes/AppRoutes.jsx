@@ -10,7 +10,7 @@ const Sessions = lazy(() => import("../pages/dashboard/Sessions"));
 const Deployments = lazy(() => import("../pages/dashboard/Deployments"));
 const Costs = lazy(() => import("../pages/dashboard/Costs"));
 const LlmCostsList = lazy(() => import("../pages/dashboard/LlmCostsList"));
-const LlmCostsWithUsers = lazy(() => import("../pages/dashboard/LlmCostsWithUsers"));
+
 
 const Login = lazy(() => import("../pages/Login"));
 
@@ -102,16 +102,7 @@ export default function AppRoutes() {
             </AppLayout>
           }
         />
-        <Route
-          path="/dashboard/llm-costs-users"
-          element={
-            <AppLayout>
-              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
-                <LlmCostsWithUsers />
-              </Suspense>
-            </AppLayout>
-          }
-        />
+
 
 
       </Route>

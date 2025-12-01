@@ -11,9 +11,9 @@ import { getOrganizationId } from "../../api/authTokenProvider";
 /**
  * PUBLIC_INTERFACE
  * Costs page
- * - Renders a per-user LLM costs table (from GET /api/llm-costs with pagination)
- * - Only displays specified fields: id, organization_cost, user_id, type, user_cost, project_count
- * - Handles server-driven pagination (page/limit/total) and loading/error states
+ * - Uses GET /api/llm-costs with pagination and flattens per-item users[] into table rows.
+ * - Renders columns: User ID, Type, User Cost, Project Count (with required fallbacks).
+ * - Preserves loading/empty/error states and server-driven pagination via organization_id, page, limit.
  */
 export default function Costs() {
   const [rows, setRows] = useState([]);
@@ -21,7 +21,7 @@ export default function Costs() {
   const [error, setError] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // Inspector modal state (retained for future nested views if needed)
+  // Inspector modal (kept for viewing raw payloads if needed)
   const [inspectOpen, setInspectOpen] = useState(false);
   const [inspectTitle, setInspectTitle] = useState("Details");
   const [inspectPayload, setInspectPayload] = useState(null);
@@ -56,7 +56,7 @@ export default function Costs() {
       </span>
     );
   };
-  const renderCurrency = (num) => {
+  const renderUsd = (num) => {
     if (num == null || num === "" || Number.isNaN(Number(num))) return "—";
     return (
       <span className="amount-positive" style={{ whiteSpace: "nowrap" }}>
@@ -70,79 +70,125 @@ export default function Costs() {
     return <span title={n.toLocaleString()}>{n.toLocaleString()}</span>;
   };
 
-  // Build fixed columns for the specified fields only
+  // Columns: Only the requested fields
   const columns = useMemo(() => {
     return [
-      { key: "id", label: "ID", render: (v, row) => renderText(v ?? row?.id), priority: 1, maxWidth: 260 },
       {
-        key: "organization_cost",
-        label: "Organization Cost",
-        render: (v, row) => {
-          const raw = row?.organization_cost ?? v;
-          // Render exactly as provided by API (string like "$3005.44"); show '-' if missing
-          const display = raw === null || raw === undefined || raw === "" ? "—" : String(raw);
-          return <span title={display} style={{ whiteSpace: "nowrap" }}>{display}</span>;
-        },
-        priority: 1
+        key: "user_id",
+        label: "User ID",
+        render: (v, row) => renderText(v ?? row?.user?._id ?? row?.userId ?? row?._id ?? "—"),
+        priority: 1,
+        maxWidth: 280,
       },
-      { key: "user_id", label: "User ID", render: (v) => renderText(v), priority: 1 },
-      { key: "type", label: "Type", render: (v) => renderText(v), priority: 2 },
-      { key: "user_cost", label: "User Cost", render: (v) => renderCurrency(v), priority: 1 },
-      { key: "project_count", label: "Project Count", render: (v) => renderInteger(v), priority: 2 },
+      {
+        key: "type",
+        label: "Type",
+        render: (v, row) => {
+          // Prefer users[i].type, else top-level item.type if present (we keep an originType on flatten)
+          const t = v ?? row?.originType ?? "—";
+          return renderText(t);
+        },
+        priority: 2,
+        maxWidth: 180,
+      },
+      {
+        key: "user_cost",
+        label: "User Cost",
+        render: (v, row) => {
+          const cost = v ?? row?.cost ?? row?.userCost ?? null;
+          return renderUsd(cost);
+        },
+        priority: 1,
+      },
+      {
+        key: "project_count",
+        label: "Project Count",
+        render: (v) => renderInteger(v),
+        priority: 2,
+      },
     ];
   }, []);
 
-  // Core loader: GET /api/llm-costs with organization_id, page, limit
+  // Normalize and flatten users into rows with required fallbacks
+  function flattenItemsToUserRows(items) {
+    const out = [];
+    (items || []).forEach((item) => {
+      const topLevelType = item?.type ?? item?.cost_type ?? item?.kind ?? null;
+      const users = Array.isArray(item?.users) ? item.users : [];
+      // If users[] exists: one row per user
+      if (users.length) {
+        users.forEach((u) => {
+          const row = {
+            // field mappings and fallbacks
+            user_id: u?.user_id ?? u?.user?._id ?? u?._id ?? u?.user_id_str ?? null,
+            type: u?.type ?? topLevelType ?? null,
+            user_cost: u?.user_cost ?? u?.cost ?? null,
+            project_count: u?.project_count ?? (
+              Array.isArray(item?.projects) ? item.projects.length : null
+            ),
+            // keep original ctx to allow inspector
+            __origin: item,
+            originType: topLevelType,
+          };
+          out.push(row);
+        });
+      } else {
+        // No users[]: still push a placeholder row to reflect record context
+        out.push({
+          user_id: null,
+          type: topLevelType ?? null,
+          user_cost: null,
+          project_count: Array.isArray(item?.projects) ? item.projects.length : null,
+          __origin: item,
+          originType: topLevelType,
+        });
+      }
+    });
+    return out;
+  }
+
+  // Loader using /api/llm-costs with pagination and organization_id
   async function load(page = 1, limit = meta.limit || 10) {
     setLoading(true);
     setError("");
     try {
       const api = getApiClient();
-      const organization_id = getOrganizationId(); // appended in base client too; we also pass explicitly as query
-      const { data } = await api.get("/api/llm-costs", {
+      const organization_id = getOrganizationId();
+      const res = await api.get("/api/llm-costs", {
         params: { organization_id, page, limit },
       });
 
-      // Normalize based on backend envelope or fallbacks:
-      // Preferred: { success, data: [], meta: { page, limit, total } }
       let items = [];
       let nextMeta = { page, limit, total: 0 };
+
+      const data = res?.data;
       if (data && Array.isArray(data?.data) && data?.meta) {
         items = data.data;
         nextMeta = {
           page: data.meta?.page || page,
           limit: data.meta?.limit || limit,
-          total: typeof data.meta?.total === "number" ? data.meta.total : (items.length || 0),
+          total: typeof data.meta?.total === "number" ? data.meta.total : (data.data?.length || 0),
         };
       } else if (data && Array.isArray(data?.items)) {
         items = data.items;
         nextMeta = {
           page: data?.page || page,
           limit: data?.limit || limit,
-          total: typeof data?.total === "number" ? data.total : (items.length || 0),
+          total: typeof data?.total === "number" ? data.total : (data.items?.length || 0),
         };
       } else if (Array.isArray(data)) {
         items = data;
         nextMeta = { page, limit, total: items.length };
       }
 
-      // Directly use fields; do not rename organization_cost
-      const safeRows = (items || []).map((r) => ({
-        id: r?.id ?? r?._id ?? null,
-        organization_cost: r?.organization_cost ?? null,
-        user_id: r?.user_id ?? null,
-        type: r?.type ?? null,
-        user_cost: r?.user_cost ?? null,
-        project_count: r?.project_count ?? null,
-      }));
+      const flatRows = flattenItemsToUserRows(items);
 
       if (process.env.NODE_ENV !== "production") {
-        const sample = safeRows[0] || null;
         // eslint-disable-next-line no-console
-        console.log("[costs] sample row:", sample);
+        console.log("[Costs] flat sample row:", flatRows?.[0] || null);
       }
 
-      setRows(safeRows);
+      setRows(flatRows);
       setMeta(nextMeta);
     } catch (e) {
       setRows([]);
@@ -153,18 +199,13 @@ export default function Costs() {
   }
 
   useEffect(() => {
-    // Initial load
     load(1, meta.limit || 10);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (
     <div>
-      <Card
-        title="Costs"
-        subtitle="Per-user LLM costs"
-        className="mt-4"
-      >
+      <Card title="Costs" subtitle="Per-user LLM costs (flattened view)" className="mt-4">
         {loading && !rows.length && !error && (
           <div className="text-muted" aria-live="polite">Loading…</div>
         )}
@@ -182,11 +223,12 @@ export default function Costs() {
           fetchPage={async (page, limit) => {
             await load(page, limit);
           }}
-          paginationTitle="Users costs pages"
+          paginationTitle="User cost pages"
+          onRowClick={(row) => openInspector("Row details", row?.__origin || row)}
         />
       </Card>
 
-      {/* Reserved inspector (not actively used for this flat dataset) */}
+      {/* Inspector for context payloads */}
       <Modal
         title={inspectTitle}
         open={inspectOpen}
@@ -198,15 +240,12 @@ export default function Costs() {
           <button className="btn btn-ghost" onClick={closeInspector} aria-label="Close details">Close</button>
         }
       >
-        <CostsTreeInspector
-          payload={inspectPayload}
-        />
+        <CostsTreeInspector payload={inspectPayload} />
       </Modal>
     </div>
   );
 }
 
-// Minimal inspector (kept to preserve prior UX hook-up)
 function CostsTreeInspector({ payload }) {
   if (!payload) {
     return <div style={{ padding: "1rem" }}>No item selected</div>;
