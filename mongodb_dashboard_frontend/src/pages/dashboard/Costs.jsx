@@ -95,7 +95,8 @@ export default function Costs() {
         key: "user_cost",
         label: "User Cost",
         render: (v, row) => {
-          const cost = v ?? row?.cost ?? row?.userCost ?? null;
+          // Must use users[i].user_cost for each user entry
+          const cost = row?.user_cost ?? null;
           return renderUsd(cost);
         },
         priority: 1,
@@ -115,30 +116,36 @@ export default function Costs() {
     (items || []).forEach((item) => {
       const topLevelType = item?.type ?? item?.cost_type ?? item?.kind ?? null;
       const users = Array.isArray(item?.users) ? item.users : [];
-      // If users[] exists: one row per user
       if (users.length) {
         users.forEach((u) => {
-          const row = {
-            // field mappings and fallbacks
-            user_id: u?.user_id ?? u?.user?._id ?? u?._id ?? u?.user_id_str ?? null,
-            type: u?.type ?? topLevelType ?? null,
-            user_cost: u?.user_cost ?? u?.cost ?? null,
-            project_count: u?.project_count ?? (
-              Array.isArray(item?.projects) ? item.projects.length : null
-            ),
-            // keep original ctx to allow inspector
+          // Compute user-specific fields with null-safe access.
+          const userId =
+            u?.user_id ?? u?.user?._id ?? u?._id ?? u?.user_id_str ?? null;
+          const type = u?.type ?? topLevelType ?? null;
+          // User Cost strictly from users[i].user_cost (null if missing)
+          const userCost =
+            typeof u?.user_cost === "number" ? u.user_cost : u?.user_cost ?? null;
+          // Project Count from users[i].projects?.length || 0
+          const projectCount = Array.isArray(u?.projects)
+            ? u.projects.length
+            : 0;
+
+          out.push({
+            user_id: userId,
+            type,
+            user_cost: userCost,
+            project_count: projectCount,
             __origin: item,
             originType: topLevelType,
-          };
-          out.push(row);
+          });
         });
       } else {
-        // No users[]: still push a placeholder row to reflect record context
+        // Without users[], push a placeholder context row; keep counts safe.
         out.push({
           user_id: null,
           type: topLevelType ?? null,
           user_cost: null,
-          project_count: Array.isArray(item?.projects) ? item.projects.length : null,
+          project_count: 0,
           __origin: item,
           originType: topLevelType,
         });
