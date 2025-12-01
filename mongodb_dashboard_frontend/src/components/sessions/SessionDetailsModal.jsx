@@ -296,7 +296,7 @@ function SessionDetailsModal({ open, onClose, session }) {
       'Total Duration': totalDurationPretty,
       'Total Cost Consumed': totalCostText,
     };
-  }, [session, fetchedUserName, fetchingUserName, resolveUserName]);
+  }, [session, fetchedUserName, fetchingUserName, resolveUserName, toHms, computeDurationPretty]);
 
   // Normalize and memoize session_breakdown list (kept for reference, no IP/secondary details)
   const breakdownList = useMemo(() => {
