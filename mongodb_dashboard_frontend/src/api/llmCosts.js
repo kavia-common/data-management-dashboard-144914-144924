@@ -91,7 +91,8 @@ export function normalizeEnvelope(response) {
   };
 }
 
-export default {
+const llmCostsApi = {
   listLlmCosts,
   normalizeEnvelope,
 };
+export default llmCostsApi;

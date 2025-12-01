@@ -128,7 +128,8 @@ export default function Overview() {
       cancelled = true;
     };
     // include API functions as dependencies to satisfy exhaustive-deps; they are module-stable
-  }, [listUsers, listSessions, listDeployments]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Backend health check (non-blocking)
   useEffect(() => {

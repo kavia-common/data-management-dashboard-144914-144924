@@ -132,11 +132,6 @@ export default function LlmCostsList() {
     searchParams.get("tenant_id") ||
     undefined;
 
-  const openDetails = (title, payload) => {
-    setDetailTitle(title);
-    setDetailPayload(payload);
-    setOpen(true);
-  };
   const closeDetails = () => {
     setOpen(false);
     setDetailPayload(null);

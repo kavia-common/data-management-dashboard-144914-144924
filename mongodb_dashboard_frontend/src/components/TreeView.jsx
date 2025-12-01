@@ -52,9 +52,9 @@ const TreeView = forwardRef(function TreeView(
   // - all expandable paths (objects/arrays)
   // - paths that match search (keys or primitive values)
   // - ancestor paths for matches (for auto-expand)
-  const { allPaths, matchPaths, autoExpandPaths } = useMemo(() => {
+  const { allPaths, autoExpandPaths } = useMemo(() => {
     const expandablePaths = new Set();
-    const matches = new Set();
+
     const autoExpand = new Set();
     const term = normalizedTerm;
 
@@ -73,7 +73,6 @@ const TreeView = forwardRef(function TreeView(
             if (term && searchRegex) {
               const keyStr = String(i);
               if (searchRegex.test(keyStr)) {
-                matches.add(`${path}.${i}`);
                 // Add ancestors
                 addAncestors(`${path}.${i}`, autoExpand);
               }
@@ -82,7 +81,6 @@ const TreeView = forwardRef(function TreeView(
             if (term && searchRegex && (item == null || typeof item !== "object")) {
               const valStr = toDisplayString(item);
               if (searchRegex.test(valStr)) {
-                matches.add(`${path}.${i}`);
                 addAncestors(`${path}.${i}`, autoExpand);
               }
             }
@@ -97,14 +95,12 @@ const TreeView = forwardRef(function TreeView(
             if (term && searchRegex) {
               // Match key name
               if (searchRegex.test(k)) {
-                matches.add(childPath);
                 addAncestors(childPath, autoExpand);
               }
               // Match primitive value
               if (v == null || typeof v !== "object") {
                 const vs = toDisplayString(v);
                 if (searchRegex.test(vs)) {
-                  matches.add(childPath);
                   addAncestors(childPath, autoExpand);
                 }
               }
@@ -118,7 +114,7 @@ const TreeView = forwardRef(function TreeView(
     };
 
     visit(data, "root");
-    return { allPaths: expandablePaths, matchPaths: matches, autoExpandPaths: autoExpand };
+    return { allPaths: expandablePaths, autoExpandPaths: autoExpand };
   }, [data, normalizedTerm, searchRegex]);
 
   // Keep ref of all expandable paths to support expandAll quickly

@@ -23,11 +23,6 @@ import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
 function UserDetailsView({ user }) {
   if (!user) return <div className="text-gray-500">No user selected</div>;
 
-  const name =
-    user?.name ||
-    user?.full_name ||
-    `${user?.first_name ?? ''} ${user?.last_name ?? ''}`.trim() ||
-    '';
   const email = user?.email || '';
   const department =
     user?.department ??
@@ -40,6 +35,12 @@ function UserDetailsView({ user }) {
     user?.organization_name ??
     user?.organization ??
     user?.organization_id ??
+    '';
+
+  const resolvedName =
+    user?.name ||
+    user?.full_name ||
+    `${user?.first_name ?? ''} ${user?.last_name ?? ''}`.trim() ||
     '';
 
   return (
@@ -84,9 +85,9 @@ function UserDetailsView({ user }) {
               fontWeight: 600,
               wordBreak: "break-word",
             }}
-            title={name || undefined}
+            title={resolvedName || undefined}
           >
-            {name || "—"}
+            {resolvedName || "—"}
           </div>
         </div>
 
@@ -286,7 +287,7 @@ function UserProjectsView({ userId, tenantId, from, to }) {
                 margin: 0,
                 color: 'var(--text-primary, #111827)',
                 fontWeight: 600,
-                wordBreak: 'break-word',
+                wordBreak: 'word-break',
               }}
             >
               {String(id)}
@@ -654,10 +655,6 @@ export default function TabbedUserModal({
       };
     }, [items]);
 
-    // Note: Per request, hide sessionId, startedAt, and lastActive. We keep a minimal table for context (optional fields),
-    // but the main focus is the AggregatesPanel above. If needed, you can further trim columns here.
-
-
     // Aggregation panel UI (definition list two-column)
     const AggregatesPanel = () => {
       if (loading) {
@@ -720,7 +717,7 @@ export default function TabbedUserModal({
             <div>
               <span style={labelStyle}>User name</span>
               <div style={valueStyle} title={aggregate.userName || undefined}>
-                {aggregate.userName || (toStringSafe(user?.name || user?.full_name || user?.email) || '—')}
+                {aggregate.userName || (String(user?.name || user?.full_name || user?.email) || '—')}
               </div>
             </div>
 
@@ -780,8 +777,7 @@ export default function TabbedUserModal({
     return (
       <div data-testid="session-details-tab">
         <AggregatesPanel />
-        {/* Per requirements: remove any table/pagination and the entire second section.
-            Only the summary fields should remain visible. */}
+        {/* Only the summary fields should remain visible. */}
         {!loading && !error && (!Array.isArray(items) || items.length === 0) ? (
           <div
             style={{
@@ -849,8 +845,6 @@ export default function TabbedUserModal({
         return acc + (Number.isFinite(num) ? num : 0);
       }, 0);
     }, [rows]);
-
-
 
     return (
       <div data-testid="credits-consumed-tab">

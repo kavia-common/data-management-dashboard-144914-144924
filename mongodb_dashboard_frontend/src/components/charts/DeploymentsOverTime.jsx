@@ -100,7 +100,7 @@ function DeploymentsOverTime({ height = 320, className = "" }) {
     }
   }
 
-  function applyTimeRange(items) {
+  const applyTimeRange = React.useCallback(function applyTimeRange(items) {
     if (range === "all") return items;
     const now = new Date();
     let days = 30;
@@ -118,7 +118,7 @@ function DeploymentsOverTime({ height = 320, className = "" }) {
         return false;
       }
     });
-  }
+  }, [range]);
 
   const chartData = useMemo(() => {
     // Aggregate by day only (since Aggregation selector is removed)
@@ -135,7 +135,7 @@ function DeploymentsOverTime({ height = 320, className = "" }) {
       .map(([label, count]) => ({ label, count }))
       .sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
     return arr;
-  }, [raw, range]);
+  }, [raw, applyTimeRange]);
 
   return (
     <Card
