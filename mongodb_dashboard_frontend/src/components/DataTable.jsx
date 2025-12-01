@@ -110,7 +110,7 @@ export default function DataTable({
   // In client mode slice locally; in server mode assume data already corresponds to current page (and is globally sorted by server)
   const start = (currentPage - 1) * Math.max(1, pageSize);
   const end = start + Math.max(1, pageSize);
-  const pageRows = isServerMode ? (data || []) : sorted.slice(start, end);
+  const pageRows = isServerMode ? safeData : sorted.slice(start, end);
 
   async function setPageAndNotify(p) {
     const next = Math.min(Math.max(1, p), totalPages);

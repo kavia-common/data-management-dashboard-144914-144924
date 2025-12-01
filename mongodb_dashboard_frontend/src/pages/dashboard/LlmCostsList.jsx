@@ -162,6 +162,7 @@ export default function LlmCostsList() {
   const closeDetails = () => {
     setOpen(false);
     setDetailPayload(null);
+    setDetailTitle("");
   };
 
   const countOrZero = (arr) => (Array.isArray(arr) ? arr.length : 0);
@@ -206,7 +207,12 @@ export default function LlmCostsList() {
             <button
               type="button"
               className="btn btn-secondary"
-              onClick={() => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }))}
+              onClick={() => {
+                setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+                if (!isOpen) {
+                  setDetailTitle(`Users and Projects — ${String(row?.organization_id || row?.tenant_id || '—')}`);
+                }
+              }}
               style={{ padding: "4px 8px", fontSize: 12 }}
               aria-expanded={isOpen}
               aria-controls={`users-${id}`}

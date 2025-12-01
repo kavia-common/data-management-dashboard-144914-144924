@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import Modal from '../ui/Modal.jsx';
 import { useDataContext } from '../../context/DataContext.jsx';
 import { toTitleCaseName } from '../../utils/stringFormatters.js';
@@ -84,7 +84,7 @@ function SessionDetailsModal({ open, onClose, session }) {
     return '—';
   };
 
-  const resolveUserName = (userRef) => {
+  const resolveUserName = useCallback((userRef) => {
     if (!userRef) return 'Unknown User';
     if (typeof userRef === 'string') {
       const candidate = users?.find?.(
@@ -130,7 +130,7 @@ function SessionDetailsModal({ open, onClose, session }) {
       );
     }
     return 'Unknown User';
-  };
+  }, [users]);
 
   const pickFrom = (s, keys) => {
     for (const k of keys) {
@@ -158,7 +158,7 @@ function SessionDetailsModal({ open, onClose, session }) {
   const title = useMemo(() => {
     const id = session?.sessionId || session?._id || session?.id || '';
     return `Session Details - ${id || '—'}`;
-  }, [session, computeDurationPretty]);
+  }, [session]);
 
   // Fetch a basic user name when DataContext could not resolve a meaningful name
   useEffect(() => {

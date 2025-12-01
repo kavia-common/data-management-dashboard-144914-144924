@@ -42,7 +42,7 @@ export function useUserProjects(options = {}) {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, tenantId, enabled, from, to]);
+  }, [canFetch, userId, tenantId, from, to]);
 
   return { projects, loading, error, refetch: load };
 }

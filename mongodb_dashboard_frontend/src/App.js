@@ -28,7 +28,7 @@ function useIsBelowDesktopBreakpoint(breakpoint = 1024) {
     // initialize once in case the first render occurred before CSS/layout settled
     onResize();
     return () => window.removeEventListener("resize", onResize);
-  }, [getState]);
+  }, []); // getState only captures breakpoint and window; safe to run once for listener registration
 
   return isBelow;
 }
