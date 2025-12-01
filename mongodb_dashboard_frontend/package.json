@@ -14,8 +14,8 @@
     "recharts": "^2.12.7"
   },
   "scripts": {
-    "start": "cross-env NODE_OPTIONS=\"--max-old-space-size=256\" CHOKIDAR_USEPOLLING=false WATCHPACK_POLLING=false BROWSER=none react-scripts start",
-    "dev": "cross-env NODE_OPTIONS=\"--max-old-space-size=256\" CHOKIDAR_USEPOLLING=false WATCHPACK_POLLING=false BROWSER=none react-scripts start",
+    "start": "cross-env HOST=0.0.0.0 PORT=3000 NODE_OPTIONS=\"--max-old-space-size=256\" CHOKIDAR_USEPOLLING=false WATCHPACK_POLLING=false BROWSER=none react-scripts start",
+    "dev": "cross-env HOST=0.0.0.0 PORT=3000 NODE_OPTIONS=\"--max-old-space-size=256\" CHOKIDAR_USEPOLLING=false WATCHPACK_POLLING=false BROWSER=none react-scripts start",
     "build": "cross-env NODE_OPTIONS=\"--max-old-space-size=512\" react-scripts build",
     "test": "cross-env CI=true NODE_OPTIONS=\"--max-old-space-size=256\" react-scripts test --watchAll=false",
     "eject": "react-scripts eject"

@@ -64,6 +64,13 @@ const router = createBrowserRouter(
 );
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
+
+// Dev-only advisory: check expected ports configuration
+if (process.env.NODE_ENV === 'development') {
+  // eslint-disable-next-line no-console
+  console.info('[dev-check] Frontend is expected on :3000 and backend on :3001. API requests should use same-origin /api.');
+}
+
 root.render(
   <React.StrictMode>
     <AuthProvider>

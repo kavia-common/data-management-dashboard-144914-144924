@@ -7,16 +7,18 @@ import { buildAuthHeaders, getOrganizationId } from './authTokenProvider';
  * Priority:
  * - REACT_APP_API_BASE_URL via util.getApiBaseUrl()
  * - Heuristic base via utilBase.getApiBase()
- * - Fallback from window to http://localhost:3001
+ * - Fallback to same-origin '/api' when environment/base cannot be derived
  */
 function resolveBase() {
   const envBase = (typeof getApiBaseUrl === 'function' && getApiBaseUrl()) || '';
   if (envBase) return String(envBase).replace(/\/*$/, '');
   try {
     const u = new URL(window.location.href);
-    return `${u.protocol}//${u.hostname}:3001`;
+    // Prefer same-origin; actual API calls append '/api/...'
+    return `${u.origin}`;
   } catch {
-    const heur = (typeof getApiBase === 'function' && getApiBase()) || 'http://localhost:3001';
+    // Fall back to utilBase or relative '/api' (caller appends '/api/...').
+    const heur = (typeof getApiBase === 'function' && getApiBase()) || '';
     return String(heur).replace(/\/*$/, '');
   }
 }

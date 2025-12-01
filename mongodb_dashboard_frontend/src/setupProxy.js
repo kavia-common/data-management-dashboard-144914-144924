@@ -21,13 +21,26 @@ module.exports = function setupProxy(app) {
       ? process.env.REACT_APP_PROXY_HOST.trim()
       : null;
 
-  // Avoid localhost when running in separate containers to prevent EADDRNOTAVAIL.
-  const defaultBridge = `http://172.17.0.2:${port}`;
+  // Prefer same host (preview domain) for proxy target with backend port 3001 to avoid CORS/localhost issues.
+  let sameHostTarget = null;
+  try {
+    if (typeof process !== 'undefined') {
+      // When running under CRA dev server, use the request host header via a resolver function in http-proxy-middleware.
+      // Fallback default constructed below if needed.
+    }
+    // As a safe default, construct using window-like host assumption via environment PUBLIC_HOST if provided by platform.
+    const publicHost = process.env.PUBLIC_HOST || process.env.REACT_APP_PUBLIC_HOST || null;
+    if (publicHost) {
+      sameHostTarget = `http://${publicHost}:${port}`;
+    }
+  } catch {
+    // ignore
+  }
 
   const target =
     (process.env.REACT_APP_API_BASE_URL && process.env.REACT_APP_API_BASE_URL.trim()) ||
     (process.env.REACT_APP_API_URL && process.env.REACT_APP_API_URL.trim()) ||
-    (host ? `http://${host}:${port}` : defaultBridge);
+    (host ? `http://${host}:${port}` : sameHostTarget || `http://127.0.0.1:${port}`);
 
   const commonOpts = {
     target,
