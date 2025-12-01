@@ -79,8 +79,8 @@ export default function DataTable({
     }
   }
 
-  const safeColumns = Array.isArray(columns) ? columns : [];
-  const safeData = Array.isArray(data) ? data : [];
+  const safeColumns = useMemo(() => (Array.isArray(columns) ? columns : []), [columns]);
+  const safeData = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 
   // In server mode, do not apply client-side sorting: trust server ordering for global sort correctness.
   const sorted = useMemo(() => {
@@ -110,7 +110,7 @@ export default function DataTable({
   // In client mode slice locally; in server mode assume data already corresponds to current page (and is globally sorted by server)
   const start = (currentPage - 1) * Math.max(1, pageSize);
   const end = start + Math.max(1, pageSize);
-  const pageRows = isServerMode ? safeData : sorted.slice(start, end);
+  const pageRows = useMemo(() => (isServerMode ? safeData : sorted.slice(start, end)), [isServerMode, safeData, sorted, start, end]);
 
   async function setPageAndNotify(p) {
     const next = Math.min(Math.max(1, p), totalPages);

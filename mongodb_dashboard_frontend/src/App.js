@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import "./App.css";
 import { appLogo } from "./assets/logo"; // REQ-UI-LOGO-REPLACE: shared logo for overlay
 import AppRoutes from "./routes/AppRoutes";
@@ -9,14 +9,14 @@ import { useVerifyUsersUrlOnce } from "./hooks/useVerifyUsersUrlOnce";
  * Listens to window resize and updates reactively.
  */
 function useIsBelowDesktopBreakpoint(breakpoint = 1024) {
-  const getState = () => {
+  const getState = useCallback(() => {
     if (typeof window === "undefined") return false;
     try {
       return window.innerWidth < breakpoint;
     } catch {
       return false;
     }
-  };
+  }, [breakpoint]);
 
   const [isBelow, setIsBelow] = useState(getState);
 
@@ -28,7 +28,7 @@ function useIsBelowDesktopBreakpoint(breakpoint = 1024) {
     // initialize once in case the first render occurred before CSS/layout settled
     onResize();
     return () => window.removeEventListener("resize", onResize);
-  }, []); // getState only captures breakpoint and window; safe to run once for listener registration
+  }, [getState]); // include getState so breakpoint changes are handled
 
   return isBelow;
 }

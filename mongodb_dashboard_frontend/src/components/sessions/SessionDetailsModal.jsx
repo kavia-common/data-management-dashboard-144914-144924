@@ -63,7 +63,7 @@ function SessionDetailsModal({ open, onClose, session }) {
   };
 
   // PUBLIC_INTERFACE
-  const computeDurationPretty = (start, end, fallbackSeconds) => {
+  const computeDurationPretty = useCallback((start, end, fallbackSeconds) => {
     /** Prefer computing from start/end; fallback to HH:mm:ss using numeric duration if available */
     if (start && end) {
       try {
@@ -82,7 +82,7 @@ function SessionDetailsModal({ open, onClose, session }) {
     }
     if (typeof fallbackSeconds === 'string' && fallbackSeconds.trim()) return fallbackSeconds.trim();
     return '—';
-  };
+  }, [toHms]);
 
   const resolveUserName = useCallback((userRef) => {
     if (!userRef) return 'Unknown User';
@@ -158,7 +158,7 @@ function SessionDetailsModal({ open, onClose, session }) {
   const title = useMemo(() => {
     const id = session?.sessionId || session?._id || session?.id || '';
     return `Session Details - ${id || '—'}`;
-  }, [session]);
+  }, [session, computeDurationPretty]);
 
   // Fetch a basic user name when DataContext could not resolve a meaningful name
   useEffect(() => {

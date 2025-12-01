@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getUserProjects } from "../api/users";
 
 /**
@@ -21,9 +21,10 @@ export function useUserProjects(options = {}) {
   const [loading, setLoading] = useState(Boolean(enabled && userId && tenantId));
   const [error, setError] = useState("");
 
-  const canFetch = useMemo(() => Boolean(enabled && userId && tenantId), [enabled, userId, tenantId, from, to]);
+  // Only gate fetch availability on stable booleans/ids. Date range affects payload but not availability to fetch.
+  const canFetch = useMemo(() => Boolean(enabled && userId && tenantId), [enabled, userId, tenantId]);
 
-  async function load() {
+  const load = useCallback(async () => {
     if (!canFetch) return;
     setLoading(true);
     setError("");
@@ -37,12 +38,12 @@ export function useUserProjects(options = {}) {
     } finally {
       setLoading(false);
     }
-  }
+  }, [canFetch, userId, tenantId, from, to]);
 
   useEffect(() => {
+    // fetch when availability changes (enabled/user/tenant) or when range params change
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canFetch, userId, tenantId, from, to]);
+  }, [load]);
 
   return { projects, loading, error, refetch: load };
 }
