@@ -102,6 +102,9 @@ export default function Sidebar() {
           <NavLink to="/dashboard/costs" className="nav-link">
             <span className="nav-label">Costs</span>
           </NavLink>
+          <NavLink to="/dashboard/llm-costs-users" className="nav-link">
+            <span className="nav-label">LLM Costs (Users)</span>
+          </NavLink>
         </nav>
       </div>
 
