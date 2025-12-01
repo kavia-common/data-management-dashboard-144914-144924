@@ -41,6 +41,7 @@ export default function LlmCostsUsers({ organizationId }) {
       render: (v, row) => {
         // Strictly use users[i].user_cost (or top-level user_cost when provided by API)
         const numRaw = row?.user_cost ?? row?.users?.[0]?.user_cost ?? null;
+        console.log(row, 'row')
         if (numRaw == null || Number.isNaN(Number(numRaw))) return '—';
         const num = Number(numRaw);
         return `$${num.toFixed(4)}`;
