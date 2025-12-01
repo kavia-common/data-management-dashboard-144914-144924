@@ -57,7 +57,8 @@ export default function Costs() {
     );
   };
   const renderUsd = (num) => {
-    if (num == null || num === "" || Number.isNaN(Number(num))) return "—";
+    // Do not hide zeros; only treat null/undefined/NaN as missing
+    if (num == null || Number.isNaN(Number(num))) return "—";
     return (
       <span className="amount-positive" style={{ whiteSpace: "nowrap" }}>
         {renderCreditsWithUsd(Number(num))}
@@ -65,7 +66,8 @@ export default function Costs() {
     );
   };
   const renderInteger = (v) => {
-    if (v == null || v === "" || Number.isNaN(Number(v))) return "—";
+    // Keep 0 visible; only treat null/undefined/NaN as missing
+    if (v == null || Number.isNaN(Number(v))) return "—";
     const n = Number(v);
     return <span title={n.toLocaleString()}>{n.toLocaleString()}</span>;
   };
@@ -95,7 +97,7 @@ export default function Costs() {
         key: "user_cost",
         label: "User Cost",
         render: (v, row) => {
-          // Must use users[i].user_cost for each user entry
+          // Strictly sourced from users[i].user_cost during flattening
           const cost = row?.user_cost ?? null;
           return renderUsd(cost);
         },
@@ -116,19 +118,31 @@ export default function Costs() {
     (items || []).forEach((item) => {
       const topLevelType = item?.type ?? item?.cost_type ?? item?.kind ?? null;
       const users = Array.isArray(item?.users) ? item.users : [];
+
       if (users.length) {
-        users.forEach((u) => {
+        users.forEach((u, idx) => {
           // Compute user-specific fields with null-safe access.
           const userId =
             u?.user_id ?? u?.user?._id ?? u?._id ?? u?.user_id_str ?? null;
           const type = u?.type ?? topLevelType ?? null;
-          // User Cost strictly from users[i].user_cost (null if missing)
+
+          // Strict: User Cost from users[i].user_cost only
+          const userCostRaw = u?.user_cost;
           const userCost =
-            typeof u?.user_cost === "number" ? u.user_cost : u?.user_cost ?? null;
-          // Project Count from users[i].projects?.length || 0
-          const projectCount = Array.isArray(u?.projects)
-            ? u.projects.length
-            : 0;
+            userCostRaw == null || Number.isNaN(Number(userCostRaw))
+              ? null
+              : Number(userCostRaw);
+
+          // Project Count from users[i].projects?.length || explicit numeric field if present
+          let projectCount = Array.isArray(u?.projects) ? u.projects.length : undefined;
+          if (projectCount == null && typeof u?.project_count === "number") {
+            projectCount = u.project_count;
+          }
+          if (!Number.isFinite(Number(projectCount))) {
+            projectCount = 0;
+          } else {
+            projectCount = Number(projectCount);
+          }
 
           out.push({
             user_id: userId,
@@ -138,6 +152,23 @@ export default function Costs() {
             __origin: item,
             originType: topLevelType,
           });
+
+          // One-time debug of keys for the first users entry of the first item, guarded by env
+          if (
+            idx === 0 &&
+            process.env.NODE_ENV !== "production" &&
+            String(process.env.REACT_APP_DEBUG_LLM_COSTS || "").toLowerCase() === "true"
+          ) {
+            try {
+              // eslint-disable-next-line no-console
+              console.debug(
+                "[Costs] first users entry keys:",
+                Object.keys(u || {})
+              );
+            } catch (e) {
+              // ignore
+            }
+          }
         });
       } else {
         // Without users[], push a placeholder context row; keep counts safe.
