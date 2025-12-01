@@ -53,14 +53,14 @@ function SessionDetailsModal({ open, onClose, session }) {
   };
 
   // PUBLIC_INTERFACE
-  const toHms = (seconds) => {
+  const toHms = useCallback((seconds) => {
     /** Convert seconds to HH:mm:ss string. */
     const secs = Math.max(0, Math.floor(Number(seconds) || 0));
     const h = String(Math.floor(secs / 3600)).padStart(2, '0');
     const m = String(Math.floor((secs % 3600) / 60)).padStart(2, '0');
     const sRem = String(secs % 60).padStart(2, '0');
     return `${h}:${m}:${sRem}`;
-  };
+  }, []);
 
   // PUBLIC_INTERFACE
   const computeDurationPretty = useCallback((start, end, fallbackSeconds) => {
@@ -158,7 +158,7 @@ function SessionDetailsModal({ open, onClose, session }) {
   const title = useMemo(() => {
     const id = session?.sessionId || session?._id || session?.id || '';
     return `Session Details - ${id || '—'}`;
-  }, [session, computeDurationPretty]);
+  }, [session]);
 
   // Fetch a basic user name when DataContext could not resolve a meaningful name
   useEffect(() => {

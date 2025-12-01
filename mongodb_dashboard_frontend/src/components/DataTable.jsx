@@ -441,7 +441,7 @@ export default function DataTable({
                   tabIndex={typeof onRowClick === "function" ? 0 : undefined}
                   style={typeof onRowClick === "function" ? { cursor: "pointer" } : undefined}
                 >
-                  {columns.map((c) => {
+                  {safeColumns.map((c) => {
                     const value = getValue(row, c.key);
                     const content = c.render ? c.render(value, row) : value ?? "";
                     const isNumber = typeof value === "number";
