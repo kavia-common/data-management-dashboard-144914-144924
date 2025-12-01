@@ -165,7 +165,13 @@ export default function Costs() {
         subtitle="Per-user LLM costs"
         className="mt-4"
       >
+        {loading && !rows.length && !error && (
+          <div className="text-muted" aria-live="polite">Loading…</div>
+        )}
         {error && <div className="error" role="alert">{error}</div>}
+        {!loading && !error && rows.length === 0 && (
+          <div className="text-muted" role="status">No data</div>
+        )}
         <DataTable
           columns={columns}
           data={rows}

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import DataTable from '../../components/DataTable';
-import client from '../../api/client';
+import { getApiClient } from '../../api/baseClient';
+import { getOrganizationId } from '../../api/authTokenProvider';
 
 // PUBLIC_INTERFACE
 /**
@@ -17,30 +18,36 @@ export default function LlmCostsUsers({ organizationId }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // Optional debug flag through env to log payload shape once
+  const debugEnabled = String(process.env.REACT_APP_DEBUG_LLM_COSTS || '').toLowerCase() === 'true';
+
   const columns = useMemo(() => ([
     // Required by task: table with columns User ID, Type, User Cost, Project Count
     {
       key: 'user_id',
       label: 'User ID',
-      render: (v, row) => String(v ?? row?.user?._id ?? '—'),
+      render: (v, row) => String(v ?? row?.users?.[0]?.user_id ?? row?.user?._id ?? '—'),
       priority: 1,
     },
     {
       key: 'type',
       label: 'Type',
-      render: (v, row) => String((row?.type ?? row?.user?.type ?? v ?? '—')),
+      render: (v, row) => String((row?.type ?? row?.users?.[0]?.type ?? row?.user?.type ?? v ?? '—')),
       priority: 2,
     },
     {
       key: 'user_cost',
       label: 'User Cost',
-      render: (v, row) => `$${Number((row?.user_cost ?? row?.cost ?? v ?? 0) || 0).toFixed(4)}`,
+      render: (v, row) => {
+        const num = Number((row?.user_cost ?? row?.users?.[0]?.user_cost ?? row?.cost ?? v ?? 0) || 0);
+        return `$${num.toFixed(4)}`;
+      },
       priority: 1,
     },
     {
       key: 'project_count',
       label: 'Project Count',
-      render: (v, row) => Number((row?.project_count ?? v ?? 0) || 0),
+      render: (v, row) => Number((row?.project_count ?? row?.users?.[0]?.project_count ?? v ?? 0) || 0),
       priority: 2,
     }
   ]), []);
@@ -49,14 +56,23 @@ export default function LlmCostsUsers({ organizationId }) {
     setLoading(true);
     setError('');
     try {
-      const params = { page: p, limit: l, sort: '-createdAt' };
-      if (organizationId) params.organization_id = organizationId;
-      const res = await client.get('/api/llm-costs/users', { params });
+      const api = getApiClient();
+      const orgId = organizationId || getOrganizationId();
+      const params = { page: p, limit: l };
+      // Ensure pagination and scoping params are passed. baseClient will also append organization_id if missing.
+      if (orgId) params.organization_id = orgId;
 
-      const payload = res?.data;
+      const { data: payload } = await api.get('/api/llm-costs/users', { params });
+
+      if (debugEnabled && process.env.NODE_ENV !== 'production') {
+        // eslint-disable-next-line no-console
+        console.debug('[llm-costs/users] payload (first item):', Array.isArray(payload?.items) ? payload.items[0] : Array.isArray(payload?.data) ? payload.data[0] : Array.isArray(payload) ? payload[0] : payload);
+      }
+
       let list = [];
       let nextMeta = { page: p, limit: l, total: 0 };
 
+      // Preferred API shape from backend openapi: { items, page, limit, total }
       if (payload && Array.isArray(payload.items)) {
         list = payload.items;
         nextMeta = {
@@ -65,7 +81,7 @@ export default function LlmCostsUsers({ organizationId }) {
           total: Number(payload.total || list.length || 0),
         };
       } else if (payload && Array.isArray(payload.data) && payload.meta) {
-        // fallback if server uses envelope with {data, meta}
+        // Alternate envelope: { data, meta }
         list = payload.data;
         nextMeta = {
           page: Number(payload.meta?.page || p),
@@ -73,18 +89,31 @@ export default function LlmCostsUsers({ organizationId }) {
           total: Number(payload.meta?.total || list.length || 0),
         };
       } else if (Array.isArray(payload)) {
+        // Raw array
         list = payload;
         nextMeta = { page: p, limit: l, total: list.length };
       }
 
-      // Map items with null-safe defaults for required columns
-      const mapped = (list || []).map((it) => ({
-        ...it,
-        user_id: it?.user_id ?? it?.user?._id ?? '—',
-        type: it?.type ?? it?.user?.type ?? '—',
-        user_cost: Number(it?.user_cost ?? it?.cost ?? 0),
-        project_count: Number(it?.project_count ?? 0),
-      }));
+      // Map to required columns null-safe:
+      // - User ID from users[i].user_id
+      // - Type from record.type or users[i].type
+      // - User Cost from users[i].user_cost or users[i].cost
+      // - Project Count from users[i].project_count
+      const mapped = (list || []).map((it) => {
+        const u = Array.isArray(it?.users) && it.users.length > 0 ? it.users[0] : it?.user ? it.user : null;
+        const userId = it?.user_id ?? u?.user_id ?? u?._id ?? '—';
+        const type = it?.type ?? u?.type ?? '—';
+        const userCost = Number(it?.user_cost ?? it?.user_costs ?? u?.user_cost ?? u?.cost ?? it?.cost ?? 0);
+        const projectCount = Number(it?.project_count ?? u?.project_count ?? 0);
+
+        return {
+          ...it,
+          user_id: userId ?? '—',
+          type: type ?? '—',
+          user_cost: Number.isFinite(userCost) ? userCost : 0,
+          project_count: Number.isFinite(projectCount) ? projectCount : 0,
+        };
+      });
 
       setItems(mapped);
       setTotal(nextMeta.total);
@@ -99,7 +128,11 @@ export default function LlmCostsUsers({ organizationId }) {
     }
   }
 
-  useEffect(() => { fetchUsers(1, limit); }, [organizationId]); // refetch when org changes
+  useEffect(() => {
+    // initial & on organization change
+    fetchUsers(1, limit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [organizationId]);
 
   return (
     <div className="card">
@@ -107,7 +140,13 @@ export default function LlmCostsUsers({ organizationId }) {
         <h3>LLM Costs — Users</h3>
       </div>
       <div className="card-body">
+        {loading && !items.length && !error && (
+          <div className="text-muted" aria-live="polite">Loading…</div>
+        )}
         {error && <div className="error" role="alert">{error}</div>}
+        {!loading && !error && items.length === 0 && (
+          <div className="text-muted" role="status">No data</div>
+        )}
         <DataTable
           data={items}
           columns={columns}
