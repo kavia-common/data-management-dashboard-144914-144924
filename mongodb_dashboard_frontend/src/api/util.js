@@ -15,21 +15,16 @@ export function buildQueryString(params = {}) {
 /**
  * PUBLIC_INTERFACE
  * getApiBaseUrl
- * Backward-compatible resolver returning the API base URL string.
+ * Returns the API base URL string used by clients to prefix relative endpoints.
  * Priority:
  * - REACT_APP_API_BASE_URL env var if present (injected at build time)
- * - window.location-based heuristic pointing to port 3001
+ * - Otherwise, use relative '/api' (same-origin, works with CRA dev proxy)
  */
 export function getApiBaseUrl() {
   const env = process.env.REACT_APP_API_BASE_URL;
   if (env && typeof env === "string" && env.trim()) {
     return env.replace(/\/+$/, "");
   }
-  try {
-    const url = new URL(window.location.href);
-    return `${url.protocol}//${url.hostname}:3001/api`;
-  } catch {
-    // Fallback for non-browser contexts
-    return "http://localhost:3001/api";
-  }
+  // Default to same-origin API prefix to leverage proxy and avoid cross-origin issues
+  return "/api";
 }
