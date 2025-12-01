@@ -39,7 +39,10 @@ export default function LlmCostsUsers({ organizationId }) {
       key: 'user_cost',
       label: 'User Cost',
       render: (v, row) => {
-        const num = Number((row?.user_cost ?? row?.users?.[0]?.user_cost ?? row?.cost ?? v ?? 0) || 0);
+        // Strictly use users[i].user_cost (or top-level user_cost when provided by API)
+        const numRaw = row?.user_cost ?? row?.users?.[0]?.user_cost ?? null;
+        if (numRaw == null || Number.isNaN(Number(numRaw))) return '—';
+        const num = Number(numRaw);
         return `$${num.toFixed(4)}`;
       },
       priority: 1,
@@ -47,7 +50,11 @@ export default function LlmCostsUsers({ organizationId }) {
     {
       key: 'project_count',
       label: 'Project Count',
-      render: (v, row) => Number((row?.project_count ?? row?.users?.[0]?.project_count ?? v ?? 0) || 0),
+      render: (v, row) => {
+        const count = row?.project_count ?? row?.users?.[0]?.project_count ?? 0;
+        const n = Number(count);
+        return Number.isFinite(n) ? n : 0;
+      },
       priority: 2,
     }
   ]), []);
@@ -96,22 +103,31 @@ export default function LlmCostsUsers({ organizationId }) {
 
       // Map to required columns null-safe:
       // - User ID from users[i].user_id
-      // - Type from record.type or users[i].type
-      // - User Cost from users[i].user_cost or users[i].cost
-      // - Project Count from users[i].project_count
+      // - Type from record.type or users[i].type (fallback item.type)
+      // - User Cost strictly from users[i].user_cost (or top-level user_cost if API provides it)
+      // - Project Count from users[i].project_count (or users[i].projects?.length)
       const mapped = (list || []).map((it) => {
-        const u = Array.isArray(it?.users) && it.users.length > 0 ? it.users[0] : it?.user ? it.user : null;
+        const u = Array.isArray(it?.users) && it.users.length > 0 ? it.users[0] : (it?.user || null);
         const userId = it?.user_id ?? u?.user_id ?? u?._id ?? '—';
         const type = it?.type ?? u?.type ?? '—';
-        const userCost = Number(it?.user_cost ?? it?.user_costs ?? u?.user_cost ?? u?.cost ?? it?.cost ?? 0);
-        const projectCount = Number(it?.project_count ?? u?.project_count ?? 0);
+
+        // Strictly source user_cost from users[i].user_cost, or top-level user_cost if provided
+        const userCostRaw = it?.user_cost ?? u?.user_cost ?? null;
+        const userCost = userCostRaw != null && Number.isFinite(Number(userCostRaw)) ? Number(userCostRaw) : null;
+
+        // Project count: prefer explicit project_count; else derive from users[i].projects?.length
+        let projectCount = it?.project_count ?? u?.project_count ?? null;
+        if (projectCount == null && Array.isArray(u?.projects)) {
+          projectCount = u.projects.length;
+        }
+        const projectCountNum = Number.isFinite(Number(projectCount)) ? Number(projectCount) : 0;
 
         return {
           ...it,
           user_id: userId ?? '—',
           type: type ?? '—',
-          user_cost: Number.isFinite(userCost) ? userCost : 0,
-          project_count: Number.isFinite(projectCount) ? projectCount : 0,
+          user_cost: userCost ?? null,
+          project_count: projectCountNum,
         };
       });
 
