@@ -21,6 +21,31 @@ function UsersNestedTable({ org }) {
     );
   }
 
+  // derive safe values per user using requested mapping rules and fallbacks
+  const getUserId = (userItem) => {
+    // Prefer users[i].user_id; fallback to users[i].user?._id or users[i]?._id
+    return userItem?.user_id ?? userItem?.user?._id ?? userItem?._id ?? "—";
+  };
+  const getType = (userItem) => {
+    // Prefer users[i].type, otherwise item.type
+    const userType = userItem?.type ?? userItem?.role;
+    const itemType = org?.type ?? org?.cost_type ?? org?.kind;
+    return userType ?? itemType ?? "—";
+  };
+  const getUserCost = (userItem) => {
+    // users[i].cost or users[i].user_cost, default 0
+    const n = userItem?.user_cost ?? userItem?.cost ?? 0;
+    const num = Number(n || 0);
+    return Number.isNaN(num) ? 0 : num;
+  };
+  const getProjectCount = (userItem) => {
+    // users[i].project_count or derive from response (org.projects length if present)
+    const direct = userItem?.project_count;
+    if (typeof direct === "number") return direct;
+    if (Array.isArray(org?.projects)) return org.projects.length;
+    return 0;
+  };
+
   return (
     <table className="nested-table" style={{ width: "100%", borderCollapse: "collapse", marginTop: 8 }}>
       <thead>
@@ -28,20 +53,22 @@ function UsersNestedTable({ org }) {
           <th style={{ padding: "6px 8px" }}>User ID</th>
           <th style={{ padding: "6px 8px" }}>Type</th>
           <th style={{ padding: "6px 8px" }}>User Cost</th>
-          <th style={{ padding: "6px 8px" }}>Projects Count</th>
+          <th style={{ padding: "6px 8px" }}>Project Count</th>
           <th style={{ padding: "6px 8px" }}>Details</th>
         </tr>
       </thead>
       <tbody>
         {users.map((u, idx) => {
-          const projectCount = Array.isArray(org?.projects) ? org.projects.length : (u?.project_count ?? 0);
-          const userCost = u?.user_cost ?? u?.cost ?? 0;
-          const type = u?.type ?? u?.role ?? "—";
+          const userId = getUserId(u);
+          const type = getType(u);
+          const userCost = getUserCost(u);
+          const projectCount = getProjectCount(u);
           const projects = Array.isArray(org?.projects) ? org.projects : [];
+
           return (
             <UserRowWithProjects
-              key={`${u?.user_id || u?._id || idx}`}
-              userId={u?.user_id || u?._id || "—"}
+              key={`${userId || idx}`}
+              userId={userId}
               type={type}
               userCost={userCost}
               projectCount={projectCount}
