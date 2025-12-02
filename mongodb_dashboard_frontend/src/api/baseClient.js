@@ -223,7 +223,7 @@ function withTimeoutAbort(signal, timeoutMs) {
 }
 
 async function fetchWithTimeout(url, options = {}) {
-  const defaultTimeout = parseInt(process.env.REACT_APP_FETCH_TIMEOUT_MS || '180000', 10);
+  const defaultTimeout = parseInt(process.env.REACT_APP_FETCH_TIMEOUT_MS || '330000', 10);
   const { signal, ...rest } = options || {};
   const { signal: timeoutSignal } = withTimeoutAbort(signal, defaultTimeout);
   try {

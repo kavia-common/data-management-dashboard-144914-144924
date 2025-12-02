@@ -35,7 +35,7 @@ export function getAuthContext() {
 const axiosInstance = axios.create({
   baseURL: process.env.REACT_APP_API_BASE_URL || '/api',
   withCredentials: false,
-  timeout: parseInt(process.env.REACT_APP_AXIOS_TIMEOUT_MS || '180000', 10),
+  timeout: parseInt(process.env.REACT_APP_AXIOS_TIMEOUT_MS || '330000', 10),
 });
 
 axiosInstance.interceptors.request.use((config) => {

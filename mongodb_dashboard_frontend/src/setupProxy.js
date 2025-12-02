@@ -27,7 +27,7 @@ module.exports = function setupProxy(app) {
     process.env.REACT_APP_API_URL ||
     `http://${inferredHost}:${port}`;
 
-  const proxyTimeoutMs = parseInt(process.env.REACT_APP_PROXY_TIMEOUT_MS || '180000', 10);
+  const proxyTimeoutMs = parseInt(process.env.REACT_APP_PROXY_TIMEOUT_MS || '330000', 10);
   const commonOpts = {
     target,
     changeOrigin: true,
