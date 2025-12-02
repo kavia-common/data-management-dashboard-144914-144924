@@ -23,8 +23,17 @@
  * @param {boolean} [params.debug=false] - When true, logs URL and response
  * @returns {Promise<{ success: boolean, data: Array<{ label: string, count: number }>, meta: any }>}
  */
+import { apiBase } from "./config";
+
+/**
+ * PUBLIC_INTERFACE
+ * fetchServiceUsage
+ * Calls GET /api/session-tracking/services using the same filters as Sessions Trend.
+ * Parses backend envelope { success, data: [{ label?, service_type?, count }], meta }.
+ * Adds debug logging and uses central apiBase to avoid missing base URL.
+ */
 export async function fetchServiceUsage({
-  baseUrl = "",
+  baseUrl,
   tenantId,
   interval = "daily",
   startDate,
@@ -35,12 +44,15 @@ export async function fetchServiceUsage({
   withTimeBuckets = false,
   debug = false,
 }) {
-  if (!tenantId) {
-    throw new Error("tenantId is required");
+  const resolvedBase = typeof baseUrl === "string" && baseUrl.length > 0 ? baseUrl : apiBase;
+  if (!tenantId || String(tenantId).trim().length === 0) {
+    const err = new Error("Missing tenant_id: A tenantId must be provided to fetch service usage.");
+    err.code = "MISSING_TENANT_ID";
+    throw err;
   }
 
   const params = new URLSearchParams();
-  params.set("tenant_id", tenantId);
+  params.set("tenant_id", String(tenantId));
   if (interval) params.set("interval", interval);
   if (startDate) params.set("start_date", startDate);
   if (endDate) params.set("end_date", endDate);
@@ -49,33 +61,44 @@ export async function fetchServiceUsage({
   if (includeUnknown) params.set("include_unknown", "true");
   if (withTimeBuckets) params.set("withTimeBuckets", "true");
 
-  const url = `${baseUrl}/api/session-tracking/services?${params.toString()}`;
+  const url = `${resolvedBase.replace(/\/+$/, "")}/session-tracking/services?${params.toString()}`;
   if (debug) {
     try {
       // eslint-disable-next-line no-console
-      console.debug("[fetchServiceUsage] GET", url);
+      console.debug("[fetchServiceUsage] GET", url, { tenantId, interval, startDate, endDate, top, status, includeUnknown, withTimeBuckets });
     } catch {}
   }
 
+  const headers = { Accept: "application/json" };
+  // Provide tenant via header as an additional hint for middleware that accepts aliases
+  headers["x-organization-id"] = String(tenantId);
+
   const resp = await fetch(url, {
-    headers: debug ? { "x-debug": "true" } : undefined,
+    headers: debug ? { ...headers, "x-debug": "true" } : headers,
+    credentials: "include",
   });
   if (!resp.ok) {
-    let msg = "Failed to fetch service usage";
+    let msg = `Failed to fetch service usage (${resp.status})`;
     try {
-      const err = await resp.json();
-      msg = err?.message || msg;
+      const ct = resp.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
+        const err = await resp.json();
+        msg = err?.message || msg;
+      } else {
+        const text = await resp.text();
+        if (text) msg = text;
+      }
     } catch (_) {}
-    throw new Error(msg);
+    const error = new Error(msg);
+    error.status = resp.status;
+    throw error;
   }
   const json = await resp.json();
 
-  // Expected shape in openapi: { success, data, meta }
   const success = !!json?.success || Array.isArray(json);
   const rawData = Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
   const meta = json?.meta || {};
 
-  // Normalize to [{ label, count }]
   const data = rawData
     .map((row) => {
       const label =
@@ -88,12 +111,12 @@ export async function fetchServiceUsage({
       const count = Number(row?.count ?? row?.value ?? row?.total ?? 0);
       return { label: String(label), count: Number.isFinite(count) ? count : 0 };
     })
-    .filter((d) => !!d.label); // keep Unknown too
+    .filter((d) => typeof d.label === "string" && d.label.length >= 0);
 
   if (debug) {
     try {
       // eslint-disable-next-line no-console
-      console.debug("[fetchServiceUsage] response", { success, data, meta });
+      console.debug("[fetchServiceUsage] response", { success, meta, dataLen: data.length });
     } catch {}
   }
 

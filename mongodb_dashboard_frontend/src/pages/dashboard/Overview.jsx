@@ -94,11 +94,16 @@ export default function Overview() {
   const [featuresRangeKey, setFeaturesRangeKey] = useState("30d");
   const [featuresCustomRange, setFeaturesCustomRange] = useState({ start: null, end: null });
 
-  // features resolved tenant
-  const featuresTenantId = useMemo(
-    () => localStorage.getItem('organization_id') || undefined,
-    []
-  );
+  // features resolved tenant (use multiple fallbacks; undefined => hook will resolve further)
+  const featuresTenantId = useMemo(() => {
+    return (
+      localStorage.getItem('activeTenant') ||
+      localStorage.getItem('activeOrganization') ||
+      localStorage.getItem('organization_id') ||
+      localStorage.getItem('tenant_id') ||
+      undefined
+    );
+  }, []);
 
   // KPI metrics
   useEffect(() => {
@@ -412,6 +417,21 @@ export default function Overview() {
     include_unknown: false,
     withTimeBuckets: false,
     debug: featuresDebug,
+    // Resolve from AuthContext lazily if available
+    getTenantFromAuth: () => {
+      try {
+        // Avoid direct import to prevent circular deps: read from localStorage mirror set by AuthProvider
+        return (
+          localStorage.getItem('activeOrganization') ||
+          localStorage.getItem('activeTenant') ||
+          localStorage.getItem('organization_id') ||
+          null
+        );
+      } catch {
+        return null;
+      }
+    },
+    requireTenant: false, // render empty when tenant not found
   });
 
   // normalize to KPIChart shape {label, value}
@@ -921,6 +941,11 @@ export default function Overview() {
               ) : (
                 <div style={{ marginTop: 8, color: "#6B7280", fontSize: 12, textAlign: "center" }}>
                   No service usage found for selected period
+                  {featuresDebug ? (
+                    <div style={{ marginTop: 6 }}>
+                      Tip: Ensure a tenant is selected. The app will look at activeTenant/activeOrganization/organization_id and REACT_APP_TENANT_ID.
+                    </div>
+                  ) : null}
                 </div>
               )}
             </>
