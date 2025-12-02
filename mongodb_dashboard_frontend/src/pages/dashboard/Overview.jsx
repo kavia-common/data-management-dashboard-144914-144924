@@ -197,65 +197,78 @@ export default function Overview() {
     [usersRangeKey, stableUsersCustomRange]
   );
 
-  // Sessions trend fetcher — independent (uses aggregated API)
+  // Sessions trend fetcher — use /api/session-tracking with interval and UTC boundaries, render local labels
   useEffect(() => {
     let aborted = false;
+
     async function loadSessions() {
       setSessionsLoading(true);
       setSessionsError(null);
-      try {
-        // Map UI granularity to API interval
-        let interval = sessionsGranularity;
-        if (interval !== 'daily' && interval !== 'weekly' && interval !== 'monthly' && interval !== 'custom') {
-          interval = 'daily';
-        }
 
-        // Compute defaults for interval when not custom:
-        // daily: last 30 days (already computed by backend default)
-        // weekly: last 12 weeks; monthly: last 12 months
-        // If custom key is active, rely on selected dates.
-        let startISO = undefined;
-        let endISO = undefined;
-        if (sessionsRangeKey === 'custom' && sessionsCustomRange.start && sessionsCustomRange.end) {
-          startISO = new Date(sessionsCustomRange.start).toISOString();
+      try {
+        // Normalize interval
+        let interval = sessionsGranularity;
+        if (!['daily', 'weekly', 'monthly', 'custom'].includes(interval)) interval = 'daily';
+
+        // Determine tenant scope (persisted during auth/tenant selection)
+        const tenant_id = localStorage.getItem('organization_id') || undefined;
+
+        // Compute start/end UTC boundaries
+        let startISO;
+        let endISO;
+        if ((sessionsRangeKey === 'custom' || interval === 'custom') && sessionsCustomRange.start && sessionsCustomRange.end) {
+          const s = new Date(sessionsCustomRange.start);
+          s.setUTCHours(0, 0, 0, 0);
           const e = new Date(sessionsCustomRange.end);
-          e.setHours(23, 59, 59, 999);
+          e.setUTCHours(23, 59, 59, 999);
+          startISO = s.toISOString();
           endISO = e.toISOString();
-          interval = 'custom';
         } else if (interval === 'weekly') {
-          // set explicit start/end to ensure 12 weeks window consistent with backend
           const e = new Date();
-          e.setHours(23, 59, 59, 999);
+          e.setUTCHours(23, 59, 59, 999);
           const s = new Date(e);
-          s.setDate(e.getDate() - (12 * 7 - 1));
+          s.setUTCDate(e.getUTCDate() - (12 * 7 - 1));
           startISO = s.toISOString();
           endISO = e.toISOString();
         } else if (interval === 'monthly') {
           const e = new Date();
-          e.setHours(23, 59, 59, 999);
+          e.setUTCHours(23, 59, 59, 999);
           const s = new Date(e);
-          s.setMonth(s.getMonth() - 11);
-          s.setDate(1);
+          s.setUTCMonth(s.getUTCMonth() - 11, 1);
+          s.setUTCHours(0, 0, 0, 0);
+          startISO = s.toISOString();
+          endISO = e.toISOString();
+        } else {
+          // daily (default): last 30 days inclusive
+          const e = new Date();
+          e.setUTCHours(23, 59, 59, 999);
+          const s = new Date(e);
+          s.setUTCDate(e.getUTCDate() - 29);
+          s.setUTCHours(0, 0, 0, 0);
           startISO = s.toISOString();
           endISO = e.toISOString();
         }
 
-        const resp = await fetchSessionTrackingAggregates({ interval, start: startISO, end: endISO });
-        if (aborted) return;
+        // Fetch from sessionsTrend API
+        const DEBUG_SESSIONS_TREND = localStorage.getItem('debug_sessions_trend') === '1';
+        const { fetchSessionsTrend } = await import('../../api/sessionsTrend');
+        const { shapeSessionsTrendSeries } = await import('../../utils/sessions/shapeSessionsTrendSeries');
 
-        // Convert to KPIChart format
-        const series = (resp.data || []).map((row) => {
-          const d = new Date(row.date);
-          const label =
-            interval === 'monthly'
-              ? `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`
-              : `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
-          return { label, value: Number(row.count || 0) };
+        const resp = await fetchSessionsTrend({
+          tenant_id,
+          interval,
+          start_date: startISO,
+          end_date: endISO,
+          debug: DEBUG_SESSIONS_TREND,
         });
 
-        // Ensure continuous series fill using backend meta start/end when available
-        const fillStart = resp.start || startISO;
-        const fillEnd = resp.end || endISO;
+        if (aborted) return;
+
+        const { series } = shapeSessionsTrendSeries(resp, { debug: DEBUG_SESSIONS_TREND });
+
+        // Fill continuity when possible
+        const fillStart = resp?.meta?.start || startISO;
+        const fillEnd = resp?.meta?.end || endISO;
         if (fillStart && fillEnd) {
           const map = new Map(series.map((p) => [p.label, p.value]));
           const filled = fillSeries(map, fillStart, fillEnd, interval === 'weekly' ? 'weekly' : 'daily');
@@ -271,6 +284,7 @@ export default function Overview() {
         if (!aborted) setSessionsLoading(false);
       }
     }
+
     loadSessions();
     return () => {
       aborted = true;
@@ -744,7 +758,12 @@ export default function Overview() {
                         </ul>
                       )}
                       <div style={{ marginTop: 6, color: "#6B7280" }}>
-                        Tooltip on the chart shows date bucket and count.
+                        Verification tips:
+                        <ul style={{ marginTop: 4, paddingLeft: 16 }}>
+                          <li>Set localStorage.debug_sessions_trend = "1" and reload to view network/shape logs.</li>
+                          <li>Change interval buttons (Daily/Weekly/Monthly/Custom) and ensure series updates.</li>
+                          <li>Use custom date pickers; labels are shown in your local time, boundaries are UTC.</li>
+                        </ul>
                       </div>
                     </div>
                   </details>
