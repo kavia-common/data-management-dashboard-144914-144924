@@ -193,13 +193,58 @@ async function parseResponse(res) {
 /**
  * Axios-like "get" returning { data }.
  */
+function withTimeoutAbort(signal, timeoutMs) {
+  if (!timeoutMs || timeoutMs <= 0) return { signal };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error('fetch-timeout')), timeoutMs);
+  const combined = new AbortController();
+
+  // Combine external signal (if provided) with our timeout abort
+  function onAbortFromExternal() {
+    try { controller.abort(new Error('external-abort')); } catch {}
+  }
+  if (signal) {
+    if (signal.aborted) controller.abort(new Error('external-abort'));
+    else signal.addEventListener('abort', onAbortFromExternal, { once: true });
+  }
+
+  // Bridge controller signal to combined for return
+  controller.signal.addEventListener('abort', () => {
+    try { combined.abort(); } catch {}
+    clearTimeout(timer);
+  }, { once: true });
+
+  setTimeout(() => {
+    // If neither timeout nor external aborted, link the combined to controller signal
+    // combined.signal is already listening via event
+  }, 0);
+
+  return { signal: controller.signal };
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  const defaultTimeout = parseInt(process.env.REACT_APP_FETCH_TIMEOUT_MS || '180000', 10);
+  const { signal, ...rest } = options || {};
+  const { signal: timeoutSignal } = withTimeoutAbort(signal, defaultTimeout);
+  try {
+    return await fetch(url, { ...rest, signal: timeoutSignal });
+  } catch (err) {
+    if (err && (err.name === 'AbortError' || String(err.message).includes('fetch-timeout'))) {
+      const e = new Error('Request timed out');
+      e.code = 'ETIMEDOUT';
+      throw e;
+    }
+    throw err;
+  }
+}
+
 async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
   const effParams = sanitizeEndpointParams(
     pathOrUrl,
     ensureScopedQueryParams(pathOrUrl, params)
   );
   const url = buildUrlWithParams(pathOrUrl, effParams);
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method: "GET",
     headers: buildAuthHeaders({
       Accept: "application/json",
@@ -228,7 +273,7 @@ async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {
     ensureScopedQueryParams(pathOrUrl, params)
   );
   const url = buildUrlWithParams(pathOrUrl, effParams);
-  const res = await fetch(url, {
+  const res = await fetchWithTimeout(url, {
     method,
     headers: buildAuthHeaders({
       "Content-Type": "application/json",
