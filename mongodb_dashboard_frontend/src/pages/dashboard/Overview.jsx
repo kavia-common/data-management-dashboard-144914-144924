@@ -89,15 +89,16 @@ export default function Overview() {
   const [usersError, setUsersError] = useState(null);
 
   // Overall Features chart state (service_type distribution)
-  const [featuresData, setFeaturesData] = useState([]);
-  const [featuresLoading, setFeaturesLoading] = useState(false);
-  const [featuresError, setFeaturesError] = useState(null);
+  const [featuresDebug, setFeaturesDebug] = useState(localStorage.getItem('debug_features') === '1');
+  const [featuresInterval, setFeaturesInterval] = useState("daily"); // align with sessions trend intervals
+  const [featuresRangeKey, setFeaturesRangeKey] = useState("30d");
+  const [featuresCustomRange, setFeaturesCustomRange] = useState({ start: null, end: null });
 
-  // Features filters: include tenant and optional service_type to narrow chart
-  const [featuresFilters, setFeaturesFilters] = useState({
-    tenant_id: localStorage.getItem('organization_id') || undefined,
-    service_type: '', // empty means all
-  });
+  // features resolved tenant
+  const featuresTenantId = useMemo(
+    () => localStorage.getItem('organization_id') || undefined,
+    []
+  );
 
   // KPI metrics
   useEffect(() => {
@@ -384,72 +385,43 @@ export default function Overview() {
     };
   }, [usersRange, usersGranularity, usersStatus, fillSeries]);
 
-  // Overall Features chart data: counts by service_type from session-tracking list
-  useEffect(() => {
-    let aborted = false;
-    async function loadFeatures() {
-      setFeaturesLoading(true);
-      setFeaturesError(null);
-      try {
-        // Determine active tenant and requested service_type from filters
-        const tenantId =
-          featuresFilters?.tenant_id ||
-          featuresFilters?.organization_id ||
-          localStorage.getItem('organization_id') ||
-          undefined;
+  // Overall Features chart data via API /api/session-tracking/services
+  const featuresRange = useMemo(
+    () => computeRange(featuresRangeKey, featuresCustomRange),
+    [featuresRangeKey, featuresCustomRange]
+  );
 
-        const selectedServiceType = (featuresFilters?.service_type || '').trim();
+  const { useOverallFeatures } = (() => {
+    // local import shim to avoid top-level import churn
+    // eslint-disable-next-line global-require
+    const mod = require("../../hooks/useOverallFeatures.js");
+    return mod;
+  })();
 
-        // Build query params: pass tenant and, if present, a text query for service_type
-        // Backend supports ?q for fuzzy search across fields including service_type.
-        const { items } = await fetchSessionTracking({
-          tenant_id: tenantId,
-          limit: 1000,
-          sort: '-last_updated',
-          q: selectedServiceType ? selectedServiceType : undefined,
-        });
-        if (aborted) return;
+  const {
+    loading: featuresLoading,
+    error: featuresError,
+    data: featuresRawData,
+    meta: featuresMeta,
+  } = useOverallFeatures({
+    tenant_id: featuresTenantId,
+    interval: featuresInterval,
+    start_date: featuresRange.startISO,
+    end_date: featuresRange.endISO,
+    top: 12,
+    include_unknown: false,
+    withTimeBuckets: false,
+    debug: featuresDebug,
+  });
 
-        // Basic guards for empty/missing data
-        const safeItems = Array.isArray(items) ? items : [];
-        if (safeItems.length === 0) {
-          setFeaturesData([]);
-          return;
-        }
-
-        // Group by service_type
-        const counts = new Map();
-        safeItems.forEach((row) => {
-          const raw =
-            row?.service_type ??
-            row?.serviceType ??
-            row?.session_data?.service_type ??
-            row?.session_data?.serviceType ??
-            null;
-          const label = String(raw && String(raw).trim() ? raw : 'Unknown');
-          // If a specific service_type filter is selected, only count matching ones
-          if (selectedServiceType && label !== selectedServiceType) return;
-          counts.set(label, (counts.get(label) || 0) + 1);
-        });
-
-        const shaped = Array.from(counts.entries())
-          .map(([k, v]) => ({ label: k, value: v }))
-          .sort((a, b) => b.value - a.value);
-
-        setFeaturesData(shaped);
-      } catch (e) {
-        if (aborted) return;
-        setFeaturesError(e);
-        setFeaturesData([]);
-      } finally {
-        if (!aborted) setFeaturesLoading(false);
-      }
-    }
-    loadFeatures();
-    return () => {
-      aborted = true;
-    };
-  }, [featuresFilters?.tenant_id, featuresFilters?.organization_id, featuresFilters?.service_type]);
+  // normalize to KPIChart shape {label, value}
+  const featuresData = useMemo(() => {
+    const arr = Array.isArray(featuresRawData) ? featuresRawData : [];
+    return arr.map((d) => ({
+      label: d.label,
+      value: Number(d.count ?? d.value ?? 0),
+    }));
+  }, [featuresRawData]);
 
   // Reusable controls renderers (per-chart)
   const renderDateRangeLabel = useCallback((rangeKey, customRange, range) => {
@@ -828,53 +800,118 @@ export default function Overview() {
           subtitle="Counts by feature type (service_type) from session activity"
           actions={
             <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-              {/* Tenant selector (reads from local storage upon init) */}
-              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <span>Tenant</span>
-                <input
-                  type="text"
-                  placeholder="tenant id"
-                  value={featuresFilters.tenant_id || ""}
-                  onChange={(e) =>
-                    setFeaturesFilters((f) => ({ ...f, tenant_id: e.target.value || undefined }))
-                  }
-                  style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #E5E7EB" }}
-                  aria-label="Tenant id for features chart"
-                />
-              </label>
+              {/* Interval selector aligned with Sessions Trend */}
+              <div role="group" aria-label="Features interval" style={{ display: "inline-flex", border: "1px solid #E5E7EB", borderRadius: 8, overflow: "hidden", background: "#fff" }}>
+                {[
+                  { value: "daily", label: "Daily" },
+                  { value: "weekly", label: "Weekly" },
+                  { value: "monthly", label: "Monthly" },
+                ].map((opt, idx) => {
+                  const active = featuresInterval === opt.value;
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setFeaturesInterval(opt.value)}
+                      aria-pressed={active}
+                      style={{
+                        padding: "6px 10px",
+                        border: "none",
+                        background: active ? "#F59E0B" : "transparent",
+                        color: active ? "#fff" : "#111827",
+                        borderRight: idx < 2 ? "1px solid #E5E7EB" : "none",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
 
-              {/* service_type filter text input (simple includes match server-side via ?q) */}
-              <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                <span>Feature type</span>
+              {/* Range selector mirroring Sessions Trend presets */}
+              <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
+                {["7d", "14d", "30d", "custom"].map((key) => (
+                  <button
+                    key={key}
+                    onClick={() => setFeaturesRangeKey(key)}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      border: "none",
+                      background: featuresRangeKey === key ? "#2563EB" : "transparent",
+                      color: featuresRangeKey === key ? "#fff" : "#111827",
+                      cursor: "pointer",
+                      transition: "background 120ms ease, color 120ms ease",
+                    }}
+                    aria-pressed={featuresRangeKey === key}
+                  >
+                    {key.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+
+              <span style={{ fontSize: 12, color: "#6B7280" }}>
+                {renderDateRangeLabel(featuresRangeKey, featuresCustomRange, featuresRange)}
+              </span>
+
+              <label className="text-sm text-gray-600 flex items-center gap-2" style={{ marginLeft: "auto" }}>
                 <input
-                  type="text"
-                  placeholder="service_type (e.g., chat, summarize)"
-                  value={featuresFilters.service_type}
-                  onChange={(e) =>
-                    setFeaturesFilters((f) => ({ ...f, service_type: e.target.value }))
-                  }
-                  style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #E5E7EB", minWidth: 220 }}
-                  aria-label="Service type filter"
+                  type="checkbox"
+                  checked={featuresDebug}
+                  onChange={(e) => {
+                    setFeaturesDebug(e.target.checked);
+                    // persist for refreshable debugging
+                    if (e.target.checked) localStorage.setItem('debug_features', '1');
+                    else localStorage.removeItem('debug_features');
+                  }}
                 />
+                Debug
               </label>
 
               <button
                 type="button"
-                onClick={() =>
-                  setFeaturesFilters({
-                    tenant_id: localStorage.getItem('organization_id') || undefined,
-                    service_type: '',
-                  })
-                }
+                onClick={() => {
+                  setFeaturesInterval("daily");
+                  setFeaturesRangeKey("30d");
+                  setFeaturesCustomRange({ start: null, end: null });
+                }}
                 className="btn btn-ghost"
                 style={{ marginLeft: 8 }}
-                aria-label="Clear feature filters"
+                aria-label="Clear features filters"
               >
                 Clear
               </button>
             </div>
           }
         >
+          {featuresRangeKey === "custom" ? (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  Start:
+                  <input
+                    type="date"
+                    onChange={(e) => setFeaturesCustomRange((r) => ({ ...r, start: e.target.value }))}
+                    value={featuresCustomRange.start || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Features custom range start date"
+                  />
+                </label>
+                <label style={{ fontSize: 12, color: "#6B7280" }}>
+                  End:
+                  <input
+                    type="date"
+                    onChange={(e) => setFeaturesCustomRange((r) => ({ ...r, end: e.target.value }))}
+                    value={featuresCustomRange.end || ""}
+                    style={{ marginLeft: 6 }}
+                    aria-label="Features custom range end date"
+                  />
+                </label>
+              </div>
+            </div>
+          ) : null}
+
           {featuresLoading && <LoadingState message="Loading features…" height={220} />}
           {featuresError && <ErrorState message={featuresError?.message || "Failed to load features."} />}
           {!featuresLoading && !featuresError && (
@@ -883,10 +920,15 @@ export default function Overview() {
                 <KPIChart data={featuresData} xKey="label" yKey="value" color="#F59E0B" />
               ) : (
                 <div style={{ marginTop: 8, color: "#6B7280", fontSize: 12, textAlign: "center" }}>
-                  No data
+                  No service usage found for selected period
                 </div>
               )}
             </>
+          )}
+          {!!featuresDebug && (
+            <div style={{ marginTop: 8, color: "#6B7280", fontSize: 12 }}>
+              Debug tips: Inspect the Network tab for /api/session-tracking/services requests. The hook logs the exact URL and response when Debug is enabled.
+            </div>
           )}
         </Card>
       </div>
