@@ -3,6 +3,7 @@ import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
 import { fetchSessionTracking } from "../../api/sessionTracking";
+import { fetchSessionTrackingAggregates, fetchSessionTrackingRaw } from "../../api/sessionTrackingAggregates";
 import LoadingState from "../../components/common/LoadingState";
 import ErrorState from "../../components/common/ErrorState";
 import KPIChart from "../../components/charts/KPIChart.jsx";
@@ -68,7 +69,8 @@ export default function Overview() {
   // Sessions controls (independent)
   const [sessionsRangeKey, setSessionsRangeKey] = useState("30d"); // default last 30 days
   const [sessionsCustomRange, setSessionsCustomRange] = useState({ start: null, end: null });
-  const [sessionsGranularity, setSessionsGranularity] = useState("daily"); // 'daily' | 'weekly' (monthly maps to weekly)
+  const [sessionsGranularity, setSessionsGranularity] = useState("daily"); // 'daily' | 'weekly' | 'monthly' | 'custom'
+  const [sessionsBucketsDebugOpen, setSessionsBucketsDebugOpen] = useState(false);
 
   // Users controls (independent)
   const [usersRangeKey, setUsersRangeKey] = useState("30d");
@@ -195,56 +197,72 @@ export default function Overview() {
     [usersRangeKey, stableUsersCustomRange]
   );
 
-  // Sessions trend fetcher — independent
+  // Sessions trend fetcher — independent (uses aggregated API)
   useEffect(() => {
     let aborted = false;
     async function loadSessions() {
       setSessionsLoading(true);
       setSessionsError(null);
       try {
-        const { startISO, endISO } = sessionsRange;
-        const { items } = await fetchSessionTracking({
-          // Provide multiple shapes: from/to and start/end plus convenience keys
-          from: startISO,
-          to: endISO,
-          start_date: startISO,
-          end_date: endISO,
-          limit: 200,
-          sort: "-session_start",
-        });
-        if (aborted) return;
-
-        const pts = (items || [])
-          .map((it) => {
-            const t =
-              it.session_start ||
-              it.last_updated ||
-              it.updated_at ||
-              it.startedAt ||
-              it.createdAt ||
-              it.timestamp ||
-              it.lastActivityAt ||
-              it.endedAt ||
-              it.date;
-            return t ? new Date(t) : null;
-          })
-          .filter((d) => d && !Number.isNaN(d.getTime()));
-
-        const map = new Map();
-        if (sessionsGranularity === "weekly") {
-          pts.forEach((d) => {
-            const wk = startOfWeek(d);
-            const k = toYMD(wk);
-            map.set(k, (map.get(k) || 0) + 1);
-          });
-        } else {
-          pts.forEach((d) => {
-            const k = toYMD(d);
-            map.set(k, (map.get(k) || 0) + 1);
-          });
+        // Map UI granularity to API interval
+        let interval = sessionsGranularity;
+        if (interval !== 'daily' && interval !== 'weekly' && interval !== 'monthly' && interval !== 'custom') {
+          interval = 'daily';
         }
 
-        setSessionsSeries(fillSeries(map, sessionsRange.startISO, sessionsRange.endISO, sessionsGranularity));
+        // Compute defaults for interval when not custom:
+        // daily: last 30 days (already computed by backend default)
+        // weekly: last 12 weeks; monthly: last 12 months
+        // If custom key is active, rely on selected dates.
+        let startISO = undefined;
+        let endISO = undefined;
+        if (sessionsRangeKey === 'custom' && sessionsCustomRange.start && sessionsCustomRange.end) {
+          startISO = new Date(sessionsCustomRange.start).toISOString();
+          const e = new Date(sessionsCustomRange.end);
+          e.setHours(23, 59, 59, 999);
+          endISO = e.toISOString();
+          interval = 'custom';
+        } else if (interval === 'weekly') {
+          // set explicit start/end to ensure 12 weeks window consistent with backend
+          const e = new Date();
+          e.setHours(23, 59, 59, 999);
+          const s = new Date(e);
+          s.setDate(e.getDate() - (12 * 7 - 1));
+          startISO = s.toISOString();
+          endISO = e.toISOString();
+        } else if (interval === 'monthly') {
+          const e = new Date();
+          e.setHours(23, 59, 59, 999);
+          const s = new Date(e);
+          s.setMonth(s.getMonth() - 11);
+          s.setDate(1);
+          startISO = s.toISOString();
+          endISO = e.toISOString();
+        }
+
+        const resp = await fetchSessionTrackingAggregates({ interval, start: startISO, end: endISO });
+        if (aborted) return;
+
+        // Convert to KPIChart format
+        const series = (resp.data || []).map((row) => {
+          const d = new Date(row.date);
+          const label =
+            interval === 'monthly'
+              ? `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-01`
+              : `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+          return { label, value: Number(row.count || 0) };
+        });
+
+        // Ensure continuous series fill using backend meta start/end when available
+        const fillStart = resp.start || startISO;
+        const fillEnd = resp.end || endISO;
+        if (fillStart && fillEnd) {
+          const map = new Map(series.map((p) => [p.label, p.value]));
+          const filled = fillSeries(map, fillStart, fillEnd, interval === 'weekly' ? 'weekly' : 'daily');
+          setSessionsSeries(filled);
+        } else {
+          setSessionsSeries(series);
+        }
       } catch (e) {
         if (aborted) return;
         setSessionsError(e);
@@ -253,11 +271,11 @@ export default function Overview() {
         if (!aborted) setSessionsLoading(false);
       }
     }
-    if (sessionsRange.startISO && sessionsRange.endISO) loadSessions();
+    loadSessions();
     return () => {
       aborted = true;
     };
-  }, [sessionsRange, sessionsGranularity, fillSeries]);
+  }, [sessionsRangeKey, sessionsCustomRange.start, sessionsCustomRange.end, sessionsGranularity, fillSeries]);
 
   // Users trend fetcher — independent
   useEffect(() => {
@@ -462,7 +480,7 @@ export default function Overview() {
 
   // Per-chart time range selectors and bucket toggles
   const SessionsControls = (
-    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+    <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
       <div style={{ display: "flex", gap: 6, background: "#fff", border: "1px solid #E5E7EB", borderRadius: 8, padding: 4 }}>
         {["7d", "14d", "30d", "custom"].map((key) => (
           <button
@@ -484,26 +502,56 @@ export default function Overview() {
         ))}
       </div>
       <DateRangePill label={renderDateRangeLabel(sessionsRangeKey, sessionsCustomRange, sessionsRange)} />
-      <TimeBucketFilter
-        value={sessionsGranularity}
-        onChange={(v) => setSessionsGranularity(v === "monthly" ? "weekly" : v)}
-        options={[
+      <div role="group" aria-label="Sessions interval" style={{ display: "inline-flex", border: "1px solid #E5E7EB", borderRadius: 8, overflow: "hidden", background: "#fff" }}>
+        {[
           { value: "daily", label: "Daily" },
           { value: "weekly", label: "Weekly" },
           { value: "monthly", label: "Monthly" },
-        ]}
-      />
+          { value: "custom", label: "Custom" },
+        ].map((opt, idx) => {
+          const active = sessionsGranularity === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setSessionsGranularity(opt.value)}
+              aria-pressed={active}
+              style={{
+                padding: "6px 10px",
+                border: "none",
+                background: active ? "#2563EB" : "transparent",
+                color: active ? "#fff" : "#111827",
+                borderRight: idx < 3 ? "1px solid #E5E7EB" : "none",
+                cursor: "pointer",
+              }}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
       <button
         type="button"
         onClick={() => {
           setSessionsRangeKey("7d");
           setSessionsCustomRange({ start: null, end: null });
+          setSessionsGranularity("daily");
         }}
         className="btn btn-ghost"
         aria-label="Clear sessions filters"
         style={{ marginLeft: 8 }}
       >
         Clear
+      </button>
+      <button
+        type="button"
+        onClick={() => setSessionsBucketsDebugOpen((v) => !v)}
+        className="btn btn-ghost"
+        aria-expanded={sessionsBucketsDebugOpen}
+        aria-controls="sessions-buckets-debug"
+        style={{ marginLeft: 8 }}
+      >
+        {sessionsBucketsDebugOpen ? "Hide Buckets" : "Show Buckets"}
       </button>
     </div>
   );
@@ -642,7 +690,7 @@ export default function Overview() {
           subtitle="Session counts over time"
           actions={SessionsControls}
         >
-          {sessionsRangeKey === "custom" ? (
+          {(sessionsRangeKey === "custom" || sessionsGranularity === "custom") ? (
             <div style={{ marginBottom: 8 }}>
               <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
                 <label style={{ fontSize: 12, color: "#6B7280" }}>
@@ -677,7 +725,32 @@ export default function Overview() {
           {sessionsLoading && <LoadingState message="Loading sessions trend…" height={220} />}
           {sessionsError && <ErrorState message={sessionsError?.message || "Failed to load sessions."} />}
           {!sessionsLoading && !sessionsError && (
-            <KPIChart data={sessionsSeries} xKey="label" yKey="value" color="#2563EB" />
+            <>
+              <KPIChart data={sessionsSeries} xKey="label" yKey="value" color="#2563EB" />
+              <div id="sessions-buckets-debug" style={{ marginTop: 12 }}>
+                {sessionsBucketsDebugOpen && (
+                  <details open>
+                    <summary style={{ cursor: "pointer", color: "#2563EB" }}>Aggregated Buckets (debug)</summary>
+                    <div style={{ fontSize: 12, color: "#374151", marginTop: 8 }}>
+                      {(sessionsSeries || []).length === 0 ? (
+                        <div>No buckets</div>
+                      ) : (
+                        <ul style={{ listStyle: "disc", paddingLeft: 18 }}>
+                          {sessionsSeries.map((p) => (
+                            <li key={p.label}>
+                              <strong>{p.label}</strong>: {p.value}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <div style={{ marginTop: 6, color: "#6B7280" }}>
+                        Tooltip on the chart shows date bucket and count.
+                      </div>
+                    </div>
+                  </details>
+                )}
+              </div>
+            </>
           )}
         </Card>
       </div>
