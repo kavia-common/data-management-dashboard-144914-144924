@@ -1,5 +1,11 @@
 import { getApiClient } from './index';
 
+/**
+ * Sessions analytics API helpers
+ * Uses getApiClient() which returns an axios-like client ({ get, post, ... }).
+ * PUBLIC_INTERFACE
+ */
+
 // PUBLIC_INTERFACE
 export async function getDurationHistogram({
   scope = 'all',

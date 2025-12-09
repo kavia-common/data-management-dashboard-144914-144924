@@ -18,6 +18,12 @@ const RANGE_OPTIONS = [
   { value: 'custom', label: 'Custom' },
 ]
 
+/**
+ * PUBLIC_INTERFACE
+ * OverviewUsersSummary
+ * Renders a range selector and bar chart for /api/users/summary.
+ * Includes start_date/end_date only when range='custom'. Defaults to 'daily' for today.
+ */
 export default function OverviewUsersSummary({ organizationId: organizationIdProp }) {
   // Determine organization ID: prop has priority; else default to demo org 'b2c'
   const orgId = organizationIdProp || 'b2c'

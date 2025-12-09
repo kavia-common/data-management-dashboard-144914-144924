@@ -75,4 +75,9 @@ export async function apiGet(url, options = {}) {
   return payload;
 }
 
-export default { apiGet };
+/**
+ * Note: No default export of an axios-like client here.
+ * apiGet is a helper for simple GETs, but modules should prefer src/api/client.js default export
+ * for axios-like usage (get/post/etc.). Keeping named export only to avoid misuse.
+ */
+export default null;

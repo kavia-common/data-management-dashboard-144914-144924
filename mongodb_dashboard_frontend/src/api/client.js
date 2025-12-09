@@ -1,8 +1,11 @@
-import api from '../utils/api'
+import { getApiClient } from './baseClient'
 
-export default {
-  get: (url, config) => api.get(url, config),
-  post: (url, data, config) => api.post(url, data, config),
-  put: (url, data, config) => api.put(url, data, config),
-  delete: (url, config) => api.delete(url, config),
-}
+/**
+ * Default axios-like client instance for the frontend API.
+ * PUBLIC_INTERFACE
+ * Exports an object with get/post/put/delete methods, each returning { data } like axios.
+ * The implementation is based on fetch under the hood (see baseClient.js).
+ */
+const api = getApiClient()
+
+export default api
