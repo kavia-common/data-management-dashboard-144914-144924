@@ -9,8 +9,7 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  LineChart,
-  Line,
+
   PieChart,
   Pie,
   Cell,
@@ -26,7 +25,6 @@ import Skeleton from "../../components/ui/Skeleton";
  * A charts/analytics panel for the Users page, with independent filters.
  * - Projects by User (bar)
  * - Projects by Department (pie/donut)
- * - Projects timeline (daily created counts without server-side aggregation)
  *
  * Data source:
  * - Reuses /api/users to get users, then uses /api/users/:userId/projects
@@ -164,15 +162,6 @@ export default function UsersAnalyticsPanel({
     const projectsCountByUser = [];
     // Projects by department (from users)
     const projectsByDepartment = new Map();
-    // Timeline map by day (no weekly aggregation)
-    const byDay = new Map();
-
-    const dayKey = (iso) => {
-      const d = new Date(iso);
-      if (Number.isNaN(d.getTime())) return null;
-      const d0 = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-      return d0.toISOString().slice(0, 10);
-    };
 
     const departmentOf = (u) =>
       u?.department ||
@@ -198,16 +187,6 @@ export default function UsersAnalyticsPanel({
         // Department contribution: number of projects for user's department
         const prev = projectsByDepartment.get(dept) || 0;
         projectsByDepartment.set(dept, prev + projs.length);
-
-        // Timeline (per-day only)
-        for (const p of projs) {
-          const lastAct =
-            p?.last_activity || p?.lastActivity || p?.created_at || p?.createdAt;
-          if (!lastAct) continue;
-          const k = dayKey(lastAct);
-          if (!k) continue;
-          byDay.set(k, (byDay.get(k) || 0) + 1);
-        }
       } else {
         // No project list; fall back to user presence (count 0 projects)
         projectsCountByUser.push({
@@ -229,26 +208,14 @@ export default function UsersAnalyticsPanel({
           String(d.department).trim().toLowerCase() !== "unknown"
       );
 
-    // Normalize timeline by filling from selected range
-    const start = new Date(startISO);
-    const end = new Date(endISO);
-    const timeline = [];
-    if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
-      for (let c = new Date(start); c <= end; c.setDate(c.getDate() + 1)) {
-        const key = c.toISOString().slice(0, 10);
-        timeline.push({ bucket: key, total: byDay.get(key) || 0 });
-      }
-    }
-
     // Sort projectsCountByUser desc
     projectsCountByUser.sort((a, b) => b.count - a.count);
 
-    return { projectsCountByUser, departmentData, timeline };
+    return { projectsCountByUser, departmentData };
   }, [users, projectsByUser, startISO, endISO]);
 
   // Theme colors
   const primary = "#2563EB";
-  const secondary = "#F59E0B";
   const grid = "#E5E7EB";
   const subtle = "#6B7280";
   const palette = [
@@ -282,7 +249,7 @@ export default function UsersAnalyticsPanel({
         <div className="card-header" style={{ paddingBottom: 0, gap: 12 }}>
           <div>
             <h3 className="card-title">Users Analytics</h3>
-            <div className="card-subtitle">Projects distribution and timeline</div>
+            <div className="card-subtitle">User activity distribution</div>
           </div>
           <div
             className="card-actions"
@@ -352,10 +319,10 @@ export default function UsersAnalyticsPanel({
             }}
           >
             {/* Projects by User */}
-            <div className="card" aria-label="Projects by User">
+            <div className="card" aria-label="Activity by User">
               <div className="card-header" style={{ paddingBottom: 0 }}>
-                <h4 className="card-title">Projects by User</h4>
-                <div className="card-subtitle">Number of projects per user</div>
+                <h4 className="card-title">Activity by User</h4>
+                <div className="card-subtitle">Counts derived from associated activity</div>
               </div>
               <div className="card-content" style={{ height: 340 }}>
                 {usersLoading || projectsLoading ? (
@@ -397,7 +364,7 @@ export default function UsersAnalyticsPanel({
                       <Legend />
                       <Bar
                         dataKey="count"
-                        name="Projects"
+                        name="Count"
                         fill={primary}
                         stroke={primary}
                         radius={[6, 6, 0, 0]}
@@ -409,11 +376,11 @@ export default function UsersAnalyticsPanel({
             </div>
 
             {/* Projects by Department */}
-            <div className="card" aria-label="Projects by Department">
+            <div className="card" aria-label="Activity by Department">
               <div className="card-header" style={{ paddingBottom: 0 }}>
-                <h4 className="card-title">Projects by Department</h4>
+                <h4 className="card-title">Activity by Department</h4>
                 <div className="card-subtitle">
-                  Distribution of projects by department
+                  Distribution by department
                 </div>
               </div>
               <div className="card-content" style={{ height: 340 }}>
@@ -470,60 +437,7 @@ export default function UsersAnalyticsPanel({
               </div>
             </div>
 
-            {/* Timeline across full width */}
-            <div
-              className="card"
-              style={{ gridColumn: "1 / span 2" }}
-              aria-label="Projects timeline"
-            >
-              <div className="card-header" style={{ paddingBottom: 0 }}>
-                <h4 className="card-title">Projects timeline</h4>
-                <div className="card-subtitle">Projects created over time</div>
-              </div>
-              <div className="card-content" style={{ height: 320 }}>
-                {usersLoading || projectsLoading ? (
-                  <div aria-busy="true">
-                    <Skeleton width="60%" height={14} className="mb-2" />
-                    <Skeleton width="50%" height={12} className="mb-2" />
-                    <Skeleton width="100%" height={260} />
-                  </div>
-                ) : usersError ? (
-                  <div className="error" role="alert">
-                    {usersError.message || "Failed to load users"}
-                  </div>
-                ) : projectsError ? (
-                  <div className="error" role="alert">
-                    {projectsError}
-                  </div>
-                ) : aggregates.timeline.length === 0 ? (
-                  <div className="screen-center">No timeline data</div>
-                ) : (
-                  <ResponsiveContainer>
-                    <LineChart data={aggregates.timeline}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={grid} />
-                      <XAxis
-                        dataKey="bucket"
-                        tick={{ fill: subtle, fontSize: 12 }}
-                      />
-                      <YAxis
-                        tick={{ fill: subtle, fontSize: 12 }}
-                        allowDecimals={false}
-                      />
-                      <Tooltip />
-                      <Legend />
-                      <Line
-                        type="monotone"
-                        dataKey="total"
-                        name="Projects"
-                        stroke={secondary}
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
+
           </div>
         </div>
       </div>
