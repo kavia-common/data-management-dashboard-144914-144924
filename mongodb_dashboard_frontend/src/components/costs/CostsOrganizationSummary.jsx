@@ -1,7 +1,7 @@
 import React from "react";
 import Card from "../ui/Card.jsx";
 import Skeleton from "../ui/Skeleton.jsx";
-import ErrorState from "../common/ErrorState.jsx";
+
 import Button from "../ui/Button.jsx";
 import { formatCurrencyAmount } from "../../utils/formatCurrency.js";
 import api from "../../utils/api";
@@ -79,7 +79,12 @@ export default function CostsOrganizationSummary({ orgId, onLoaded }) {
           </SummaryItem>
         </div>
       ) : error ? (
-        <ErrorState message={error} onRetry={load} />
+        <div>
+          <div role="alert" className="error">{error}</div>
+          <Button variant="ghost" onClick={load} aria-label="Retry loading organization summary">
+            Retry
+          </Button>
+        </div>
       ) : !data ? (
         <div>No organization data available.</div>
       ) : (

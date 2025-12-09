@@ -18,8 +18,7 @@ import {
   Scatter,
 } from "recharts";
 
-import LoadingState from "../common/LoadingState.jsx";
-import ErrorState from "../common/ErrorState.jsx";
+
 import { listSessions, listLlmCosts } from "../../api/baseClient";
 import { getChartTheme } from "../charts/chartTheme";
 import { formatUsdUpToSixDecimals } from "../../utils/formatCurrency";
@@ -336,16 +335,29 @@ export default function UsersAnalyticsPanelModal({ userId, tenantId, from, to })
     (!charts.creditsByService || charts.creditsByService.length === 0);
 
   if (loading) {
-    return <LoadingState message="Loading analytics…" height={220} />;
+    return (
+      <div role="status" aria-live="polite" style={{ minHeight: 220, display: 'grid', placeItems: 'center' }}>
+        Loading analytics…
+      </div>
+    );
   }
   if (err) {
-    return <ErrorState message={err} onRetry={() => {
-      // simple retry by toggling loading
-      setLoading(true);
-      setErr("");
-      // trigger effect by fake from change
-      setTimeout(() => setLoading(false), 0);
-    }} />;
+    return (
+      <div>
+        <div role="alert" className="error">{err}</div>
+        <button
+          type="button"
+          onClick={() => {
+            setLoading(true);
+            setErr("");
+            setTimeout(() => setLoading(false), 0);
+          }}
+          className="btn btn-ghost"
+        >
+          Retry
+        </button>
+      </div>
+    );
   }
   if (allEmpty) {
     return <div className="screen-center" style={{ minHeight: 120 }}>No analytics available for this user.</div>;

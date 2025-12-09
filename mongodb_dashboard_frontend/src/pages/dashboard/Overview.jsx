@@ -2,8 +2,7 @@ import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
-import LoadingState from "../../components/common/LoadingState";
-import ErrorState from "../../components/common/ErrorState";
+
 
 /**
  * PUBLIC_INTERFACE
@@ -115,8 +114,6 @@ export default function Overview() {
       )}
 
       {/* Charts removed intentionally to satisfy task requirements */}
-      <LoadingState style={{ display: 'none' }} />
-      <ErrorState style={{ display: 'none' }} />
     </div>
   );
 }

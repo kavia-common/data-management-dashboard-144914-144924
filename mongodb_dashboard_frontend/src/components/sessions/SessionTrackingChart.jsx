@@ -2,8 +2,7 @@ import React, { useState, useMemo } from "react";
 import PropTypes from "prop-types";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Legend, LineChart, Line, PieChart, Pie, Cell } from "recharts";
 import Card from "../common/Card";
-import LoadingState from "../common/LoadingState";
-import ErrorState from "../common/ErrorState";
+
 
 /**
  * PUBLIC_INTERFACE
@@ -77,7 +76,9 @@ export default function SessionTrackingChart({
   if (loading) {
     return (
       <Card className="flex flex-col items-center justify-center min-h-[48px]" {...ariaProps}>
-        <LoadingState height={height} message="Loading session chart..." />
+        <div role="status" aria-live="polite" style={{ minHeight: height, display: 'grid', placeItems: 'center' }}>
+          Loading session chart...
+        </div>
       </Card>
     );
   }
@@ -85,7 +86,7 @@ export default function SessionTrackingChart({
   if (error) {
     return (
       <Card>
-        <ErrorState message={error.message || "Could not load session chart."} />
+        <div role="alert" className="error">{error.message || "Could not load session chart."}</div>
       </Card>
     );
   }

@@ -2,8 +2,7 @@ import React, { useMemo } from "react";
 import Card from "../ui/Card.jsx";
 import Tag from "../ui/Tag.jsx";
 import DataTable from "../DataTable.jsx";
-import LoadingState from "../common/LoadingState.jsx";
-import ErrorState from "../common/ErrorState.jsx";
+
 import useActiveUsers from "../../hooks/useActiveUsers";
 
 /**
@@ -58,9 +57,14 @@ export default function ActiveUsersList({ page = 1, limit = 20, sort = "-created
   return (
     <Card title="Active Users" subtitle="Users currently marked as active">
       {loading ? (
-        <LoadingState message="Loading active users..." />
+        <div role="status" aria-live="polite" className="card-content">
+          Loading active users...
+        </div>
       ) : error ? (
-        <ErrorState message={error} onRetry={() => setPage(1)} />
+        <div className="card-content">
+          <div role="alert" className="error">{String(error)}</div>
+          <button type="button" className="btn btn-ghost" onClick={() => setPage(1)} aria-label="Retry loading active users">Retry</button>
+        </div>
       ) : users.length === 0 ? (
         <div className="card-content">
           <div className="empty" aria-live="polite">

@@ -9,8 +9,7 @@ import { useUserProjects } from '../../hooks/useUserProjects';
 
 // Shared components/utilities
 import DataTable from '../DataTable.jsx';
-import LoadingState from '../common/LoadingState.jsx';
-import ErrorState from '../common/ErrorState.jsx';
+
 import { listSessions, listLlmCosts } from '../../api/baseClient';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
@@ -661,10 +660,21 @@ export default function TabbedUserModal({
     // Aggregation panel UI (definition list two-column)
     const AggregatesPanel = () => {
       if (loading) {
-        return <LoadingState message="Loading sessions..." height={120} />;
+        return (
+          <div role="status" aria-live="polite" style={{ minHeight: 120, display: 'grid', placeItems: 'center' }}>
+            Loading sessions...
+          </div>
+        );
       }
       if (error) {
-        return <ErrorState message={error} onRetry={load} />;
+        return (
+          <div>
+            <div role="alert" className="error">{error}</div>
+            <button type="button" onClick={load} className="btn btn-ghost" style={{ height: 28, padding: '2px 8px' }}>
+              Retry
+            </button>
+          </div>
+        );
       }
       if (!aggregate) {
         return (
@@ -873,8 +883,17 @@ export default function TabbedUserModal({
           </div>
         </div>
 
-        {loading && <LoadingState message="Loading credits..." height={160} />}
-        {!loading && error && <ErrorState message={error} onRetry={load} />}
+        {loading && (
+          <div role="status" aria-live="polite" style={{ minHeight: 160, display: 'grid', placeItems: 'center' }}>
+            Loading credits...
+          </div>
+        )}
+        {!loading && error && (
+          <div>
+            <div role="alert" className="error">{error}</div>
+            <button type="button" onClick={load} className="btn btn-ghost">Retry</button>
+          </div>
+        )}
         {!loading && !error && (
           Array.isArray(rows) && rows.length > 0 ? (
             <DataTable

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Card from '../../components/common/Card.jsx';
-import LoadingState from '../../components/common/LoadingState';
-import ErrorState from '../../components/common/ErrorState';
+
 import { getOverviewTotals } from '../../api/overviewAnalytics';
 import { useAuth } from '../../context/AuthContext';
 
@@ -41,8 +40,8 @@ export default function OverviewWrapper() {
     return () => { mounted = false; };
   }, []);
 
-  if (loading) return <LoadingState message="Loading overview..." />;
-  if (error) return <ErrorState error={error} />;
+  if (loading) return <div role="status" aria-live="polite" style={{ minHeight: 120, display: 'grid', placeItems: 'center' }}>Loading overview...</div>;
+  if (error) return <div role="alert" className="error">{String(error?.message || error)}</div>;
 
   return (
     <div className="page-container">

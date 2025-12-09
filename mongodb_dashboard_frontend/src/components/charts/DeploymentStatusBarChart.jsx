@@ -14,8 +14,7 @@ import {
 } from "recharts";
 import { getChartTheme } from "./chartTheme";
 import getOceanColors from "../../theme/colors";
-import LoadingState from "../common/LoadingState.jsx";
-import ErrorState from "../common/ErrorState.jsx";
+
 import Card from "../ui/Card.jsx";
 import { useAuth } from "../../context/AuthContext";
 import { formatStatusLabel } from "../../utils/formatStatusLabel";
@@ -138,9 +137,11 @@ export default function DeploymentStatusBarChart({
   return (
     <Card title={title} subtitle={subtitle} className="block-full">
       {loading ? (
-        <LoadingState message="Loading deployment status..." height={height} />
+        <div role="status" aria-live="polite" className="screen-center" style={{ minHeight: height }}>
+          Loading deployment status...
+        </div>
       ) : error ? (
-        <ErrorState message={error} />
+        <div role="alert" className="error">{error}</div>
       ) : !hasData ? (
         <div className="screen-center" style={{ height }}>No data</div>
       ) : (
