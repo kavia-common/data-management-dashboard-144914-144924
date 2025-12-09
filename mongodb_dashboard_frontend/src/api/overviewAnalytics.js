@@ -7,8 +7,14 @@ import { buildOverviewQueryParams } from './buildOverviewFilterParams';
  * Fetch totals for overview dashboard. Currently no filters required but params accepted for forward compatibility.
  */
 export async function getOverviewTotals(params = {}) {
-  const res = await client.get('/api/dashboard/overview/metrics', { params });
-  return res.data;
+  // Allow 401 without breaking page render; backend endpoint is public-friendly.
+  const res = await client.get('/api/dashboard/overview/metrics', {
+    params,
+    allowUnauthorized: true,
+    // Do not force Authorization; if token exists, base client will attach it automatically unless omitAuth is true.
+    // Keep omitAuth=false so token is included when available, but do not fail on 401.
+  });
+  return res?.data ?? { success: false, totalUsers: 0, totalDeployedApps: 0 };
 }
 
 /**

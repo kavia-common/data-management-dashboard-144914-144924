@@ -48,7 +48,15 @@ export default function OverviewUsersSummary({ organizationId: organizationIdPro
           setData(items);
         }
       } catch (e) {
-        if (!cancelled) setError(e?.message || 'Failed to load users summary');
+        if (!cancelled) {
+          // Gracefully handle Unauthorized by rendering empty state
+          if (e && (e.status === 401 || /unauthorized/i.test(String(e.message)))) {
+            setError(null);
+            setData([]);
+          } else {
+            setError(e?.message || 'Failed to load users summary');
+          }
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }

@@ -1,5 +1,5 @@
 import { getApiBase } from "./config";
-import { buildAuthHeaders, getOrganizationId } from "./authTokenProvider";
+import { buildAuthHeaders, getOrganizationId, getToken } from "./authTokenProvider";
 
 /**
  * Internal helper: detect absolute URLs.
@@ -193,23 +193,34 @@ async function parseResponse(res) {
 /**
  * Axios-like "get" returning { data }.
  */
-async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
+async function httpGet(pathOrUrl, { params, headers, signal, allowUnauthorized = false, omitAuth = false } = {}) {
   const effParams = sanitizeEndpointParams(
     pathOrUrl,
     ensureScopedQueryParams(pathOrUrl, params)
   );
   const url = buildUrlWithParams(pathOrUrl, effParams);
+
+  // Build headers conditionally attaching Authorization only when available and not explicitly omitted
+  const baseHeaders = {
+    Accept: "application/json",
+    ...(headers || {}),
+  };
+  const hasToken = !!getToken();
+  const finalHeaders = omitAuth ? baseHeaders : buildAuthHeaders(baseHeaders);
+
   const res = await fetch(url, {
     method: "GET",
-    headers: buildAuthHeaders({
-      Accept: "application/json",
-      ...(headers || {}),
-    }),
+    headers: finalHeaders,
     signal,
     credentials: "omit",
   });
   const { ok, status, payload } = await parseResponse(res);
+
   if (!ok) {
+    // If endpoint is allowed to be accessed without auth, treat 401 as empty/safe payload
+    if (allowUnauthorized && status === 401) {
+      return { data: null };
+    }
     const message =
       (payload && typeof payload === "object" && (payload.message || payload.detail)) ||
       (typeof payload === "string" ? payload : `Request failed (${status})`);
@@ -221,26 +232,33 @@ async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
   return { data: payload };
 }
 
-async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {}) {
+async function httpJson(method, pathOrUrl, body, { headers, signal, params, allowUnauthorized = false, omitAuth = false } = {}) {
   // Append scoped params depending on endpoint and sanitize per-endpoint
   const effParams = sanitizeEndpointParams(
     pathOrUrl,
     ensureScopedQueryParams(pathOrUrl, params)
   );
   const url = buildUrlWithParams(pathOrUrl, effParams);
+
+  const baseHeaders = {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+    ...(headers || {}),
+  };
+  const finalHeaders = omitAuth ? baseHeaders : buildAuthHeaders(baseHeaders);
+
   const res = await fetch(url, {
     method,
-    headers: buildAuthHeaders({
-      "Content-Type": "application/json",
-      Accept: "application/json",
-      ...(headers || {}),
-    }),
+    headers: finalHeaders,
     body: body !== undefined ? JSON.stringify(body) : undefined,
     signal,
     credentials: "omit",
   });
   const { ok, status, payload } = await parseResponse(res);
   if (!ok) {
+    if (allowUnauthorized && status === 401) {
+      return { data: null };
+    }
     const message =
       (payload && typeof payload === "object" && (payload.message || payload.detail)) ||
       (typeof payload === "string" ? payload : `Request failed (${status})`);

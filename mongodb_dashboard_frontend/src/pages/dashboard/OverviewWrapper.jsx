@@ -40,18 +40,26 @@ export default function OverviewWrapper() {
         setLoading(true);
         const totalsRes = await getOverviewTotals();
         if (!mounted) return;
-        setTotals(totalsRes);
+        // Treat null (e.g., 401 when unauthenticated) as an empty totals object.
+        const safeTotals = totalsRes || { success: false, totalUsers: 0, totalDeployedApps: 0 };
+        setTotals(safeTotals);
         setError(null);
       } catch (e) {
         if (!mounted) return;
-        setError(e);
+        // Do not block render on 401; show fallback instead
+        if (e && e.status === 401) {
+          setTotals({ success: false, totalUsers: 0, totalDeployedApps: 0 });
+          setError(null);
+        } else {
+          setError(e);
+        }
       } finally {
         if (!mounted) return;
         setLoading(false);
       }
     })();
     return () => { mounted = false; };
-  }, []);
+  }, [organizationId]);
 
   // Keep organization scope in filters when auth changes
   useEffect(() => {

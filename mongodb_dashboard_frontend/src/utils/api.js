@@ -27,10 +27,17 @@ export async function apiGet(url, options = {}) {
       ? url
       : joinUrl(base, url);
 
-  const headers = buildAuthHeaders({
-    Accept: 'application/json',
-    ...(options.headers || {}),
-  });
+  // If caller explicitly passes omitAuth, skip attaching Authorization
+  const omitAuth = options.omitAuth === true;
+  const headers = omitAuth
+    ? {
+        Accept: 'application/json',
+        ...(options.headers || {}),
+      }
+    : buildAuthHeaders({
+        Accept: 'application/json',
+        ...(options.headers || {}),
+      });
 
   // Append organization_id query if not present (some endpoints require query param)
   let effUrl = finalUrl;
