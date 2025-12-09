@@ -16,7 +16,7 @@ function buildParams({ organization_id, range, start_date, end_date }) {
 }
 
 // PUBLIC_INTERFACE
-export async function fetchUsersSummary({ organization_id, range = 'daily', start_date, end_date } = {}) {
+export async function fetchUsersSummary({ organization_id, range = 'daily', start_date, end_date }) {
   /** Fetches /api/users/summary and returns JSON { range, start_date?, end_date?, buckets: [{key,label,count}, ...] } */
   const qs = buildParams({ organization_id, range, start_date, end_date })
   const url = `/api/users/summary${qs ? `?${qs}` : ''}`
