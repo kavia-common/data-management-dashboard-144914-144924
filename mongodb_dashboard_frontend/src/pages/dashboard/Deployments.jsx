@@ -2,7 +2,7 @@
 // import Card from "../../components/ui/Card.jsx";
 // import DataTable from "../../components/DataTable.jsx";
 // import { listDeployments } from "../../api";
-// import DeploymentsOverTime from "../../components/charts/DeploymentsOverTime.jsx";
+// 
 // import DeploymentStatusBarChart from "../../components/charts/DeploymentStatusBarChart.jsx";
 // import useDeploymentStatusCounts from "../../hooks/useDeploymentStatusCounts";
 
@@ -157,7 +157,7 @@
 //     <div className="grid">
 //       {/* Chart block spans full width above the table */}
 //       <div className="block-full">
-//         <DeploymentsOverTime height={340} />
+
 //       </div>
 
 //       {/* Status counts bar chart */}
@@ -395,10 +395,6 @@ export default function Deployments() {
 
   return (
     <div className="grid">
-      <div className="block-full">
-        <DeploymentsOverTime height={340} />
-      </div>
-
       <div className="block-full">
         <DeploymentStatusBarChart
           title="Projects deployments by Status"
