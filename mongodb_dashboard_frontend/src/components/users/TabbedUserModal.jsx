@@ -4,9 +4,6 @@ import PropTypes from 'prop-types';
 // Prefer existing UI primitives if available
 import Modal from '../ui/Modal.jsx';
 
-// Views
-import { useUserProjects } from '../../hooks/useUserProjects';
-
 // Shared components/utilities
 import DataTable from '../DataTable.jsx';
 
@@ -179,195 +176,6 @@ UserDetailsView.propTypes = {
 };
 
 /**
- * Internal presentational view for user projects
- */
-function UserProjectsView({ userId, tenantId, from, to }) {
-  const enabled = Boolean(userId && tenantId);
-  const { projects, loading, error, refetch } = useUserProjects({ userId, tenantId, from, to, enabled });
-
-  if (!enabled) {
-    return <div className="text-gray-500">Select a user with a valid tenant to view projects.</div>;
-  }
-  if (loading) return (
-    <div
-      role="status"
-      aria-live="polite"
-      style={{
-        background: 'transparent',
-        color: '#ffffff',
-        border: 'none',
-        boxShadow: 'none',
-        textAlign: 'center',
-        padding: 12,
-        borderRadius: 8,
-      }}
-    >
-      Loading projects…
-    </div>
-  );
-  if (error) {
-    return (
-      <div className="error" role="alert" style={{ marginBottom: 12 }}>
-        {error}{' '}
-        <button
-          onClick={() => refetch()}
-          className="btn btn-ghost"
-          style={{ height: 28, padding: '2px 8px' }}
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
-
-  const list = projects || [];
-
-  const ProjectCard = ({ project }) => {
-    const id = project?.project_id || project?.projectId || project?._id || project?.id || '—';
-    const name = project?.name || project?.project_name || project?.projectName || '—';
-    const status = project?.status || project?.state || '';
-    const desc = project?.description || project?.project_description || '';
-    const created = project?.createdAt || project?.created_at || '';
-    const updated = project?.updatedAt || project?.updated_at || '';
-    const last = project?.last_activity || project?.lastActivity || updated || created || '';
-
-    const safeDate = (val) => {
-      if (!val) return '—';
-      try { return new Date(val).toLocaleString(); } catch { return String(val); }
-    };
-
-    const cardStyle = {
-      background: 'var(--bg-surface, #ffffff)',
-      border: '1px solid var(--border-subtle, #e5e7eb)',
-      borderRadius: 12,
-      boxShadow: 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))',
-      padding: 16,
-      transition: 'box-shadow .2s ease, transform .06s ease',
-    };
-
-    const gridStyle = {
-      display: 'grid',
-      gridTemplateColumns: '220px 1fr',
-      gap: 16,
-    };
-
-    const gridStyleMobile = {
-      display: 'grid',
-      gridTemplateColumns: '1fr',
-      gap: 12,
-    };
-
-    return (
-      <div
-        role="article"
-        aria-label={`Project ${id}`}
-        tabIndex={0}
-        style={cardStyle}
-      >
-        <div
-          style={window?.matchMedia && window.matchMedia('(max-width: 640px)').matches ? gridStyleMobile : gridStyle}
-        >
-          <div>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 700,
-                color: 'var(--text-tertiary, #64748B)',
-                letterSpacing: '.02em',
-                marginBottom: 6,
-              }}
-            >
-              Project ID
-            </div>
-            <div
-              title={String(id)}
-              style={{
-                margin: 0,
-                color: 'var(--text-primary, #111827)',
-                fontWeight: 600,
-                wordBreak: 'break-word',
-              }}
-            >
-              {String(id)}
-            </div>
-          </div>
-
-          <dl
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'max-content 1fr',
-              rowGap: 8,
-              columnGap: 12,
-              alignItems: 'center',
-            }}
-          >
-            {status && (
-              <>
-                <dt style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>Status</dt>
-                <dd style={{ margin: 0 }}>{String(status)}</dd>
-              </>
-            )}
-
-            {desc && (
-              <>
-                <dt style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>Description</dt>
-                <dd style={{ margin: 0, color: 'var(--text-secondary)' }}>{String(desc)}</dd>
-              </>
-            )}
-
-            {created && (
-              <>
-                <dt style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>Created</dt>
-                <dd style={{ margin: 0, color: 'var(--text-secondary)' }}>{safeDate(created)}</dd>
-              </>
-            )}
-
-            {(updated || last) && (
-              <>
-                <dt style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>Updated</dt>
-                <dd style={{ margin: 0, color: 'var(--text-secondary)' }}>{safeDate(updated || last)}</dd>
-              </>
-            )}
-          </dl>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div role="list" aria-label="User projects list" style={{ display: 'grid', gap: 12 }}>
-      {list.length === 0 && (
-        <div
-          style={{
-            background: 'transparent',
-            color: '#ffffff',
-            border: 'none',
-            boxShadow: 'none',
-            textAlign: 'center',
-            padding: 12,
-            borderRadius: 8,
-          }}
-        >
-          No projects found for this user.
-        </div>
-      )}
-      <div style={{ display: 'grid', gap: 12, minWidth: 320 }}>
-        {list.map((p, idx) => (
-          <ProjectCard key={p?.project_id || p?._id || idx} project={p} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-UserProjectsView.propTypes = {
-  userId: PropTypes.string,
-  tenantId: PropTypes.string,
-  from: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
-  to: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
-};
-
-/**
  * PUBLIC_INTERFACE
  * TabbedUserModal
  */
@@ -390,7 +198,7 @@ export default function TabbedUserModal({
   const tabs = useMemo(
     () => [
       { key: 'details', label: 'User Details' },
-      { key: 'projects', label: 'Project Details' },
+      // Removed Projects tab as part of feature removal
       { key: 'sessions', label: 'Session Details' },
       { key: 'credits', label: 'Credits Consumed' },
       { key: 'analytics', label: 'Analytics' },
@@ -430,6 +238,10 @@ export default function TabbedUserModal({
       </div>
     );
   }
+  ThemedTabs.propTypes = {
+    activeKey: PropTypes.string,
+    onChange: PropTypes.func.isRequired,
+  };
 
   // Session Details Tab
   function SessionDetailsTab({ userId }) {
@@ -450,7 +262,7 @@ export default function TabbedUserModal({
         const hours = Number(m[2] || 0);
         const minutes = Number(m[3] || 0);
         const seconds = Number(m[4] || 0);
-        return days * 86400 + hours * 3600 + minutes * 60 + seconds;
+        return days + hours * 3600 + minutes * 60 + seconds;
       } catch {
         return null;
       }
@@ -471,7 +283,6 @@ export default function TabbedUserModal({
       setLoading(true);
       setError('');
       try {
-        // Keep using existing endpoint and client normalization
         const res = await listSessions({ page: 1, limit: 100, sort: '-last_updated' });
         const arr = Array.isArray(res?.items) ? res.items : [];
         const normalizedUserId = String(userId);
@@ -499,14 +310,12 @@ export default function TabbedUserModal({
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId]);
 
-    // Aggregation logic derived from session_breakdown
-    const aggregate = useMemo(() => {
+    // Aggregation logic
+    const aggregate = React.useMemo(() => {
       if (!items || items.length === 0) return null;
 
-      // Choose a representative doc for top-level fields
       const first = items[0] || {};
 
-      // Resolve user_name with fallbacks
       const userName =
         first?.user_name ??
         first?.User_name ??
@@ -515,7 +324,7 @@ export default function TabbedUserModal({
         first?.user?.email ??
         '';
 
-      // Agents aggregation: accept array of strings or objects or nested under first.agents
+      // Agents aggregation
       let agentsList = [];
       const normalizeAgentName = (a) => {
         if (!a) return null;
@@ -533,7 +342,6 @@ export default function TabbedUserModal({
         }
         return null;
       };
-      // Collect agents across all items (if present)
       items.forEach((it) => {
         const agents = it?.agents ?? it?.session_data?.agents ?? [];
         if (Array.isArray(agents)) {
@@ -542,17 +350,15 @@ export default function TabbedUserModal({
             if (nm) agentsList.push(nm);
           });
         } else if (agents && typeof agents === 'object') {
-          // agents as map { id: {name}, ...}
           Object.values(agents).forEach((a) => {
             const nm = normalizeAgentName(a);
             if (nm) agentsList.push(nm);
           });
         }
       });
-      // Deduplicate while preserving order
       const seen = new Set();
       agentsList = agentsList.filter((n) => {
-        const k = toStringSafe(n).trim();
+        const k = (n == null ? '' : String(n)).trim();
         if (!k) return false;
         if (seen.has(k)) return false;
         seen.add(k);
@@ -568,7 +374,7 @@ export default function TabbedUserModal({
         first?.org_name ??
         '';
 
-      // Sessions count from session_breakdown array length or count field; fallback to total items
+      // Sessions count
       let sessionsCount = 0;
       const breakdownFromFirst = first?.session_breakdown;
       if (Array.isArray(breakdownFromFirst)) {
@@ -576,35 +382,25 @@ export default function TabbedUserModal({
       } else if (breakdownFromFirst && typeof breakdownFromFirst === 'object' && typeof breakdownFromFirst.count === 'number') {
         sessionsCount = breakdownFromFirst.count;
       } else {
-        // if not provided as aggregate, fallback to per-item view
         sessionsCount = items.length;
       }
 
-      // Total duration: sum durations from session_breakdown across docs, supporting various keys
+      // Total duration
       let totalSeconds = 0;
       const addDurationSeconds = (sec) => {
         if (Number.isFinite(sec) && sec > 0) totalSeconds += sec;
       };
-
       const tryExtractSeconds = (obj) => {
         if (!obj || typeof obj !== 'object') return 0;
-        // Priority order
         if (Number.isFinite(Number(obj.duration_seconds))) return Number(obj.duration_seconds);
         if (Number.isFinite(Number(obj.duration_sec))) return Number(obj.duration_sec);
         if (Number.isFinite(Number(obj.duration_ms))) return Number(obj.duration_ms) / 1000;
-        // Sometimes store as time_ms, elapsed_ms, latency_ms
         if (Number.isFinite(Number(obj.time_ms))) return Number(obj.time_ms) / 1000;
         if (Number.isFinite(Number(obj.elapsed_ms))) return Number(obj.elapsed_ms) / 1000;
         if (Number.isFinite(Number(obj.latency_ms))) return Number(obj.latency_ms) / 1000;
-        // seconds-like alternatives
         if (Number.isFinite(Number(obj.time_s))) return Number(obj.time_s);
         if (Number.isFinite(Number(obj.elapsed_s))) return Number(obj.elapsed_s);
         if (Number.isFinite(Number(obj.latency_s))) return Number(obj.latency_s);
-        // ISO 8601 duration
-        if (obj.duration_iso) {
-          const secs = parseIsoDurationToSeconds(obj.duration_iso);
-          if (Number.isFinite(secs)) return secs;
-        }
         if (typeof obj.duration === 'string') {
           const secs = parseIsoDurationToSeconds(obj.duration);
           if (Number.isFinite(secs)) return secs;
@@ -614,20 +410,14 @@ export default function TabbedUserModal({
       };
       items.forEach((it) => {
         const bd = it?.session_breakdown ?? it?.breakdown ?? [];
-
         if (Array.isArray(bd)) {
-          // Normal array of steps
           bd.forEach((step) => addDurationSeconds(tryExtractSeconds(step)));
-
         } else if (bd && typeof bd === "object") {
-          // Object map → iterate over its values
-          Object.values(bd).forEach((step) =>
-            addDurationSeconds(tryExtractSeconds(step))
-          );
+          Object.values(bd).forEach((step) => addDurationSeconds(tryExtractSeconds(step)));
         }
       });
 
-      // Total cost: pick aggregate total_cost if present on first, else sum across items fallback
+      // Total cost
       let currencyHint = first?.currency || first?.cost_currency || 'USD';
       let totalCost = 0;
       if (Number.isFinite(Number(first?.total_cost))) {
@@ -651,13 +441,8 @@ export default function TabbedUserModal({
         totalCost,
         currency: currencyHint || 'USD',
       };
-    }, [items]);
+    }, [items, user]);
 
-    // Note: Per request, hide sessionId, startedAt, and lastActive. We keep a minimal table for context (optional fields),
-    // but the main focus is the AggregatesPanel above. If needed, you can further trim columns here.
-
-
-    // Aggregation panel UI (definition list two-column)
     const AggregatesPanel = () => {
       if (loading) {
         return (
@@ -709,12 +494,10 @@ export default function TabbedUserModal({
       const agentsText = aggregate.agents && aggregate.agents.length > 0 ? aggregate.agents.join(', ') : '—';
       const totalDurationText = formatSecondsHHMMSS(aggregate.totalSeconds);
 
-      // Currency formatting with 2 decimals and currency symbol if USD
       const toCurrency = (n, currency) => {
         const num = Number(n);
         if (!Number.isFinite(num)) return '—';
         try {
-          // Prefer USD symbol if applicable, else generic currency display with 2 decimals
           if (String(currency || 'USD').toUpperCase() === 'USD') {
             return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
           }
@@ -730,7 +513,7 @@ export default function TabbedUserModal({
             <div>
               <span style={labelStyle}>User name</span>
               <div style={valueStyle} title={aggregate.userName || undefined}>
-                {aggregate.userName || (toStringSafe(user?.name || user?.full_name || user?.email) || '—')}
+                {aggregate.userName || ((user?.name || user?.full_name || user?.email) ?? '—')}
               </div>
             </div>
 
@@ -790,8 +573,6 @@ export default function TabbedUserModal({
     return (
       <div data-testid="session-details-tab">
         <AggregatesPanel />
-        {/* Per requirements: remove any table/pagination and the entire second section.
-            Only the summary fields should remain visible. */}
         {!loading && !error && (!Array.isArray(items) || items.length === 0) ? (
           <div
             style={{
@@ -823,7 +604,6 @@ export default function TabbedUserModal({
       setLoading(true);
       setError('');
       try {
-        // Fetch costs and filter by user_id if needed
         const res = await listLlmCosts({ page: 1, limit: 100, sort: '-timestamp' });
         let items = Array.isArray(res?.items) ? res.items : [];
         const normalizedUserId = String(userId);
@@ -853,14 +633,11 @@ export default function TabbedUserModal({
     // compute total cost
     const totalCost = useMemo(() => {
       return (rows || []).reduce((acc, r) => {
-        // prefer numeric fields; strip strings like "$1.23"
         const raw = r?.running_total ?? r?.total_cost ?? r?.cost ?? r?.amount ?? 0;
         const num = typeof raw === 'number' ? raw : Number(String(raw).replace(/[$,]/g, ''));
         return acc + (Number.isFinite(num) ? num : 0);
       }, 0);
     }, [rows]);
-
-
 
     return (
       <div data-testid="credits-consumed-tab">
@@ -925,9 +702,7 @@ export default function TabbedUserModal({
       <div role="region" style={{ flex: 1, overflow: "auto", background: "var(--bg-canvas, #f9fafb)" }}>
         <div style={{ padding: 20 }}>
           {activeTab === 'details' && <UserDetailsView user={user} />}
-          {activeTab === 'projects' && (
-            <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
-          )}
+          {/* Projects tab removed */}
           {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
           {activeTab === 'credits' && <CreditsConsumedTab userId={userId} />}
           {activeTab === 'analytics' && (
@@ -960,7 +735,7 @@ TabbedUserModal.propTypes = {
   onClose: PropTypes.func.isRequired,
   user: PropTypes.object,
   tenantId: PropTypes.string,
-  defaultTab: PropTypes.oneOf(['details', 'projects', 'sessions', 'credits', 'analytics']),
+  defaultTab: PropTypes.oneOf(['details', 'sessions', 'credits', 'analytics']),
   from: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
   to: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
 };

@@ -1,12 +1,11 @@
-UserMiniInsights integration notes
+# User Mini Insights
 
-- Purpose: Show mini charts in the User Details popup with per-user project timeline and categories.
-- Usage example inside TabbedUserModal details tab:
-  import { UserMiniInsights } from "../../modules/users";
+This component summarizes quick stats for a user, including:
+- Recent activity
+- Referral source
 
-  const from = new Date(Date.now() - 30*24*60*60*1000).toISOString();
-  const to = new Date().toISOString().replace(/:\\d{2}\\.\\d+Z$/, ":59.999Z");
+It is intended to be embedded inside User modals/tabs alongside analytics.
 
-  <UserMiniInsights userId={user?._id} tenantId={tenantId} from={from} to={to} />
-
-- The component is self-contained and uses useUserProjects hook. It provides loading and error states and accessible chart titles.
+Notes:
+- The previous "Projects timeline" and its related hook were removed from the Users module.
+- If you need per-project insights in the future, derive them from existing session analytics or create a dedicated projects module.
