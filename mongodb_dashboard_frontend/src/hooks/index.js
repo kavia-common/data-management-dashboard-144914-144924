@@ -15,3 +15,4 @@ export { default as useProjectUsage } from './useProjectUsage';
 export { default as useSessionsPerDay } from './useSessionsPerDay';
 export { default as useUsers } from './useUsers';
 export { default as useVerifyUsersUrlOnce } from './useVerifyUsersUrlOnce';
+export { default as useUsersSummary } from './useUsersSummary';

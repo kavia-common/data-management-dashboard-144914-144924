@@ -1,25 +1,38 @@
-import api from './client'
+import client from './client';
 
 /**
- * Build query params ensuring start_date and end_date only included for custom.
- * For non-custom ranges, server defaults to the appropriate window (e.g., daily=today).
+ * PUBLIC_INTERFACE
+ * getUsersSummary
+ * 
+ * Fetches users summary grouped by created_at buckets from the backend.
+ * - Defaults to daily (today) when no arguments provided.
+ * - For custom range, requires start_date and end_date in YYYY-MM-DD format.
+ * - Organization/Tenant context is derived from the configured client (JWT/header),
+ *   do NOT send organization_id/tenant_id in query params.
+ *
+ * @param {Object} params
+ * @param {'daily'|'weekly'|'monthly'|'custom'} [params.range='daily'] - Range granularity
+ * @param {string} [params.start_date] - YYYY-MM-DD (required if range === 'custom')
+ * @param {string} [params.end_date] - YYYY-MM-DD (required if range === 'custom')
+ * @returns {Promise<{ data: any }>} Axios response data
  */
-function buildParams({ organization_id, range, start_date, end_date }) {
-  const params = new URLSearchParams()
-  if (organization_id) params.set('organization_id', organization_id)
-  if (range) params.set('range', range)
-  if (range === 'custom') {
-    if (start_date) params.set('start_date', start_date)
-    if (end_date) params.set('end_date', end_date)
+export async function getUsersSummary({ range = 'daily', start_date, end_date } = {}) {
+  const params = {};
+
+  if (range) {
+    params.range = range;
   }
-  return params.toString()
+
+  if (range === 'custom') {
+    if (start_date) params.start_date = start_date;
+    if (end_date) params.end_date = end_date;
+  }
+
+  // Rely on client interceptors to set auth/tenant context headers.
+  const res = await client.get('/api/users/summary', { params });
+  return res.data;
 }
 
-// PUBLIC_INTERFACE
-export async function fetchUsersSummary({ organization_id, range = 'daily', start_date, end_date } = {}) {
-  /** Fetches /api/users/summary and returns JSON { range, start_date?, end_date?, buckets: [{key,label,count}, ...] } */
-  const qs = buildParams({ organization_id, range, start_date, end_date })
-  const url = `/api/users/summary${qs ? `?${qs}` : ''}`
-  const res = await api.get(url)
-  return res.data
-}
+export default {
+  getUsersSummary,
+};
