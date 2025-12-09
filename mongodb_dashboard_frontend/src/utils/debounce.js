@@ -1,16 +1,9 @@
 export function debounce(fn, wait = 300) {
   let t;
-  function debounced(...args) {
+  return (...args) => {
     clearTimeout(t);
     t = setTimeout(() => fn(...args), wait);
-  }
-  debounced.cancel = () => {
-    if (t) {
-      clearTimeout(t);
-      t = null;
-    }
   };
-  return debounced;
 }
 
 // PUBLIC_INTERFACE

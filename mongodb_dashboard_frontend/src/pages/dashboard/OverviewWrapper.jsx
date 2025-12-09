@@ -3,12 +3,11 @@ import Card from '../../components/common/Card.jsx';
 
 import { getOverviewTotals } from '../../api/overviewAnalytics';
 import { useAuth } from '../../context/AuthContext';
-import OverviewUsersSummarySection from '../../components/overview/OverviewUsersSummarySection.jsx';
 
 /**
  * PUBLIC_INTERFACE
  * OverviewWrapper (simplified)
- * Shows totals and the Users Summary bar chart.
+ * Shows totals only; removed charts: Sessions Trend, Users over time, Overall Features.
  */
 export default function OverviewWrapper() {
   const { organizationId } = useAuth();
@@ -50,10 +49,6 @@ export default function OverviewWrapper() {
         <Card title="Totals">
           <pre>{JSON.stringify(totals, null, 2)}</pre>
         </Card>
-      </div>
-
-      <div style={{ marginTop: 16 }}>
-        <OverviewUsersSummarySection />
       </div>
     </div>
   );
