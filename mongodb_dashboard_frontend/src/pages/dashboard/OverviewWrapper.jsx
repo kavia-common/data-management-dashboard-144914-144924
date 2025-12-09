@@ -42,21 +42,22 @@ export default function OverviewWrapper() {
     return () => { mounted = false; };
   }, []);
 
-  // Map existing totals into KPI Count Cards shape.
-  // Fallbacks ensure cards always render a number.
+  // Shape data for KPI count cards.
   const kpiData = useMemo(() => {
     const t = totals || {};
     return {
-      totalUsers: Number(t.totalUsers ?? t.users ?? 0),
-      totalDeployedApps: Number(t.totalDeployedApps ?? t.projects ?? t.deployments ?? 0),
-      totalSessions: Number(t.totalSessions ?? t.sessions ?? 0),
+      totalUsers: Number(t?.totalUsers ?? t?.users ?? 0),
+      totalSessions: Number(t?.totalSessions ?? t?.sessions ?? 0),
+      totalDeployedApps: Number(t?.totalDeployedApps ?? t?.projects ?? t?.deployments ?? 0),
     };
   }, [totals]);
 
   return (
     <OverviewContainer>
+      {/* KPI count cards in responsive grid */}
       <OverviewKpiCountCards data={kpiData} loading={loading} error={!!error} />
-      {/* Keep existing content minimal; no charts reintroduced */}
+
+      {/* Keep any additional content minimal; do not alter Users Created chart logic elsewhere */}
       <div className="page-container">
         <div className="grid grid-2">
           <Card title="Totals (raw)">
