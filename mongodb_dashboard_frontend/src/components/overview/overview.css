@@ -16,3 +16,8 @@
 .overview-card:hover {
   box-shadow: 0 4px 10px rgba(0,0,0,0.08);
 }
+
+/* Responsive grid helpers */
+.block-full {
+  grid-column: 1 / -1;
+}

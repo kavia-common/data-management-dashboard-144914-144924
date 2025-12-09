@@ -2,12 +2,13 @@ import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
+import OverviewUsersSummary from "../../components/overview/OverviewUsersSummary.jsx";
 
 
 /**
  * PUBLIC_INTERFACE
  * Overview (simplified)
- * Renders KPI cards only. Removed charts: Sessions Trend, Users over time, Overall Features.
+ * Renders KPI cards along with Users Summary bar chart with range selector.
  */
 export default function Overview() {
   const [loading, setLoading] = useState(true);
@@ -67,7 +68,7 @@ export default function Overview() {
   }, []);
 
   return (
-    <div className="grid">
+    <div className="grid" style={{ display: 'grid', gap: 16 }}>
       <Card title="Users" subtitle="Total referral users" className="kpi-card">
         <div className="kpi">
           <div className="kpi-value">
@@ -113,7 +114,10 @@ export default function Overview() {
         </div>
       )}
 
-      {/* Charts removed intentionally to satisfy task requirements */}
+      {/* New Users Summary chart with range selector */}
+      <div className="block-full" style={{ gridColumn: '1/-1' }}>
+        <OverviewUsersSummary />
+      </div>
     </div>
   );
 }
