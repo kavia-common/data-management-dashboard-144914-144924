@@ -13,7 +13,9 @@ import OverviewTimeControls from './OverviewTimeControls';
  * Adds a dynamic total next to the title based on current buckets.
  */
 export default function OverviewUsersSummary({ organizationId: organizationIdProp }) {
-  const orgId = organizationIdProp || 'b2c';
+  // Resolve organization id dynamically; do NOT hardcode a fallback.
+  // If not provided via prop, allow undefined to let shared client inject from session or omit param.
+  const orgId = organizationIdProp || undefined;
 
   const [range, setRange] = useState('daily');
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
@@ -24,10 +26,12 @@ export default function OverviewUsersSummary({ organizationId: organizationIdPro
   const [error, setError] = useState(null);
 
   const query = useMemo(() => {
+    const base = { range };
+    if (orgId) base.organization_id = orgId;
     if (range === 'custom') {
-      return { organization_id: orgId, range, start_date: startDate, end_date: endDate };
+      return { ...base, start_date: startDate, end_date: endDate };
     }
-    return { organization_id: orgId, range };
+    return base;
   }, [orgId, range, startDate, endDate]);
 
   useEffect(() => {
@@ -47,7 +51,7 @@ export default function OverviewUsersSummary({ organizationId: organizationIdPro
         if (!cancelled) setLoading(false);
       }
     }
-    if (orgId) load();
+    load();
     return () => { cancelled = true; };
   }, [orgId, query.organization_id, query.range, query.start_date, query.end_date]);
 

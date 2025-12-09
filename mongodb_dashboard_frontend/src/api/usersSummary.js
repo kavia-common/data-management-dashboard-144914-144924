@@ -5,6 +5,7 @@ import api from './client'
  * For non-custom ranges, server defaults to the appropriate window (e.g., daily=today).
  */
 function buildParams({ organization_id, range, start_date, end_date }) {
+  // Build only supported params; organization_id is optional and omitted if not provided.
   const params = new URLSearchParams()
   if (organization_id) params.set('organization_id', organization_id)
   if (range) params.set('range', range)
