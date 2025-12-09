@@ -5,14 +5,14 @@ import PropTypes from 'prop-types';
 import Modal from '../ui/Modal.jsx';
 
 // Views
-
+import { useUserProjects } from '../../hooks/useUserProjects';
 
 // Shared components/utilities
 import DataTable from '../DataTable.jsx';
 
 import { listSessions, listLlmCosts } from '../../api/baseClient';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
-
+import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
 
 /**
  * Internal presentational view for user details
@@ -178,7 +178,194 @@ UserDetailsView.propTypes = {
   user: PropTypes.object,
 };
 
+/**
+ * Internal presentational view for user projects
+ */
+function UserProjectsView({ userId, tenantId, from, to }) {
+  const enabled = Boolean(userId && tenantId);
+  const { projects, loading, error, refetch } = useUserProjects({ userId, tenantId, from, to, enabled });
 
+  if (!enabled) {
+    return <div className="text-gray-500">Select a user with a valid tenant to view projects.</div>;
+  }
+  if (loading) return (
+    <div
+      role="status"
+      aria-live="polite"
+      style={{
+        background: 'transparent',
+        color: '#ffffff',
+        border: 'none',
+        boxShadow: 'none',
+        textAlign: 'center',
+        padding: 12,
+        borderRadius: 8,
+      }}
+    >
+      Loading projects…
+    </div>
+  );
+  if (error) {
+    return (
+      <div className="error" role="alert" style={{ marginBottom: 12 }}>
+        {error}{' '}
+        <button
+          onClick={() => refetch()}
+          className="btn btn-ghost"
+          style={{ height: 28, padding: '2px 8px' }}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  const list = projects || [];
+
+  const ProjectCard = ({ project }) => {
+    const id = project?.project_id || project?.projectId || project?._id || project?.id || '—';
+    const name = project?.name || project?.project_name || project?.projectName || '—';
+    const status = project?.status || project?.state || '';
+    const desc = project?.description || project?.project_description || '';
+    const created = project?.createdAt || project?.created_at || '';
+    const updated = project?.updatedAt || project?.updated_at || '';
+    const last = project?.last_activity || project?.lastActivity || updated || created || '';
+
+    const safeDate = (val) => {
+      if (!val) return '—';
+      try { return new Date(val).toLocaleString(); } catch { return String(val); }
+    };
+
+    const cardStyle = {
+      background: 'var(--bg-surface, #ffffff)',
+      border: '1px solid var(--border-subtle, #e5e7eb)',
+      borderRadius: 12,
+      boxShadow: 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))',
+      padding: 16,
+      transition: 'box-shadow .2s ease, transform .06s ease',
+    };
+
+    const gridStyle = {
+      display: 'grid',
+      gridTemplateColumns: '220px 1fr',
+      gap: 16,
+    };
+
+    const gridStyleMobile = {
+      display: 'grid',
+      gridTemplateColumns: '1fr',
+      gap: 12,
+    };
+
+    return (
+      <div
+        role="article"
+        aria-label={`Project ${id}`}
+        tabIndex={0}
+        style={cardStyle}
+      >
+        <div
+          style={window?.matchMedia && window.matchMedia('(max-width: 640px)').matches ? gridStyleMobile : gridStyle}
+        >
+          <div>
+            <div
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: 'var(--text-tertiary, #64748B)',
+                letterSpacing: '.02em',
+                marginBottom: 6,
+              }}
+            >
+              Project ID
+            </div>
+            <div
+              title={String(id)}
+              style={{
+                margin: 0,
+                color: 'var(--text-primary, #111827)',
+                fontWeight: 600,
+                wordBreak: 'break-word',
+              }}
+            >
+              {String(id)}
+            </div>
+          </div>
+
+          <dl
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'max-content 1fr',
+              rowGap: 8,
+              columnGap: 12,
+              alignItems: 'center',
+            }}
+          >
+            {status && (
+              <>
+                <dt style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>Status</dt>
+                <dd style={{ margin: 0 }}>{String(status)}</dd>
+              </>
+            )}
+
+            {desc && (
+              <>
+                <dt style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>Description</dt>
+                <dd style={{ margin: 0, color: 'var(--text-secondary)' }}>{String(desc)}</dd>
+              </>
+            )}
+
+            {created && (
+              <>
+                <dt style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>Created</dt>
+                <dd style={{ margin: 0, color: 'var(--text-secondary)' }}>{safeDate(created)}</dd>
+              </>
+            )}
+
+            {(updated || last) && (
+              <>
+                <dt style={{ fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 600 }}>Updated</dt>
+                <dd style={{ margin: 0, color: 'var(--text-secondary)' }}>{safeDate(updated || last)}</dd>
+              </>
+            )}
+          </dl>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div role="list" aria-label="User projects list" style={{ display: 'grid', gap: 12 }}>
+      {list.length === 0 && (
+        <div
+          style={{
+            background: 'transparent',
+            color: '#ffffff',
+            border: 'none',
+            boxShadow: 'none',
+            textAlign: 'center',
+            padding: 12,
+            borderRadius: 8,
+          }}
+        >
+          No projects found for this user.
+        </div>
+      )}
+      <div style={{ display: 'grid', gap: 12, minWidth: 320 }}>
+        {list.map((p, idx) => (
+          <ProjectCard key={p?.project_id || p?._id || idx} project={p} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+UserProjectsView.propTypes = {
+  userId: PropTypes.string,
+  tenantId: PropTypes.string,
+  from: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
+  to: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
+};
 
 /**
  * PUBLIC_INTERFACE
@@ -203,8 +390,10 @@ export default function TabbedUserModal({
   const tabs = useMemo(
     () => [
       { key: 'details', label: 'User Details' },
+      { key: 'projects', label: 'Project Details' },
       { key: 'sessions', label: 'Session Details' },
       { key: 'credits', label: 'Credits Consumed' },
+      { key: 'analytics', label: 'Analytics' },
     ],
     []
   );
@@ -736,8 +925,19 @@ export default function TabbedUserModal({
       <div role="region" style={{ flex: 1, overflow: "auto", background: "var(--bg-canvas, #f9fafb)" }}>
         <div style={{ padding: 20 }}>
           {activeTab === 'details' && <UserDetailsView user={user} />}
+          {activeTab === 'projects' && (
+            <UserProjectsView userId={userId} tenantId={tenantId} from={from} to={to} />
+          )}
           {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
           {activeTab === 'credits' && <CreditsConsumedTab userId={userId} />}
+          {activeTab === 'analytics' && (
+            <UsersAnalyticsPanelModal
+              userId={userId}
+              tenantId={tenantId}
+              from={from}
+              to={to}
+            />
+          )}
         </div>
       </div>
 
