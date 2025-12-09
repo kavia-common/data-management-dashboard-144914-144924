@@ -5,6 +5,8 @@ import UsersCreatedBarChart from '../charts/UsersCreatedBarChart';
 import '../charts/ActiveUsersTrendChart.css';
 import './overview.css';
 import OverviewTimeControls from './OverviewTimeControls';
+import { useAuth } from '../../context/AuthContext';
+import { resolveOrganizationId } from '../../utils/orgContext';
 
 /**
  * PUBLIC_INTERFACE
@@ -13,7 +15,11 @@ import OverviewTimeControls from './OverviewTimeControls';
  * Adds a dynamic total next to the title based on current buckets.
  */
 export default function OverviewUsersSummary({ organizationId: organizationIdProp }) {
-  const orgId = organizationIdProp || 'b2c';
+  const auth = useAuth();
+  const orgId = useMemo(
+    () => organizationIdProp ?? resolveOrganizationId({ auth }),
+    [organizationIdProp, auth]
+  );
 
   const [range, setRange] = useState('daily');
   const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
@@ -47,9 +53,9 @@ export default function OverviewUsersSummary({ organizationId: organizationIdPro
         if (!cancelled) setLoading(false);
       }
     }
-    if (orgId) load();
+    load();
     return () => { cancelled = true; };
-  }, [orgId, query.organization_id, query.range, query.start_date, query.end_date]);
+  }, [query.organization_id, query.range, query.start_date, query.end_date]);
 
   // Compute dynamic total from current data buckets
   const totalUsers = useMemo(
