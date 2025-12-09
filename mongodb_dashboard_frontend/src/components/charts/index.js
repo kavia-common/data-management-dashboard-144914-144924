@@ -1,1 +1,12 @@
 export { default as MostActiveUsersChart } from './MostActiveUsersChart';
+export { default as KPIChart } from './KPIChart.jsx';
+export { default as OverallFeaturesChart } from './OverallFeaturesChart.jsx';
+export { default as SessionsPerDayBarChart } from './SessionsPerDayBarChart.jsx';
+export { default as DeploymentStatusBarChart } from './DeploymentStatusBarChart.jsx';
+export { default as UsersByTenantChart } from './UsersByTenantChart.jsx';
+export { default as MostActiveUsersBarChart } from './MostActiveUsersBarChart.jsx';
+export { default as SessionsByOrganization } from './SessionsByOrganization.jsx';
+export { default as SessionsByType } from './SessionsByType.jsx';
+export { default as SessionDetailCharts } from './SessionDetailCharts.jsx';
+export { default as UsersCreatedBarChart } from './UsersCreatedBarChart.jsx';
+export { default as UsersSummaryBarChart } from './UsersSummaryBarChart.jsx';

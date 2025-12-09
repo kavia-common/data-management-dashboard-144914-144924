@@ -1,0 +1,75 @@
+.users-summary-chart {
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.users-summary-chart .usc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.users-summary-chart .usc-header h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.users-summary-chart .usc-chart-area {
+  position: relative;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(36px, 1fr);
+  align-items: end;
+  gap: 10px;
+  min-height: 180px;
+  padding: 8px 4px 0 4px;
+}
+
+.users-summary-chart .usc-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.users-summary-chart .usc-bar-inner {
+  width: 100%;
+  border-radius: 8px;
+  transition: height 200ms ease, filter 200ms ease;
+}
+
+.users-summary-chart .usc-bar-inner:hover {
+  filter: brightness(1.05);
+}
+
+.users-summary-chart .usc-bar-label {
+  font-size: 0.7rem;
+  color: #4b5563;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 64px;
+}
+
+.users-summary-chart .usc-bar-count {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.users-summary-chart .usc-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: #6b7280;
+}
+
+.users-summary-chart .usc-error {
+  color: #EF4444;
+}

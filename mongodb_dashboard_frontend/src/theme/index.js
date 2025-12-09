@@ -27,3 +27,19 @@ export function getCurrentTheme() {
   }
   return "dark";
 }
+
+/**
+ * PUBLIC_INTERFACE
+ * useTheme
+ * Fallback theme hook to provide basic tokens when a provider isn't present.
+ */
+export function useTheme() {
+  return {
+    colors: {
+      primary: '#2563EB',
+      secondary: '#F59E0B',
+      text: '#111827',
+      surface: '#ffffff',
+    },
+  };
+}

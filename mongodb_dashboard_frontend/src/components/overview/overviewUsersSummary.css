@@ -1,0 +1,62 @@
+.overview-users-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.overview-users-summary .ous-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.overview-users-summary .ous-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.overview-users-summary .ous-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.overview-users-summary .ous-range {
+  display: inline-flex;
+  background: #f3f4f6;
+  border-radius: 999px;
+  padding: 4px 8px;
+  gap: 8px;
+}
+
+.overview-users-summary .ous-range label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  padding: 4px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.overview-users-summary .ous-range input[type="radio"] {
+  accent-color: #2563EB;
+}
+
+.overview-users-summary .ous-dates {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.overview-users-summary .ous-date {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+}
