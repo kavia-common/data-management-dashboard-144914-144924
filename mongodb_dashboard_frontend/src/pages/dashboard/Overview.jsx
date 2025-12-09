@@ -116,7 +116,7 @@ export default function Overview() {
 
       {/* New Users Summary chart with range selector */}
       <div className="block-full" style={{ gridColumn: '1/-1' }}>
-        <OverviewUsersSummary />
+        <OverviewUsersSummary organizationId="b2c" />
       </div>
     </div>
   );
