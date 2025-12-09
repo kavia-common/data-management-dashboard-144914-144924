@@ -27,17 +27,10 @@ export async function apiGet(url, options = {}) {
       ? url
       : joinUrl(base, url);
 
-  // If caller explicitly passes omitAuth, skip attaching Authorization
-  const omitAuth = options.omitAuth === true;
-  const headers = omitAuth
-    ? {
-        Accept: 'application/json',
-        ...(options.headers || {}),
-      }
-    : buildAuthHeaders({
-        Accept: 'application/json',
-        ...(options.headers || {}),
-      });
+  const headers = buildAuthHeaders({
+    Accept: 'application/json',
+    ...(options.headers || {}),
+  });
 
   // Append organization_id query if not present (some endpoints require query param)
   let effUrl = finalUrl;
@@ -82,9 +75,4 @@ export async function apiGet(url, options = {}) {
   return payload;
 }
 
-/**
- * Note: No default export of an axios-like client here.
- * apiGet is a helper for simple GETs, but modules should prefer src/api/client.js default export
- * for axios-like usage (get/post/etc.). Keeping named export only to avoid misuse.
- */
-export default null;
+export default { apiGet };

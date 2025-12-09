@@ -1,32 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Card from '../../components/common/Card.jsx';
-import OverviewChartFilters from '../../components/overview/OverviewChartFilters';
-import { getOverviewTotals, getNewUsersOverTime } from '../../api/overviewAnalytics';
-import { getLlmCostsOverTime } from '../../api/llmCostsAnalytics'; // stable helper (client-side aggregation over /api/llm-costs)
-import { getActiveUsersTrend as getActiveUsersTrendStable } from '../../api/usersActiveTrend';
+
+import { getOverviewTotals } from '../../api/overviewAnalytics';
 import { useAuth } from '../../context/AuthContext';
 
 /**
  * PUBLIC_INTERFACE
- * OverviewWrapper
- * Minimal overview page rendering totals and three charts with independent filters.
- * Adds day/week/month/custom granularity + custom date range per chart.
+ * OverviewWrapper (simplified)
+ * Shows totals only; removed charts: Sessions Trend, Users over time, Overall Features.
  */
 export default function OverviewWrapper() {
   const { organizationId } = useAuth();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [totals, setTotals] = useState(null);
-
-  // Independent filters (per chart). Each preserves own state and uses organization scope.
-  const baseTenant = organizationId ? { organization_id: organizationId } : {};
-  const [costFilters, setCostFilters] = useState({ ...baseTenant, granularity: 'day' });
-  const [activeUsersFilters, setActiveUsersFilters] = useState({ ...baseTenant, granularity: 'day' });
-  const [newUsersFilters, setNewUsersFilters] = useState({ ...baseTenant, granularity: 'day' });
-
-  const [costSeries, setCostSeries] = useState({ labels: [], datasets: [] });
-  const [activeUsersSeries, setActiveUsersSeries] = useState({ items: [], meta: {} });
-  const [newUsersSeries, setNewUsersSeries] = useState({ items: [], meta: {} });
 
   const tenantsList = useMemo(() => {
     if (!organizationId) return [];
@@ -40,194 +27,27 @@ export default function OverviewWrapper() {
         setLoading(true);
         const totalsRes = await getOverviewTotals();
         if (!mounted) return;
-        // Treat null (e.g., 401 when unauthenticated) as an empty totals object.
-        const safeTotals = totalsRes || { success: false, totalUsers: 0, totalDeployedApps: 0 };
-        setTotals(safeTotals);
+        setTotals(totalsRes);
         setError(null);
       } catch (e) {
         if (!mounted) return;
-        // Do not block render on 401; show fallback instead
-        if (e && e.status === 401) {
-          setTotals({ success: false, totalUsers: 0, totalDeployedApps: 0 });
-          setError(null);
-        } else {
-          setError(e);
-        }
+        setError(e);
       } finally {
         if (!mounted) return;
         setLoading(false);
       }
     })();
     return () => { mounted = false; };
-  }, [organizationId]);
+  }, []);
 
-  // Keep organization scope in filters when auth changes
-  useEffect(() => {
-    if (!organizationId) return;
-    setCostFilters((f) => ({ ...f, organization_id: organizationId }));
-    setActiveUsersFilters((f) => ({ ...f, organization_id: organizationId }));
-    setNewUsersFilters((f) => ({ ...f, organization_id: organizationId }));
-  }, [organizationId]);
-
-  // Costs
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        const res = await getLlmCostsOverTime({
-          granularity: costFilters?.granularity || 'day',
-          from: costFilters?.from,
-          to: costFilters?.to,
-        });
-        if (!active) return;
-        const labels = Array.isArray(res?.labels) ? res.labels : [];
-        const datasets = Array.isArray(res?.datasets) ? res.datasets : [{ label: 'Total Cost', data: [] }];
-        const first = datasets[0] || { data: [] };
-
-        const num = (v) => {
-          if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
-          if (typeof v === 'string') {
-            const n = Number(v.replace(/[$,]/g, ''));
-            return Number.isFinite(n) ? n : 0;
-          }
-          const n = Number(v);
-          return Number.isFinite(n) ? n : 0;
-        };
-
-        const data = Array.isArray(first.data) ? first.data.map(num) : [];
-        const L = Math.min(labels.length, data.length);
-        setCostSeries({
-          labels: labels.slice(0, L),
-          datasets: [{ label: first.label || 'Total Cost', data: data.slice(0, L) }],
-          meta: res?.meta || {},
-        });
-      } catch (e) {
-        if (!active) return;
-        setCostSeries({ labels: [], datasets: [{ label: 'Total Cost', data: [] }] });
-      }
-    })();
-    return () => { active = false; };
-  }, [costFilters]);
-
-  // Active Users
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        // Map 'month' to 'week' for endpoints that don't support month
-        const gran = activeUsersFilters.granularity === 'month' ? 'week' : activeUsersFilters.granularity;
-        const res = await getActiveUsersTrendStable({ ...activeUsersFilters, granularity: gran });
-        if (!active) return;
-        setActiveUsersSeries({
-          items: Array.isArray(res?.items) ? res.items : [],
-          meta: res?.meta || {},
-        });
-      } catch (e) {
-        if (!active) return;
-        setActiveUsersSeries({ items: [], meta: {} });
-      }
-    })();
-    return () => { active = false; };
-  }, [activeUsersFilters]);
-
-  // New Users
-  useEffect(() => {
-    let active = true;
-    (async () => {
-      try {
-        // Endpoint expects start/end; helper handles mapping
-        const gran = newUsersFilters.granularity === 'month' ? 'month' : (newUsersFilters.granularity || 'day');
-        const res = await getNewUsersOverTime({ ...newUsersFilters, granularity: gran, start: newUsersFilters.from, end: newUsersFilters.to });
-        if (!active) return;
-        setNewUsersSeries({
-          items: Array.isArray(res?.items) ? res.items : [],
-          meta: res?.meta || {},
-        });
-      } catch (e) {
-        if (!active) return;
-        setNewUsersSeries({ items: [], meta: {} });
-      }
-    })();
-    return () => { active = false; };
-  }, [newUsersFilters]);
-
-  // Lightweight inline placeholders to avoid undefined components and keep UI responsive
-  if (loading) {
-    return (
-      <div className="page-container">
-        <div className="grid grid-2">
-          <Card title="Loading">
-            <div style={{ padding: '12px', fontSize: 14, color: '#6b7280' }}>Loading overview…</div>
-          </Card>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="page-container">
-        <div className="grid grid-2">
-          <Card title="Error">
-            <div style={{ padding: '12px', fontSize: 14, color: '#EF4444' }}>
-              Failed to load overview{error?.message ? `: ${error.message}` : '.'}
-            </div>
-          </Card>
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div role="status" aria-live="polite" style={{ minHeight: 120, display: 'grid', placeItems: 'center' }}>Loading overview...</div>;
+  if (error) return <div role="alert" className="error">{String(error?.message || error)}</div>;
 
   return (
     <div className="page-container">
       <div className="grid grid-2">
         <Card title="Totals">
           <pre>{JSON.stringify(totals, null, 2)}</pre>
-        </Card>
-
-        <Card
-          title="LLM Costs Over Time"
-          actions={
-            <OverviewChartFilters
-              value={costFilters}
-              onChange={setCostFilters}
-              tenants={tenantsList}
-              showGranularity={true}
-            />
-          }
-        >
-          <pre>{JSON.stringify(costSeries, null, 2)}</pre>
-        </Card>
-
-        <Card
-          title="Active Users Trend"
-          actions={
-            <OverviewChartFilters
-              value={activeUsersFilters}
-              onChange={setActiveUsersFilters}
-              tenants={tenantsList}
-              showGranularity={true}
-            />
-          }
-        >
-          <pre>{JSON.stringify(activeUsersSeries, null, 2)}</pre>
-        </Card>
-
-        <Card
-          title="New Users Over Time"
-          actions={
-            <OverviewChartFilters
-              value={newUsersFilters}
-              onChange={(next) => {
-                // For this endpoint, we support month/week/day; custom handled via from/to
-                setNewUsersFilters(next);
-              }}
-              tenants={tenantsList}
-              showGranularity={true}
-            />
-          }
-        >
-          <pre>{JSON.stringify(newUsersSeries, null, 2)}</pre>
         </Card>
       </div>
     </div>

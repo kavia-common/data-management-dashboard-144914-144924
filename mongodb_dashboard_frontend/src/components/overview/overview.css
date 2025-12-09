@@ -1,29 +1,18 @@
 .overview-container {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
-  background: #f9fafb;
+  background: transparent;
 }
 
-.overview-page {
-  width: 100%;
-}
-
-.overview-section {
+.overview-card {
   background: #ffffff;
-  border: 1px solid rgba(17,24,39,0.10);
+  border: 1px solid #E5E7EB;
   border-radius: 12px;
-  padding: 12px;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+  transition: box-shadow 160ms ease;
 }
 
-/* Utility blocks */
-.block-full {
-  grid-column: 1 / -1;
-}
-
-/* Simple responsive helpers used by KPI count cards */
-@media (min-width: 640px) { /* sm */
-  .sm\:col-span-6 { grid-column: span 6 / span 6; }
-}
-@media (min-width: 768px) { /* md */
-  .md\:col-span-4 { grid-column: span 4 / span 4; }
+.overview-card:hover {
+  box-shadow: 0 4px 10px rgba(0,0,0,0.08);
 }
