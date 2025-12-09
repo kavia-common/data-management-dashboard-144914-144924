@@ -1,74 +1,47 @@
 import React from 'react';
+import '../charts/ActiveUsersTrendChart.css';
+import { rangeSelectorClasses } from '../charts';
 
-const RANGES = [
-  { key: '7d', label: 'Last 7 days (daily)' },
-  { key: '30d', label: 'Last 30 days (daily)' },
-  { key: '12w', label: 'Last 12 weeks (weekly)' },
-  { key: '12m', label: 'Last 12 months (monthly)' },
-];
-
-const METRICS = [
-  { key: 'creates', label: 'Creations' },
-  { key: 'updates', label: 'Updates' },
-  { key: 'deletes', label: 'Deletions' },
-  { key: 'total', label: 'Total Records' },
-];
-
-// PUBLIC_INTERFACE
-export default function OverviewTimeControls({ range, setRange, metric, setMetric, showMetricSelector = true }) {
-  /** Time controls to select range and metric */
+/**
+ * PUBLIC_INTERFACE
+ * OverviewTimeControls
+ * Themed range selector with optional custom date range.
+ * Props:
+ *  - range: 'daily'|'weekly'|'monthly'|'custom'
+ *  - onChangeRange: (key) => void
+ *  - customRange?: { start?: string, end?: string }
+ *  - onChangeCustom?: (next) => void
+ */
+export default function OverviewTimeControls({ range, onChangeRange, customRange, onChangeCustom }) {
   return (
-    <div
-      style={{
-        display: 'flex',
-        gap: '12px',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        background: '#ffffff',
-        padding: '12px',
-        borderRadius: 12,
-        boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
-      }}
-    >
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {RANGES.map((r) => (
-          <button
-            key={r.key}
-            onClick={() => setRange(r.key)}
-            style={{
-              padding: '8px 12px',
-              borderRadius: 10,
-              border: range === r.key ? '1px solid #2563EB' : '1px solid #E5E7EB',
-              background: range === r.key ? '#2563EB' : '#fff',
-              color: range === r.key ? '#fff' : '#111827',
-              transition: 'all 160ms ease',
-              cursor: 'pointer',
-            }}
-          >
-            {r.label}
-          </button>
-        ))}
-      </div>
-      {showMetricSelector && (
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          {METRICS.map((m) => (
-            <button
-              key={m.key}
-              onClick={() => setMetric(m.key)}
-              style={{
-                padding: '8px 12px',
-                borderRadius: 10,
-                border: metric === m.key ? '1px solid #F59E0B' : '1px solid #E5E7EB',
-                background: metric === m.key ? '#F59E0B' : '#fff',
-                color: metric === m.key ? '#111827' : '#111827',
-                transition: 'all 160ms ease',
-                cursor: 'pointer',
-              }}
-              aria-pressed={metric === m.key}
-            >
-              {m.label}
-            </button>
-          ))}
+    <div className={rangeSelectorClasses.container} style={{ marginBottom: 8 }}>
+      {['daily', 'weekly', 'monthly', 'custom'].map(key => (
+        <button
+          key={key}
+          type="button"
+          className={`${rangeSelectorClasses.chip} ${range === key ? rangeSelectorClasses.chipActive : ''}`}
+          onClick={() => onChangeRange?.(key)}
+          aria-pressed={range === key}
+        >
+          {key.charAt(0).toUpperCase() + key.slice(1)}
+        </button>
+      ))}
+
+      {range === 'custom' && (
+        <div className="date-picker" role="group" aria-label="Custom date range">
+          <input
+            type="date"
+            value={customRange?.start || ''}
+            onChange={(e) => onChangeCustom?.({ ...customRange, start: e.target.value })}
+            aria-label="Start date"
+          />
+          <span style={{ color: 'rgba(17,24,39,0.55)', fontSize: 12 }}>to</span>
+          <input
+            type="date"
+            value={customRange?.end || ''}
+            onChange={(e) => onChangeCustom?.({ ...customRange, end: e.target.value })}
+            aria-label="End date"
+          />
         </div>
       )}
     </div>
