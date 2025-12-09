@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersDepartmentChart from "../../modules/users/UsersDepartmentChart.jsx";
-import UsersAnalyticsPanel from "../../modules/users/UsersAnalyticsPanel.jsx";
+
 
 export default function Users() {
   const [open, setOpen] = useState(false);
@@ -42,9 +42,6 @@ export default function Users() {
 
   return (
     <div>
-      {/* Users Analytics Panel */}
-      <UsersAnalyticsPanel style={{ marginBottom: 12 }} />
-
       {/* Users by Department Chart */}
       <div style={{ marginBottom: 12 }}>
         <div className="card">
