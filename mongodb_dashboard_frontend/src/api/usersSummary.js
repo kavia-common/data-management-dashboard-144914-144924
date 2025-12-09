@@ -1,38 +1,19 @@
 import client from './client';
 
-/**
- * PUBLIC_INTERFACE
- * getUsersSummary
- * 
- * Fetches users summary grouped by created_at buckets from the backend.
- * - Defaults to daily (today) when no arguments provided.
- * - For custom range, requires start_date and end_date in YYYY-MM-DD format.
- * - Organization/Tenant context is derived from the configured client (JWT/header),
- *   do NOT send organization_id/tenant_id in query params.
- *
- * @param {Object} params
- * @param {'daily'|'weekly'|'monthly'|'custom'} [params.range='daily'] - Range granularity
- * @param {string} [params.start_date] - YYYY-MM-DD (required if range === 'custom')
- * @param {string} [params.end_date] - YYYY-MM-DD (required if range === 'custom')
- * @returns {Promise<{ data: any }>} Axios response data
- */
-export async function getUsersSummary({ range = 'daily', start_date, end_date } = {}) {
-  const params = {};
-
-  if (range) {
-    params.range = range;
-  }
-
-  if (range === 'custom') {
-    if (start_date) params.start_date = start_date;
-    if (end_date) params.end_date = end_date;
-  }
-
-  // Rely on client interceptors to set auth/tenant context headers.
-  const res = await client.get('/api/users/summary', { params });
+// PUBLIC_INTERFACE
+export async function fetchUsersSummary(params = {}) {
+  /**
+   * Calls backend /api/users/summary with provided params.
+   * Params: { organization_id|tenant_id, range, start_date, end_date }
+   */
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') {
+      searchParams.append(k, v);
+    }
+  });
+  const qs = searchParams.toString();
+  const url = `/api/users/summary${qs ? `?${qs}` : ''}`;
+  const res = await client.get(url);
   return res.data;
 }
-
-export default {
-  getUsersSummary,
-};

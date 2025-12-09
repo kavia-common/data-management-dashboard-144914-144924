@@ -1,91 +1,67 @@
-import React from 'react';
-import { useTheme } from '../../theme';
+import React, { useMemo } from 'react';
+import PropTypes from 'prop-types';
 import './UsersSummaryBarChart.css';
 
-/**
- * PUBLIC_INTERFACE
- * UsersSummaryBarChart
- * Renders a responsive bar chart for users summary buckets.
- * props:
- *  - buckets: Array<{ key: string, label: string, count: number, start?: string, end?: string }>
- *  - title?: string
- *  - loading?: boolean
- *  - error?: Error|null
- *  - emptyMessage?: string
- */
-export default function UsersSummaryBarChart({ buckets = [], title = 'Users Created', loading = false, error = null, emptyMessage = 'No data for selected range.' }) {
-  const theme = useTheme?.() || {};
-  const primary = theme?.colors?.primary || '#2563EB';
-  const secondary = theme?.colors?.secondary || '#F59E0B';
-  const textColor = theme?.colors?.text || '#111827';
-  const surface = theme?.colors?.surface || '#ffffff';
-
-  if (loading) {
-    return (
-      <div className="users-summary-chart" style={{ background: surface }}>
-        <div className="usc-header">
-          <h3>{title}</h3>
-        </div>
-        <div className="usc-state">Loading...</div>
-      </div>
-    );
-  }
+// PUBLIC_INTERFACE
+export default function UsersSummaryBarChart({ data, loading, error, title = 'Users Created', height = 240 }) {
+  /** Renders a simple, responsive bar chart for users summary buckets. */
+  const max = useMemo(() => {
+    if (!data || data.length === 0) return 0;
+    return Math.max(...data.map(d => d.count || 0));
+  }, [data]);
 
   if (error) {
     return (
-      <div className="users-summary-chart" style={{ background: surface }}>
-        <div className="usc-header">
-          <h3>{title}</h3>
+      <div className="users-summary-chart users-summary-chart--error">
+        <div className="users-summary-chart__header">
+          <h3 className="users-summary-chart__title">{title}</h3>
         </div>
-        <div className="usc-state usc-error">Error loading data</div>
+        <div className="users-summary-chart__body">Error loading data</div>
       </div>
     );
   }
-
-  if (!buckets || buckets.length === 0) {
-    return (
-      <div className="users-summary-chart" style={{ background: surface }}>
-        <div className="usc-header">
-          <h3>{title}</h3>
-        </div>
-        <div className="usc-state">{emptyMessage}</div>
-      </div>
-    );
-  }
-
-  const maxCount = Math.max(...buckets.map(b => b.count || 0), 0);
 
   return (
-    <div className="users-summary-chart" style={{ background: surface }}>
-      <div className="usc-header">
-        <h3>{title}</h3>
+    <div className="users-summary-chart" style={{ minHeight: height }}>
+      <div className="users-summary-chart__header">
+        <h3 className="users-summary-chart__title">{title}</h3>
       </div>
-      <div className="usc-chart-area">
-        {buckets.map((b, idx) => {
-          const heightPct = maxCount > 0 ? (b.count / maxCount) * 100 : 0;
-          const toolTip = `${b.label}: ${b.count}${b.start && b.end ? ` (${b.start} – ${b.end})` : ''}`;
-          return (
-            <div key={b.key || `${b.label}-${idx}`} className="usc-bar">
-              <div
-                className="usc-bar-inner"
-                title={toolTip}
-                style={{
-                  height: `${heightPct}%`,
-                  background: `linear-gradient(180deg, ${primary} 0%, ${secondary} 100%)`,
-                }}
-                aria-label={toolTip}
-                role="img"
-              />
-              <div className="usc-bar-label" title={b.label} aria-hidden>
-                {b.label}
-              </div>
-              <div className="usc-bar-count" style={{ color: textColor }}>
-                {b.count}
-              </div>
-            </div>
-          );
-        })}
+      <div className="users-summary-chart__body">
+        {loading ? (
+          <div className="users-summary-chart__loading">Loading…</div>
+        ) : (data && data.length) ? (
+          <div className="users-summary-chart__bars" role="img" aria-label="Users created bar chart">
+            {data.map((d) => {
+              const pct = max > 0 ? (d.count / max) * 100 : 0;
+              return (
+                <div key={d.key} className="users-summary-chart__bar">
+                  <div className="users-summary-chart__bar-inner" style={{ height: `${pct}%` }} title={`${d.label || d.key}: ${d.count}`} />
+                  <div className="users-summary-chart__bar-label" title={d.label || d.key}>
+                    {d.label || d.key}
+                  </div>
+                  <div className="users-summary-chart__bar-value">{d.count}</div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="users-summary-chart__empty">No data</div>
+        )}
       </div>
     </div>
   );
 }
+
+UsersSummaryBarChart.propTypes = {
+  data: PropTypes.arrayOf(
+    PropTypes.shape({
+      key: PropTypes.string.isRequired,
+      label: PropTypes.string,
+      count: PropTypes.number.isRequired,
+    })
+  ),
+  loading: PropTypes.bool,
+  error: PropTypes.any,
+  title: PropTypes.string,
+  height: PropTypes.number,
+};

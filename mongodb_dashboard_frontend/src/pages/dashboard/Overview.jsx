@@ -2,12 +2,12 @@ import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
-
+import { OverviewUsersSummarySection } from "../../components/overview";
 
 /**
  * PUBLIC_INTERFACE
- * Overview (simplified)
- * Renders KPI cards only. Removed charts: Sessions Trend, Users over time, Overall Features.
+ * Overview page
+ * - Shows KPI cards and the new Users Summary section with time-range filters.
  */
 export default function Overview() {
   const [loading, setLoading] = useState(true);
@@ -113,7 +113,10 @@ export default function Overview() {
         </div>
       )}
 
-      {/* Charts removed intentionally to satisfy task requirements */}
+      {/* New Users Summary section */}
+      <div className="block-full" style={{ alignSelf: "stretch" }}>
+        <OverviewUsersSummarySection defaultRange="daily" />
+      </div>
     </div>
   );
 }
