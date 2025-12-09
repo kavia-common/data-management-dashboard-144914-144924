@@ -7,5 +7,5 @@ import './overview.css';
  * Minimal container applying overview grid spacing and background.
  */
 export default function OverviewContainer({ children }) {
-  return <div className="overview-container">{children}</div>;
+  return <div className="overview-container overview-page">{children}</div>;
 }

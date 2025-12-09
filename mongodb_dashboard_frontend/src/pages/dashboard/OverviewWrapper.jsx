@@ -3,11 +3,13 @@ import Card from '../../components/common/Card.jsx';
 
 import { getOverviewTotals } from '../../api/overviewAnalytics';
 import { useAuth } from '../../context/AuthContext';
+import OverviewContainer from '../../components/overview/OverviewContainer.jsx';
+import OverviewKpiCountCards from '../../components/overview/OverviewKpiCountCards.jsx';
 
 /**
  * PUBLIC_INTERFACE
- * OverviewWrapper (simplified)
- * Shows totals only; removed charts: Sessions Trend, Users over time, Overall Features.
+ * OverviewWrapper (restored with lightweight KPI count cards)
+ * Shows three KPI totals at top; does not reintroduce removed charts.
  */
 export default function OverviewWrapper() {
   const { organizationId } = useAuth();
@@ -40,16 +42,34 @@ export default function OverviewWrapper() {
     return () => { mounted = false; };
   }, []);
 
-  if (loading) return <div role="status" aria-live="polite" style={{ minHeight: 120, display: 'grid', placeItems: 'center' }}>Loading overview...</div>;
-  if (error) return <div role="alert" className="error">{String(error?.message || error)}</div>;
+  // Map existing totals into KPI Count Cards shape.
+  // Fallbacks ensure cards always render a number.
+  const kpiData = useMemo(() => {
+    const t = totals || {};
+    return {
+      totalUsers: Number(t.totalUsers ?? t.users ?? 0),
+      totalDeployedApps: Number(t.totalDeployedApps ?? t.projects ?? t.deployments ?? 0),
+      totalSessions: Number(t.totalSessions ?? t.sessions ?? 0),
+    };
+  }, [totals]);
 
   return (
-    <div className="page-container">
-      <div className="grid grid-2">
-        <Card title="Totals">
-          <pre>{JSON.stringify(totals, null, 2)}</pre>
-        </Card>
+    <OverviewContainer>
+      <OverviewKpiCountCards data={kpiData} loading={loading} error={!!error} />
+      {/* Keep existing content minimal; no charts reintroduced */}
+      <div className="page-container">
+        <div className="grid grid-2">
+          <Card title="Totals (raw)">
+            {loading ? (
+              <div role="status" aria-live="polite">Loading overview…</div>
+            ) : error ? (
+              <div role="alert" style={{ color: '#EF4444' }}>{String(error?.message || error)}</div>
+            ) : (
+              <pre>{JSON.stringify(totals, null, 2)}</pre>
+            )}
+          </Card>
+        </div>
       </div>
-    </div>
+    </OverviewContainer>
   );
 }
