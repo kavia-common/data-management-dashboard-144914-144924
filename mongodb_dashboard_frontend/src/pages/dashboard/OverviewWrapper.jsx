@@ -3,12 +3,11 @@ import Card from '../../components/common/Card.jsx';
 
 import { getOverviewTotals } from '../../api/overviewAnalytics';
 import { useAuth } from '../../context/AuthContext';
-import OverviewFeaturesSection from '../../components/overview/OverviewFeaturesSection.jsx';
 
 /**
  * PUBLIC_INTERFACE
- * OverviewWrapper
- * Shows totals and charts: Users by Tenant and Overall Features (service_type) with shared filters.
+ * OverviewWrapper (simplified)
+ * Shows totals only; removed charts: Sessions Trend, Users over time, Overall Features.
  */
 export default function OverviewWrapper() {
   const { organizationId } = useAuth();
@@ -51,9 +50,6 @@ export default function OverviewWrapper() {
           <pre>{JSON.stringify(totals, null, 2)}</pre>
         </Card>
       </div>
-
-      {/* Charts section */}
-      <OverviewFeaturesSection organizationId={organizationId} />
     </div>
   );
 }
