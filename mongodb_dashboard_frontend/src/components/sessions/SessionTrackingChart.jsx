@@ -5,8 +5,12 @@ import Card from "../common/Card";
 import LoadingState from "../common/LoadingState";
 import ErrorState from "../common/ErrorState";
 
-// PUBLIC_INTERFACE
-export function SessionTrackingChart({
+/**
+ * PUBLIC_INTERFACE
+ * SessionTrackingChart
+ * Reusable chart for session tracking pages. Not used by Overview anymore.
+ */
+export default function SessionTrackingChart({
   data,
   loading,
   error,
@@ -19,17 +23,10 @@ export function SessionTrackingChart({
   onFilterChange,
   theme = {},
 }) {
-  /**
-   * This is a reusable SessionTrackingChart that can be used in the session tracking summary page and modal.
-   * It supports Bar, Line, and Pie modes. Filters are driven from data.
-   * All clientside filtering.
-   * "filtersConfig": { fields: [{ name, label, type, options }], initialFilters:{} }
-   */
   const [activeFilters, setActiveFilters] = useState(
     filtersConfig?.initialFilters || {}
   );
 
-  // Compose filtered data
   const filteredData = useMemo(() => {
     let out = data;
     if (filtersConfig?.fields) {
@@ -46,7 +43,6 @@ export function SessionTrackingChart({
     return out;
   }, [data, activeFilters, filtersConfig]);
 
-  // Distill available filter options from data or config
   function getOptions(field) {
     if (!field.options) {
       return Array.from(new Set(data.map((row) => row[field.name]))).filter((v) => v != null);
@@ -54,7 +50,6 @@ export function SessionTrackingChart({
     return field.options;
   }
 
-  // Handle filter change
   function handleFilterChange(name, value) {
     const next = { ...activeFilters, [name]: value };
     setActiveFilters(next);
@@ -63,25 +58,22 @@ export function SessionTrackingChart({
     }
   }
 
-  // Theme
   const colors =
     theme.colors || [
-      "#2563EB", // primary
-      "#F59E0B", // secondary
+      "#2563EB",
+      "#F59E0B",
       "#22d3ee",
       "#4ade80",
       "#818CF8",
       "#6d28d9",
-      "#EF4444", // error
+      "#EF4444",
       "#A1A1AA",
     ];
 
-  // Accessibility
   const ariaProps = ariaLabel
     ? { "aria-label": ariaLabel, role: "region", tabIndex: 0 }
     : {};
 
-  // Skeleton
   if (loading) {
     return (
       <Card className="flex flex-col items-center justify-center min-h-[48px]" {...ariaProps}>
@@ -106,7 +98,6 @@ export function SessionTrackingChart({
     );
   }
 
-  // Chart render
   function renderChart() {
     switch (chartType) {
       case "bar":
@@ -165,7 +156,6 @@ export function SessionTrackingChart({
     }
   }
 
-  // Filters UI
   function renderFilters() {
     if (!filtersConfig?.fields || filtersConfig.fields.length === 0) return null;
     return (
