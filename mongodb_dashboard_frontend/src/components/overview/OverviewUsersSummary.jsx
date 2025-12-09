@@ -4,11 +4,13 @@ import { fetchUsersSummary } from '../../api/usersSummary';
 import UsersCreatedBarChart from '../charts/UsersCreatedBarChart';
 import '../charts/ActiveUsersTrendChart.css';
 import './overview.css';
+import OverviewTimeControls from './OverviewTimeControls';
 
 /**
  * PUBLIC_INTERFACE
  * OverviewUsersSummary
  * Fetches and displays the Users Created bar chart with a themed header and range controls.
+ * Adds a dynamic total next to the title based on current buckets.
  */
 export default function OverviewUsersSummary({ organizationId: organizationIdProp }) {
   const orgId = organizationIdProp || 'b2c';
@@ -49,41 +51,40 @@ export default function OverviewUsersSummary({ organizationId: organizationIdPro
     return () => { cancelled = true; };
   }, [orgId, query.organization_id, query.range, query.start_date, query.end_date]);
 
-  const isCustom = range === 'custom';
+  // Compute dynamic total from current data buckets
+  const totalUsers = useMemo(
+    () => data.reduce((sum, d) => sum + (Number(d.count) || 0), 0),
+    [data]
+  );
 
   return (
     <section className="overview-section">
-      <h3 className="chart-title">Users Created</h3>
-
-      <div className="range-selector" style={{ marginBottom: 8 }}>
-        {['daily', 'weekly', 'monthly', 'custom'].map(key => (
-          <button
-            key={key}
-            type="button"
-            className={`range-chip ${range === key ? 'range-chip--active' : ''}`}
-            onClick={() => setRange(key)}
-            aria-pressed={range === key}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
+        <h3 className="chart-title" style={{ margin: 0 }}>
+          Users Created
+          <span
+            style={{
+              marginLeft: 8,
+              fontWeight: 600,
+              color: 'var(--ocean-primary)',
+              fontSize: 13
+            }}
+            aria-label={`Total users in range: ${totalUsers}`}
+            title={`Total users in range: ${totalUsers}`}
           >
-            {key.charAt(0).toUpperCase() + key.slice(1)}
-          </button>
-        ))}
-        {isCustom && (
-          <div className="date-picker" role="group" aria-label="Custom date range">
-            <input
-              type="date"
-              value={startDate}
-              max={endDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-            <span style={{ color: 'rgba(17,24,39,0.55)', fontSize: 12 }}>to</span>
-            <input
-              type="date"
-              value={endDate}
-              min={startDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
-          </div>
-        )}
+            {Number(totalUsers).toLocaleString()}
+          </span>
+        </h3>
+
+        <OverviewTimeControls
+          range={range}
+          onChangeRange={setRange}
+          customRange={{ start: startDate, end: endDate }}
+          onChangeCustom={(next) => {
+            if (typeof next?.start === 'string') setStartDate(next.start);
+            if (typeof next?.end === 'string') setEndDate(next.end);
+          }}
+        />
       </div>
 
       <UsersCreatedBarChart

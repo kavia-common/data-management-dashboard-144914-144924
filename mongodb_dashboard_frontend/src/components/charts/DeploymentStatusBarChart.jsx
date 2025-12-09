@@ -13,6 +13,7 @@ import {
   Cell,
 } from "recharts";
 import { getChartTheme } from "./chartTheme";
+import { oceanTheme, rechartsCommonAxes } from "./index";
 import getOceanColors from "../../theme/colors";
 
 import Card from "../ui/Card.jsx";
@@ -46,6 +47,7 @@ export default function DeploymentStatusBarChart({
   const t = getChartTheme();
   const oc = getOceanColors();
   const auth = useAuth();
+  const { axisStyle, gridStyle, tickStyle } = rechartsCommonAxes();
 
   const rows = useMemo(() => {
     const arr = Array.isArray(data) ? data : [];
@@ -160,16 +162,18 @@ export default function DeploymentStatusBarChart({
               }}
               aria-label="Bar chart of deployments by status"
             >
-              <CartesianGrid strokeDasharray="3 3" stroke={gridStroke} />
+              <CartesianGrid strokeDasharray={gridStyle.strokeDasharray} stroke={gridStyle.stroke} />
               <XAxis
                 dataKey="status"
-                tick={{ fontSize: 12, fill: axisTick }}
+                tick={{ ...tickStyle, fontSize: 12 }}
                 tickMargin={8}
                 tickFormatter={(value) => formatStatusLabel(value)}
+                axisLine={{ stroke: axisStyle.stroke }}
               />
               <YAxis
-                tick={{ fontSize: 12, fill: axisTick }}
+                tick={{ ...tickStyle, fontSize: 12 }}
                 allowDecimals={false}
+                axisLine={{ stroke: axisStyle.stroke }}
               />
               <Tooltip
                 content={<CustomTooltip />}

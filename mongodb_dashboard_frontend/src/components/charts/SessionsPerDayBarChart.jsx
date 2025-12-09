@@ -10,9 +10,8 @@ import {
 } from 'recharts';
 import { useSessionsPerDay } from '../../hooks/useSessionsPerDay';
 import Card from '../ui/Card';
-import LoadingState from '../common/LoadingState';
-import ErrorState from '../common/ErrorState';
-import { getChartTheme } from './chartTheme';
+import './ActiveUsersTrendChart.css';
+import { oceanTheme, getPrimaryBarGradient, rechartsCommonAxes } from './index';
 
 /**
  * PUBLIC_INTERFACE
@@ -24,37 +23,51 @@ import { getChartTheme } from './chartTheme';
 export default function SessionsPerDayBarChart({ title = 'Sessions Per Day', filters = {} }) {
   const { data, loading, error } = useSessionsPerDay(filters);
 
-  const theme = getChartTheme();
+  const { axisStyle, gridStyle, tickStyle } = rechartsCommonAxes();
+  const gradient = getPrimaryBarGradient('sessionsPerDayGradient');
 
   return (
     <Card title={title}>
-      {loading && <LoadingState message="Loading sessions…" />}
-      {error && <ErrorState message={error.message || 'Failed to load data'} />}
+      {loading && <div className="chart-inline-state">Loading sessions…</div>}
+      {error && <div className="chart-inline-state">Failed to load data</div>}
       {!loading && !error && (
         <div style={{ width: '100%', height: 360 }}>
           <ResponsiveContainer>
             <BarChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
+              <defs>
+                <linearGradient id={gradient.id} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={gradient.start} stopOpacity={0.95} />
+                  <stop offset="100%" stopColor={gradient.end} stopOpacity={0.85} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke={gridStyle.stroke} strokeDasharray={gridStyle.strokeDasharray} />
               <XAxis
                 dataKey="date"
-                tick={{ fill: theme.label }}
+                tick={{ ...tickStyle, fontSize: oceanTheme.typography.fontSize.sm }}
                 tickLine={false}
-                axisLine={{ stroke: theme.axisTick }}
+                axisLine={{ stroke: axisStyle.stroke }}
                 minTickGap={24}
               />
               <YAxis
-                tick={{ fill: theme.label }}
+                tick={{ ...tickStyle, fontSize: oceanTheme.typography.fontSize.sm }}
                 tickLine={false}
-                axisLine={{ stroke: theme.axisTick }}
+                axisLine={{ stroke: axisStyle.stroke }}
                 allowDecimals={false}
               />
               <Tooltip
-                cursor={{ fill: 'transparent' }}
-                contentStyle={{ background: theme.tooltip.bg, border: `1px solid ${theme.tooltip.border}`, borderRadius: 8, color: theme.tooltip.text }}
+                cursor={{ fill: oceanTheme.colors.primarySoft }}
+                contentStyle={{
+                  background: oceanTheme.colors.tooltipBg,
+                  color: oceanTheme.colors.tooltipText,
+                  borderRadius: 8,
+                  border: 'none',
+                  boxShadow: oceanTheme.shadows.medium,
+                  fontSize: oceanTheme.typography.fontSize.sm
+                }}
                 formatter={(value) => [value, 'Count']}
                 labelFormatter={(label) => `Date: ${label}`}
               />
-              <Bar dataKey="count" fill={theme.primary} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="count" fill={`url(#${gradient.id})`} radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
