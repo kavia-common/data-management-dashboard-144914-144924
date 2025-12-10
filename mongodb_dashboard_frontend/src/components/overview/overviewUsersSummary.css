@@ -79,5 +79,6 @@
 /* Ensure chart container gets an explicit height (so ResponsiveContainer computes) */
 .overview-users-summary .users-summary-chart__body {
   min-height: 320px;
+  height: 320px; /* Guarantee height as requested */
   overflow: visible;
 }

@@ -44,14 +44,16 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
 
   const { loading, data, error } = useUsersSummary(hookParams);
 
-  // Map API buckets -> chart data
+  // Map API buckets -> chart data (strictly { label, count })
   const chartData = useMemo(() => {
     const buckets = Array.isArray(data?.buckets) ? data.buckets : [];
-    return buckets.map((b, i) => ({
-      key: String(b.key ?? b.label ?? `bucket-${i}`),
-      label: String(b.label ?? b.key ?? `Bucket ${i + 1}`),
-      count: Number.isFinite(Number(b.count)) ? Number(b.count) : 0,
+    const mapped = buckets.map(({ label, count }) => ({
+      label: String(label),
+      count: Number.isFinite(Number(count)) ? Number(count) : 0,
     }));
+    // eslint-disable-next-line no-console
+    console.debug('Chart data sample', mapped.slice(0, 3));
+    return mapped;
   }, [data]);
 
   return (
