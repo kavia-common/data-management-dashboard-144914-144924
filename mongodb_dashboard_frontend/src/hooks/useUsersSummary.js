@@ -108,6 +108,10 @@ export default function useUsersSummary(params = {}) {
         });
 
         if (cancelled) return;
+        // Attach aggregated orgBuckets (when present) for special T0000 rendering
+        const orgBuckets = Array.isArray(root.orgBuckets) ? root.orgBuckets : [];
+        const isAllOrgs = String(effectiveParams.organization_id || effectiveParams.tenant_id || '').toUpperCase() === 'T0000';
+
         setState({
           loading: false,
           data: {
@@ -115,6 +119,8 @@ export default function useUsersSummary(params = {}) {
             range: root.range ?? effectiveParams.range,
             start_date: root.start_date ?? effectiveParams.start_date,
             end_date: root.end_date ?? effectiveParams.end_date,
+            orgBuckets,
+            isAllOrgs,
           },
           error: null,
         });

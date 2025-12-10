@@ -1,6 +1,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import UsersSummaryBarChart from '../charts/UsersSummaryBarChart';
+import UsersSummaryStackedBar from './UsersSummaryStackedBar';
 import './overview.css';
 import './overviewUsersSummary.css';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
@@ -52,6 +53,25 @@ export default function OverviewUsersSummary({ defaultRange = 'daily' }) {
       count: Number.isFinite(Number(count)) ? Number(count) : 0,
     }));
     return flat;
+  }, [data]);
+
+  // T0000 stacked config
+  const stackedConfig = useMemo(() => {
+    const isAll = !!data?.isAllOrgs;
+    const orgBuckets = Array.isArray(data?.orgBuckets) ? data.orgBuckets : [];
+    if (!isAll || orgBuckets.length === 0) return null;
+    const labels = (Array.isArray(data?.buckets) ? data.buckets : []).map(b => String(b.label));
+    const orgs = orgBuckets.map(o => String(o.organization_id || 'unknown')).slice(0, 6);
+    const rows = labels.map(lbl => {
+      const row = { label: lbl };
+      for (const org of orgs) {
+        const ob = orgBuckets.find(x => String(x.organization_id || 'unknown') === org);
+        const day = ob?.buckets?.find(d => String(d.label) === lbl);
+        row[org] = Number.isFinite(Number(day?.count)) ? Number(day.count) : 0;
+      }
+      return row;
+    });
+    return { labels, orgs, rows };
   }, [data]);
 
   // Instrumentation similar to Section version, gated to avoid noise in production
@@ -143,13 +163,28 @@ export default function OverviewUsersSummary({ defaultRange = 'daily' }) {
           )}
         </div>
       </div>
-      <UsersSummaryBarChart
-        data={chartData}
-        loading={loading}
-        error={error}
-        title=""
-        height={280}
-      />
+      {data?.isAllOrgs && stackedConfig ? (
+        <div className="users-summary-chart" style={{ minHeight: 280, height: 280 }}>
+          <div className="users-summary-chart__header" />
+          <div className="users-summary-chart__body" style={{ width: '100%', height: '100%' }}>
+            <UsersSummaryStackedBar
+              rows={stackedConfig.rows}
+              orgs={stackedConfig.orgs}
+              loading={loading}
+              error={error}
+              height={280}
+            />
+          </div>
+        </div>
+      ) : (
+        <UsersSummaryBarChart
+          data={chartData}
+          loading={loading}
+          error={error}
+          title=""
+          height={280}
+        />
+      )}
     </section>
   );
 }
