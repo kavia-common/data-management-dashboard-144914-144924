@@ -40,6 +40,9 @@ export async function apiGet(url, options = {}) {
     effUrl = `${finalUrl}${sep}organization_id=${encodeURIComponent(orgId)}`;
   }
 
+  // eslint-disable-next-line no-console
+  console.log('[utils/api] GET', effUrl);
+
   const res = await fetch(effUrl, {
     method: 'GET',
     headers,

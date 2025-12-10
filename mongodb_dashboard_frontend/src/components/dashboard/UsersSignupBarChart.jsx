@@ -16,15 +16,29 @@ export default function UsersSignupBarChart() {
 
   const onRangeChange = (e) => {
     const v = e.target.value;
+    // eslint-disable-next-line no-console
+    console.log('[UsersSignupBarChart] range change ->', v);
+
     if (v === 'custom') {
       const today = new Date();
       const iso = (d) => `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
-      setParams(p => ({ ...p, range: 'custom', start_date: iso(today), end_date: iso(today) }));
+      setParams(p => ({
+        ...p,
+        range: 'custom',
+        start_date: p.start_date || iso(today),
+        end_date: p.end_date || iso(today),
+      }));
     } else {
-      setParams(p => ({ organization_id: p.organization_id, range: v }));
+      // Preserve organization id
+      setParams(p => ({ ...p, range: v }));
     }
   };
-  const onDateChange = (key) => (e) => setParams(p => ({ ...p, [key]: e.target.value }));
+  const onDateChange = (key) => (e) => {
+    const value = e.target.value;
+    // eslint-disable-next-line no-console
+    console.log('[UsersSignupBarChart] date change', key, '->', value);
+    setParams(p => ({ ...p, [key]: value }));
+  };
 
   return (
     <div style={{ background: '#fff', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.06)', padding: 16 }}>

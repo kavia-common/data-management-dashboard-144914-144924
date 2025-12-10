@@ -1,4 +1,5 @@
 import qs from 'query-string';
+import { apiGet } from '../utils/api';
 
 /**
  * PUBLIC_INTERFACE
@@ -14,12 +15,13 @@ export async function fetchUsersSummary({ organization_id, tenant_id, range = 'd
     if (start_date) params.start_date = start_date;
     if (end_date) params.end_date = end_date;
   }
-  const url = `/api/users/summary?${qs.stringify(params)}`;
-  const res = await fetch(url, { headers: { 'content-type': 'application/json' } });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Users summary failed (${res.status}): ${text}`);
-  }
-  const data = await res.json();
+
+  const path = `/api/users/summary?${qs.stringify(params)}`;
+
+  // eslint-disable-next-line no-console
+  console.log('[usersSummary.client] GET', path);
+
+  // Use centralized apiGet to ensure Authorization and organization_id propagation when missing
+  const data = await apiGet(path, { headers: { 'content-type': 'application/json' } });
   return data; // { buckets: [{key,label,count}], range, start_date, end_date }
 }
