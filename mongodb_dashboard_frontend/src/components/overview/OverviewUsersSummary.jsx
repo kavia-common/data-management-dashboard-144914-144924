@@ -1,61 +1,129 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
-import UsersCreatedBarChart from '../charts/UsersCreatedBarChart';
-import '../charts/ActiveUsersTrendChart.css';
+import UsersSummaryBarChart from '../charts/UsersSummaryBarChart';
 import './overview.css';
-import OverviewTimeControls from './OverviewTimeControls';
-import { useAuth } from '../../context/AuthContext';
-import { resolveOrganizationId } from '../../utils/orgContext';
+import './overviewUsersSummary.css';
+import useCurrentOrgId from '../../hooks/useCurrentOrgId';
+import useUsersSummary from '../../hooks/useUsersSummary';
+import { format, parseISO } from 'date-fns';
 
 /**
  * PUBLIC_INTERFACE
- * OverviewUsersSummary (placeholder)
- * This component no longer calls /api/users/summary.
- * It renders the same UI with empty data to keep the layout stable.
+ * OverviewUsersSummary
+ * Renders users created summary with time range filters and consumes /api/users/summary.
+ * Mirrors OverviewUsersSummarySection behavior so charts are consistent.
  */
-export default function OverviewUsersSummary({ organizationId: organizationIdProp }) {
-  const auth = useAuth();
-  const orgId = useMemo(
-    () => organizationIdProp ?? resolveOrganizationId({ auth }),
-    [organizationIdProp, auth]
-  );
+export default function OverviewUsersSummary({ defaultRange = 'daily' }) {
+  const orgId = useCurrentOrgId();
+  const [range, setRange] = useState(defaultRange);
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const [startDate, setStartDate] = useState(todayStr);
+  const [endDate, setEndDate] = useState(todayStr);
 
-  const [range, setRange] = useState('daily');
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
-  const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
+  // Ensure valid custom range order
+  useEffect(() => {
+    if (range === 'custom' && startDate && endDate) {
+      const s = parseISO(startDate);
+      const e = parseISO(endDate);
+      if (s > e) {
+        setStartDate(endDate);
+        setEndDate(startDate);
+      }
+    }
+  }, [range, startDate, endDate]);
 
-  // Static, empty dataset (no network)
-  const data = [];
-  const loading = false;
-  const error = null;
+  // Hook params, pass organization_id and custom dates as needed
+  const hookParams = useMemo(() => {
+    const p = { range, organization_id: orgId || undefined };
+    if (range === 'custom') {
+      p.start_date = startDate;
+      p.end_date = endDate;
+    }
+    return p;
+  }, [range, startDate, endDate, orgId]);
+
+  const { loading, data, error } = useUsersSummary(hookParams);
+
+  // Normalize to chart data shape { key, label, count }
+  const chartData = useMemo(() => {
+    const buckets = Array.isArray(data?.buckets) ? data.buckets : [];
+    return buckets.map((b, i) => ({
+      key: String(b.key ?? b.label ?? `bucket-${i}`),
+      label: String(b.label ?? b.key ?? `Bucket ${i + 1}`),
+      count: Number.isFinite(Number(b.count)) ? Number(b.count) : 0,
+    }));
+  }, [data]);
 
   return (
-    <section className="overview-section" aria-label="Users Created Summary (placeholder)">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between' }}>
-        <h3 className="chart-title" style={{ margin: 0 }}>
-          Users Created
-        </h3>
-
-        <OverviewTimeControls
-          range={range}
-          onChangeRange={setRange}
-          customRange={{ start: startDate, end: endDate }}
-          onChangeCustom={(next) => {
-            if (typeof next?.start === 'string') setStartDate(next.start);
-            if (typeof next?.end === 'string') setEndDate(next.end);
-          }}
-        />
+    <section className="overview-users-summary" aria-label="Users created summary">
+      <div className="overview-users-summary__header">
+        <h2 className="overview-users-summary__title">Users Created</h2>
+        <div className="overview-users-summary__controls">
+          <div className="btn-group" role="group" aria-label="Time range">
+            <button
+              type="button"
+              className={`btn ${range === 'daily' ? 'btn-active' : ''}`}
+              onClick={() => setRange('daily')}
+            >
+              Daily
+            </button>
+            <button
+              type="button"
+              className={`btn ${range === 'weekly' ? 'btn-active' : ''}`}
+              onClick={() => setRange('weekly')}
+            >
+              Weekly
+            </button>
+            <button
+              type="button"
+              className={`btn ${range === 'monthly' ? 'btn-active' : ''}`}
+              onClick={() => setRange('monthly')}
+            >
+              Monthly
+            </button>
+            <button
+              type="button"
+              className={`btn ${range === 'custom' ? 'btn-active' : ''}`}
+              onClick={() => setRange('custom')}
+            >
+              Custom
+            </button>
+          </div>
+          {range === 'custom' && (
+            <div className="date-range">
+              <label className="date-field">
+                <span>From</span>
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  max={endDate}
+                />
+              </label>
+              <label className="date-field">
+                <span>To</span>
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  min={startDate}
+                />
+              </label>
+            </div>
+          )}
+        </div>
       </div>
-
-      <UsersCreatedBarChart
-        data={data}
+      <UsersSummaryBarChart
+        data={chartData}
         loading={loading}
         error={error}
+        title=""
+        height={260}
       />
     </section>
   );
 }
 
 OverviewUsersSummary.propTypes = {
-  organizationId: PropTypes.string,
+  defaultRange: PropTypes.oneOf(['daily', 'weekly', 'monthly', 'custom']),
 };
