@@ -6,14 +6,25 @@ import { format } from 'date-fns';
 /**
  * PUBLIC_INTERFACE
  * useUsersSummary
- * Fetches users created summary buckets from /api/users/summary.
+ * Fetches users created summary buckets and, when all-org data is available, computes per-organization totals.
  * Params:
  *  - range: 'daily' | 'weekly' | 'monthly' | 'custom' (default 'daily').
  *  - start_date: 'YYYY-MM-DD' (required when range='custom')
  *  - end_date: 'YYYY-MM-DD' (required when range='custom')
  *  - organization_id / tenant_id: inferred from useCurrentOrgId when not provided
  *
- * Returns { loading, data: { buckets: [{ label, start?, end?, count }], range, start_date, end_date, orgBuckets?, isAllOrgs? }, error }
+ * Returns {
+ *   loading,
+ *   data: {
+ *     buckets: [{ label, start?, end?, count }],
+ *     range, start_date, end_date,
+ *     orgBuckets?: Array<{ organization_id, buckets: Array<{label,count}>, total: number }>,
+ *     isAllOrgs?: boolean
+ *   },
+ *   error,
+ *   // convenience computed values:
+ *   buckets, orgTotals
+ * }
  */
 export default function useUsersSummary(params = {}) {
   const orgId = useCurrentOrgId();
@@ -22,23 +33,17 @@ export default function useUsersSummary(params = {}) {
     const defaults = { range: 'daily' };
     const merged = { ...defaults, ...params };
 
-    // Prefer organization_id, fall back to tenant_id, infer from context when absent
     if (!merged.organization_id && !merged.tenant_id && orgId) {
       merged.organization_id = orgId;
     }
 
-    // Normalize range value defensively
     const validRanges = new Set(['daily', 'weekly', 'monthly', 'custom']);
-    if (!validRanges.has(merged.range)) {
-      merged.range = 'daily';
-    }
+    if (!validRanges.has(merged.range)) merged.range = 'daily';
 
-    // For non-custom ranges, ensure we don't pass stray dates
     if (merged.range !== 'custom') {
       delete merged.start_date;
       delete merged.end_date;
     } else {
-      // If custom has no dates, default to last 30 days
       if (!merged.start_date || !merged.end_date) {
         const end = new Date();
         const start = new Date();
@@ -63,8 +68,6 @@ export default function useUsersSummary(params = {}) {
     error: null,
   });
 
-  const isProd = (process.env.REACT_APP_NODE_ENV || process.env.NODE_ENV) === 'production';
-
   useEffect(() => {
     let cancelled = false;
     setState((s) => ({ ...s, loading: true, error: null }));
@@ -73,20 +76,10 @@ export default function useUsersSummary(params = {}) {
       try {
         const resp = await fetchUsersSummary(effectiveParams);
 
-        // Log the full raw response shape for diagnostics
-        // eslint-disable-next-line no-console
-        console.debug('[useUsersSummary] raw response', resp);
-
-        // Some backends may wrap data under { data: { buckets: [...] } }
         const envelope = resp && typeof resp === 'object' ? resp : {};
-        const root = envelope && envelope.data && typeof envelope.data === 'object'
-          ? envelope.data
-          : envelope;
+        const root = envelope && envelope.data && typeof envelope.data === 'object' ? envelope.data : envelope;
 
-        // Validate and normalize response shape
         const rawBuckets = Array.isArray(root.buckets) ? root.buckets : [];
-
-        // Map to normalized buckets: label, count (number), plus optional key/start/end
         const buckets = rawBuckets.map((b, i) => {
           const label =
             typeof b?.label === 'string' && b.label
@@ -101,68 +94,48 @@ export default function useUsersSummary(params = {}) {
             end: b?.end ?? undefined,
             count: Number.isFinite(countNum) ? countNum : 0,
             key: typeof b?.key === 'string' ? b.key : String(label),
+            orgBuckets: Array.isArray(b?.orgBuckets) ? b.orgBuckets : undefined,
           };
         });
 
-        // Normalize orgBuckets into consistent T0000-friendly shape:
-        // orgBuckets: Array<{
-        //   organization_id: string,
-        //   buckets: Array<{ label: string, count: number }>,
-        //   total: number
-        // }>
-        const rawOrgBuckets = Array.isArray(root.orgBuckets) ? root.orgBuckets : [];
-        const normalizedOrgBuckets = rawOrgBuckets
-          .filter(Boolean)
-          .map((entry) => {
-            const orgIdStr = entry?.organization_id ?? entry?.tenant_id ?? entry?.orgId ?? 'unknown';
-            const orgId = String(orgIdStr);
-            const counts = Array.isArray(entry?.buckets) ? entry.buckets : [];
-            const safeBuckets = counts.map((d, i) => {
-              const lbl = d?.label ?? d?.key ?? buckets[i]?.label ?? `Bucket ${i + 1}`;
-              const c = Number(d?.count);
-              return {
-                label: String(lbl),
-                count: Number.isFinite(c) ? c : 0,
-              };
+        // Normalize orgBuckets (either top-level root.orgBuckets or per-bucket orgBuckets shapes)
+        let normalizedTop = [];
+        if (Array.isArray(root.orgBuckets) && root.orgBuckets.length > 0) {
+          normalizedTop = root.orgBuckets
+            .filter(Boolean)
+            .map((entry) => {
+              const orgIdStr = entry?.organization_id ?? entry?.tenant_id ?? entry?.orgId ?? 'unknown';
+              const org = String(orgIdStr);
+              const counts = Array.isArray(entry?.buckets) ? entry.buckets : [];
+              const safeBuckets = counts.map((d, i) => {
+                const lbl = d?.label ?? d?.key ?? buckets[i]?.label ?? `Bucket ${i + 1}`;
+                const c = Number(d?.count);
+                return { label: String(lbl), count: Number.isFinite(c) ? c : 0 };
+              });
+              const total = safeBuckets.reduce((acc, b) => acc + (Number.isFinite(b.count) ? b.count : 0), 0);
+              return { organization_id: org, buckets: safeBuckets, total };
             });
-            const total = safeBuckets.reduce(
-              (acc, b) => acc + (Number.isFinite(b.count) ? b.count : 0),
-              0
-            );
-            return {
-              organization_id: orgId,
-              buckets: safeBuckets,
-              total,
-            };
-          });
-        // Final guard to ensure it's always an array
-        const finalOrgBuckets = Array.isArray(normalizedOrgBuckets) ? normalizedOrgBuckets : [];
+        } else {
+          // Fallback: gather from per-bucket orgBuckets if present
+          const agg = new Map(); // org -> { organization_id, total, buckets? (optional) }
+          for (const b of buckets) {
+            const perBucket = Array.isArray(b?.orgBuckets) ? b.orgBuckets : null;
+            if (!perBucket) continue;
+            for (const ob of perBucket) {
+              const org = String(ob?.organization_id ?? ob?.tenant_id ?? ob?.orgId ?? 'unknown');
+              const c = Number(ob?.count ?? ob?.total ?? 0);
+              const prev = agg.get(org) || { organization_id: org, total: 0 };
+              prev.total += Number.isFinite(c) ? c : 0;
+              agg.set(org, prev);
+            }
+          }
+          normalizedTop = Array.from(agg.values());
+        }
 
-        // Determine T0000 (all orgs) path using effective params
         const isAllOrgs =
-          String(effectiveParams.organization_id || effectiveParams.tenant_id || '')
-            .toUpperCase() === 'T0000';
+          String(effectiveParams.organization_id || effectiveParams.tenant_id || '').toUpperCase() === 'T0000';
 
         if (!cancelled) {
-          // eslint-disable-next-line no-console
-          console.debug('[useUsersSummary] debug', {
-            isAllOrgs,
-            bucketsLen: buckets.length,
-            orgBucketsLen: normalizedOrgBuckets.length,
-            orgKeys: normalizedOrgBuckets.map(o => o.organization_id).slice(0, 6),
-          });
-
-          // extra instrumentation
-          if (!isProd) {
-            // eslint-disable-next-line no-console
-            console.debug('[useUsersSummary] final state preview', {
-              bucketsLen: buckets.length,
-              isAllOrgs,
-              orgBucketsLen: (finalOrgBuckets || []).length,
-              orgBucketsSample: (finalOrgBuckets || []).slice(0, 2),
-            });
-          }
-
           setState({
             loading: false,
             data: {
@@ -170,7 +143,7 @@ export default function useUsersSummary(params = {}) {
               range: root.range ?? effectiveParams.range,
               start_date: root.start_date ?? effectiveParams.start_date,
               end_date: root.end_date ?? effectiveParams.end_date,
-              orgBuckets: finalOrgBuckets,
+              orgBuckets: Array.isArray(normalizedTop) ? normalizedTop : [],
               isAllOrgs,
             },
             error: null,
@@ -178,8 +151,6 @@ export default function useUsersSummary(params = {}) {
         }
       } catch (err) {
         if (cancelled) return;
-        // eslint-disable-next-line no-console
-        console.error('[useUsersSummary] fetch failed', { params: effectiveParams, err });
         setState({
           loading: false,
           data: {
@@ -200,5 +171,34 @@ export default function useUsersSummary(params = {}) {
     };
   }, [effectiveParams]);
 
-  return state;
+  const buckets = useMemo(() => (Array.isArray(state?.data?.buckets) ? state.data.buckets : []), [state]);
+  // Compute orgTotals from top-level orgBuckets if available; otherwise from per-bucket orgBuckets aggregated above
+  const orgTotals = useMemo(() => {
+    const arr = Array.isArray(state?.data?.orgBuckets) ? state.data.orgBuckets : [];
+    const totals = arr
+      .map((o) => ({
+        orgId: String(o?.organization_id ?? o?.tenant_id ?? o?.orgId ?? 'unknown'),
+        orgLabel: String(o?.organization_name ?? o?.tenant_name ?? o?.organization_id ?? o?.orgId ?? 'unknown'),
+        total: Number.isFinite(Number(o?.total)) ? Number(o.total) : 0,
+      }))
+      .filter((x) => x.total > 0);
+
+    // Sort descending
+    totals.sort((a, b) => b.total - a.total);
+
+    // Minimal guarded debug
+    if (typeof window !== 'undefined' && window?.DEBUG?.usersSummary) {
+      // eslint-disable-next-line no-console
+      console.debug('[useUsersSummary] orgTotals', { len: totals.length, sample: totals[0] });
+    }
+    return totals;
+  }, [state]);
+
+  return {
+    loading: state.loading,
+    error: state.error,
+    data: state.data,
+    buckets,
+    orgTotals,
+  };
 }
