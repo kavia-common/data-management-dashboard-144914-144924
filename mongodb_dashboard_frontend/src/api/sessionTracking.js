@@ -1,47 +1,32 @@
-import { getApiClient } from './baseClient';
-import { buildQueryString } from './util';
+import axios from 'axios';
 
 /**
  * PUBLIC_INTERFACE
- * fetchSessionTracking
- * Fetch session tracking records with pagination, sorting, and optional text search.
- * Note: Backend no longer accepts or applies a 'filter' parameter or date-range compound filters.
- * Tenant scoping is enforced via tenant_id only (handled by baseClient).
- * Supports lightweight text search via ?q which includes service_type field on backend.
- *
- * @param {Object} params
- * @param {number} [params.page]
- * @param {number} [params.limit]
- * @param {string} [params.tenant_id] Active tenant scope (alias: organization_id on server)
- * @param {string} [params.sort]
- * @param {string} [params.q] Text search query (applies to service_type and other fields)
- * @returns {Promise<{ items: Array<any>, total: number, meta: any }>}
+ * fetchSessionTrackingByService
+ * Fetch aggregated session tracking by service_type with date filters.
+ * params: { date_filter: 'daily'|'weekly'|'monthly'|'custom', start_date?, end_date? }
  */
-export async function fetchSessionTracking(params = {}) {
-  const {
-    page, limit, tenant_id, sort, q,
-    // ignore any deprecated params that callers might send
-  } = params || {};
+export async function fetchSessionTrackingByService(params = {}) {
+  const qs = new URLSearchParams();
+  if (params.date_filter) qs.set('date_filter', params.date_filter);
+  if (params.start_date) qs.set('start_date', params.start_date);
+  if (params.end_date) qs.set('end_date', params.end_date);
+  if (params.page) qs.set('page', String(params.page));
+  if (params.limit) qs.set('limit', String(params.limit));
 
-  const safeParams = {};
-  if (page !== undefined) safeParams.page = page;
-  if (limit !== undefined) safeParams.limit = limit;
-  if (tenant_id !== undefined) safeParams.tenant_id = tenant_id;
-  if (sort !== undefined) safeParams.sort = sort;
-  if (q !== undefined) safeParams.q = q;
-
-  const qs = buildQueryString(safeParams);
-  const url = `/api/session-tracking${qs}`;
-  const res = await getApiClient().get(url);
-  const payload = res?.data ?? res;
-
-  const items = Array.isArray(payload) ? payload : payload?.data ?? [];
-  const total =
-    (payload && payload.meta && typeof payload.meta.total === 'number' && payload.meta.total) ||
-    (Array.isArray(items) ? items.length : 0);
-  const meta = payload?.meta ?? null;
-
-  return { items, total, meta };
+  const url = `/api/session-tracking?${qs.toString()}`;
+  const res = await axios.get(url, { withCredentials: true });
+  // Normalize to { items, total, date_range }
+  return {
+    items: res.data?.items || [],
+    total: res.data?.total || 0,
+    date_range: res.data?.date_range || null,
+    meta: res.data?.meta || null,
+  };
 }
 
-/* No default export to favor named exports (lint rule) */
+/**
+ * Backward-compat alias used in some components/tests.
+ * PUBLIC_INTERFACE
+ */
+export const fetchSessionTracking = fetchSessionTrackingByService;
