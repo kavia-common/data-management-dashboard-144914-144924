@@ -51,16 +51,45 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
       label: String(label ?? `Bucket ${i + 1}`),
       count: Number.isFinite(Number(count)) ? Number(count) : 0,
     }));
-    // eslint-disable-next-line no-console
-    console.debug('[OverviewUsersSummarySection] chart data sample', mapped.slice(0, 3));
     return mapped;
   }, [data]);
+
+  // Instrumentation: log the exact props we will pass to UsersSummaryBarChart.
+  // Gate logs in production to reduce noise.
+  const isProd = (process.env.REACT_APP_NODE_ENV || process.env.NODE_ENV) === 'production';
+  if (!isProd) {
+    // eslint-disable-next-line no-console
+    console.debug('[UsersSummary][Section] props to BarChart', {
+      dataLength: chartData?.length ?? 0,
+      sample: Array.isArray(chartData) ? chartData.slice(0, 3) : [],
+      options: {
+        title: '',
+        height: 280,
+        loading,
+        hasError: Boolean(error),
+        params: hookParams,
+      },
+    });
+  }
 
   return (
     <section className="overview-users-summary" aria-label="Users created summary">
       <div className="overview-users-summary__header">
         <h2 className="overview-users-summary__title">Users Created</h2>
         <div className="overview-users-summary__controls">
+          {/* Lightweight DOM echo for quick verification */}
+          {!isProd && (
+            <details style={{ marginLeft: 8 }}>
+              <summary>Chart debug</summary>
+              <pre style={{ margin: 0, maxWidth: 520, whiteSpace: 'pre-wrap' }}>
+{JSON.stringify({
+  dataLength: chartData?.length ?? 0,
+  sample: Array.isArray(chartData) ? chartData.slice(0, 3) : [],
+  options: { title: '', height: 280, loading, hasError: Boolean(error) },
+}, null, 2)}
+              </pre>
+            </details>
+          )}
           <div className="btn-group" role="group" aria-label="Time range">
             <button
               type="button"
