@@ -24,7 +24,7 @@
 .users-summary-chart__body {
   margin-top: 8px;
   flex: 1;
-  min-height: 320px; /* Ensure ResponsiveContainer has a definite height */
+  min-height: 350px; /* Ensure ResponsiveContainer has a definite height */
   height: 100%; /* Let parent inline style control height; ResponsiveContainer 100% */
   position: relative; /* Allow overlay positioning */
   overflow: visible; /* Avoid clipping tooltip/axis */

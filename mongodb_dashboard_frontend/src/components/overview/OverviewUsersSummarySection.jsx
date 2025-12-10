@@ -109,22 +109,19 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
       </div>
 
       {/* Chart body - preserve sizing */}
-      <div className="users-summary-chart__body" style={{ minHeight: 280, height: 280 }}>
+      <div className="users-summary-chart__body" style={{ minHeight: 350, height: 350 }}>
         {isAllOrgs ? (
-          // Horizontal totals chart (single series)
+          // Horizontal totals chart
           <UsersSummaryStackedBar
-            rows={(Array.isArray(totalsRows) ? totalsRows : []).map(({ label, total }) => ({
-              label: String(label ?? 'Unknown'),
-              total: Number.isFinite(Number(total)) ? Number(total) : 0,
-            }))}
-            orgs={[]} // not needed in totals mode
-            loading={!!loading}
+            rows={totalsRows.map((r) => ({ label: r.label, total: r.total }))}
+            orgs={['total']}
+            loading={loading}
             error={error}
-            height={280}
+            height={350}
           />
         ) : (
           // Existing non-T0000 chart path unchanged
-          <UsersSummaryBarChart data={chartData} loading={loading} error={error} title="" height={280} />
+          <UsersSummaryBarChart data={chartData} loading={loading} error={error} title="" height={350} />
         )}
       </div>
     </section>

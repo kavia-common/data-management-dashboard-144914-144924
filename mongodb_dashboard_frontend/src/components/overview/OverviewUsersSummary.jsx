@@ -179,7 +179,7 @@ export default function OverviewUsersSummary({ defaultRange = 'daily' }) {
         </div>
       </div>
       {data?.isAllOrgs && stackedConfig ? (
-        <div className="users-summary-chart" style={{ minHeight: 280, height: 280 }}>
+        <div className="users-summary-chart" style={{ minHeight: 350, height: 350 }}>
           <div className="users-summary-chart__header" />
           <div className="users-summary-chart__body" style={{ width: '100%', height: '100%' }}>
             <UsersSummaryStackedBar
@@ -187,7 +187,7 @@ export default function OverviewUsersSummary({ defaultRange = 'daily' }) {
               orgs={stackedConfig.orgs}
               loading={loading}
               error={error}
-              height={280}
+              height={350}
             />
           </div>
         </div>
