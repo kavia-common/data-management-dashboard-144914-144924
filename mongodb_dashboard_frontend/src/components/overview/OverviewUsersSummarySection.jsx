@@ -64,14 +64,14 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
     // Build unified x-axis labels from top-level buckets to preserve date bars
     const labels = (Array.isArray(data?.buckets) ? data.buckets : []).map(b => String(b.label));
     // Determine the per-organization keys (use up to top 6 for readability)
-    const orgs = orgBuckets.map(o => String(o.organization_id || 'unknown')).slice(0, 6);
+    const orgs = (orgBuckets || []).map(o => String(o?.organization_id || 'unknown')).slice(0, 6);
 
     // Compose dataset for Recharts stacked bars: [{ label, [org1]: n, [org2]: n, ... }]
-    const rows = labels.map(lbl => {
+    const rows = (labels || []).map((lbl) => {
       const row = { label: lbl };
-      for (const org of orgs) {
-        const ob = orgBuckets.find(x => String(x.organization_id || 'unknown') === org);
-        const day = ob?.buckets?.find(d => String(d.label) === lbl);
+      for (const org of (orgs || [])) {
+        const ob = (orgBuckets || []).find((x) => String(x?.organization_id || 'unknown') === org);
+        const day = (ob?.buckets || []).find((d) => String(d?.label) === lbl);
         row[org] = Number.isFinite(Number(day?.count)) ? Number(day.count) : 0;
       }
       return row;

@@ -13,7 +13,7 @@ import { format } from 'date-fns';
  *  - end_date: 'YYYY-MM-DD' (required when range='custom')
  *  - organization_id / tenant_id: inferred from useCurrentOrgId when not provided
  *
- * Returns { loading, data: { buckets: [{ label, start?, end?, count }], range, start_date, end_date }, error }
+ * Returns { loading, data: { buckets: [{ label, start?, end?, count }], range, start_date, end_date, orgBuckets?, isAllOrgs? }, error }
  */
 export default function useUsersSummary(params = {}) {
   const orgId = useCurrentOrgId();
@@ -57,6 +57,8 @@ export default function useUsersSummary(params = {}) {
       range: effectiveParams.range,
       start_date: effectiveParams.start_date,
       end_date: effectiveParams.end_date,
+      orgBuckets: [],
+      isAllOrgs: false,
     },
     error: null,
   });
@@ -100,30 +102,55 @@ export default function useUsersSummary(params = {}) {
           };
         });
 
-        // Debug mapped results length and first 3 items
-        // eslint-disable-next-line no-console
-        console.debug('[useUsersSummary] mapped buckets', {
-          length: buckets.length,
-          sample: buckets.slice(0, 3),
+        // Normalize orgBuckets into consistent T0000-friendly shape:
+        // orgBuckets: Array<{
+        //   organization_id: string,
+        //   buckets: Array<{ label: string, count: number }>,
+        //   total: number
+        // }>
+        const rawOrgBuckets = Array.isArray(root.orgBuckets) ? root.orgBuckets : [];
+        const normalizedOrgBuckets = rawOrgBuckets.map((entry) => {
+          const orgId = String(entry?.organization_id ?? entry?.tenant_id ?? entry?.orgId ?? 'unknown');
+          const counts = Array.isArray(entry?.buckets) ? entry.buckets : [];
+          const safeBuckets = counts.map((d, i) => ({
+            label: String(d?.label ?? d?.key ?? buckets[i]?.label ?? `Bucket ${i + 1}`),
+            count: Number.isFinite(Number(d?.count)) ? Number(d.count) : 0,
+          }));
+          const total = safeBuckets.reduce((acc, b) => acc + (Number.isFinite(b.count) ? b.count : 0), 0);
+          return {
+            organization_id: orgId,
+            buckets: safeBuckets,
+            total,
+          };
         });
 
-        if (cancelled) return;
-        // Attach aggregated orgBuckets (when present) for special T0000 rendering
-        const orgBuckets = Array.isArray(root.orgBuckets) ? root.orgBuckets : [];
-        const isAllOrgs = String(effectiveParams.organization_id || effectiveParams.tenant_id || '').toUpperCase() === 'T0000';
+        // Determine T0000 (all orgs) path using effective params
+        const isAllOrgs =
+          String(effectiveParams.organization_id || effectiveParams.tenant_id || '')
+            .toUpperCase() === 'T0000';
 
-        setState({
-          loading: false,
-          data: {
-            buckets,
-            range: root.range ?? effectiveParams.range,
-            start_date: root.start_date ?? effectiveParams.start_date,
-            end_date: root.end_date ?? effectiveParams.end_date,
-            orgBuckets,
+        if (!cancelled) {
+          // eslint-disable-next-line no-console
+          console.debug('[useUsersSummary] debug', {
             isAllOrgs,
-          },
-          error: null,
-        });
+            bucketsLen: buckets.length,
+            orgBucketsLen: normalizedOrgBuckets.length,
+            orgKeys: normalizedOrgBuckets.map(o => o.organization_id).slice(0, 6),
+          });
+
+          setState({
+            loading: false,
+            data: {
+              buckets,
+              range: root.range ?? effectiveParams.range,
+              start_date: root.start_date ?? effectiveParams.start_date,
+              end_date: root.end_date ?? effectiveParams.end_date,
+              orgBuckets: normalizedOrgBuckets,
+              isAllOrgs,
+            },
+            error: null,
+          });
+        }
       } catch (err) {
         if (cancelled) return;
         // eslint-disable-next-line no-console
@@ -135,6 +162,8 @@ export default function useUsersSummary(params = {}) {
             range: effectiveParams.range,
             start_date: effectiveParams.start_date,
             end_date: effectiveParams.end_date,
+            orgBuckets: [],
+            isAllOrgs: false,
           },
           error: err,
         });

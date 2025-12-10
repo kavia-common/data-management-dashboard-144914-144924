@@ -61,12 +61,12 @@ export default function OverviewUsersSummary({ defaultRange = 'daily' }) {
     const orgBuckets = Array.isArray(data?.orgBuckets) ? data.orgBuckets : [];
     if (!isAll || orgBuckets.length === 0) return null;
     const labels = (Array.isArray(data?.buckets) ? data.buckets : []).map(b => String(b.label));
-    const orgs = orgBuckets.map(o => String(o.organization_id || 'unknown')).slice(0, 6);
-    const rows = labels.map(lbl => {
+    const orgs = (orgBuckets || []).map(o => String(o?.organization_id || 'unknown')).slice(0, 6);
+    const rows = (labels || []).map((lbl) => {
       const row = { label: lbl };
-      for (const org of orgs) {
-        const ob = orgBuckets.find(x => String(x.organization_id || 'unknown') === org);
-        const day = ob?.buckets?.find(d => String(d.label) === lbl);
+      for (const org of (orgs || [])) {
+        const ob = (orgBuckets || []).find((x) => String(x?.organization_id || 'unknown') === org);
+        const day = (ob?.buckets || []).find((d) => String(d?.label) === lbl);
         row[org] = Number.isFinite(Number(day?.count)) ? Number(day.count) : 0;
       }
       return row;
