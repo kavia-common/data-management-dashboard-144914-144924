@@ -27,9 +27,13 @@ export async function fetchUsersSummary({ organization_id, tenant_id, range = 'd
   const path = `/api/users/summary?${qs.stringify(params)}`;
 
   // Centralized apiGet handles base URL and header propagation; include explicit org hint
+  // eslint-disable-next-line no-console
+  console.debug('[fetchUsersSummary] GET', path);
   const data = await apiGet(path, {
     headers: { 'content-type': 'application/json' },
     organization_id: organization_id || tenant_id,
   });
+  // eslint-disable-next-line no-console
+  console.debug('[fetchUsersSummary] response keys', data && Object.keys(data || {}));
   return data; // { buckets: [{ label, start, end, count }], range, start_date, end_date }
 }

@@ -69,20 +69,42 @@ export default function useUsersSummary(params = {}) {
       try {
         const resp = await fetchUsersSummary(effectiveParams);
 
-        // Validate and normalize response shape
-        const safe = (resp && typeof resp === 'object') ? resp : {};
-        const rawBuckets = Array.isArray(safe.buckets) ? safe.buckets : [];
+        // Log the full raw response shape for diagnostics
+        // eslint-disable-next-line no-console
+        console.debug('[useUsersSummary] raw response', resp);
 
+        // Some backends may wrap data under { data: { buckets: [...] } }
+        const envelope = resp && typeof resp === 'object' ? resp : {};
+        const root = envelope && envelope.data && typeof envelope.data === 'object'
+          ? envelope.data
+          : envelope;
+
+        // Validate and normalize response shape
+        const rawBuckets = Array.isArray(root.buckets) ? root.buckets : [];
+
+        // Map to normalized buckets: label, count (number), plus optional key/start/end
         const buckets = rawBuckets.map((b, i) => {
-          const label = typeof b.label === 'string' && b.label ? b.label : (typeof b.key === 'string' ? b.key : `Bucket ${i + 1}`);
-          const countNum = Number(b.count);
+          const label =
+            typeof b?.label === 'string' && b.label
+              ? b.label
+              : typeof b?.key === 'string'
+              ? b.key
+              : `Bucket ${i + 1}`;
+          const countNum = Number(b?.count);
           return {
-            label,
-            start: b.start ?? undefined,
-            end: b.end ?? undefined,
+            label: String(label),
+            start: b?.start ?? undefined,
+            end: b?.end ?? undefined,
             count: Number.isFinite(countNum) ? countNum : 0,
-            key: typeof b.key === 'string' ? b.key : label,
+            key: typeof b?.key === 'string' ? b.key : String(label),
           };
+        });
+
+        // Debug mapped results length and first 3 items
+        // eslint-disable-next-line no-console
+        console.debug('[useUsersSummary] mapped buckets', {
+          length: buckets.length,
+          sample: buckets.slice(0, 3),
         });
 
         if (cancelled) return;
@@ -90,9 +112,9 @@ export default function useUsersSummary(params = {}) {
           loading: false,
           data: {
             buckets,
-            range: safe.range ?? effectiveParams.range,
-            start_date: safe.start_date ?? effectiveParams.start_date,
-            end_date: safe.end_date ?? effectiveParams.end_date,
+            range: root.range ?? effectiveParams.range,
+            start_date: root.start_date ?? effectiveParams.start_date,
+            end_date: root.end_date ?? effectiveParams.end_date,
           },
           error: null,
         });

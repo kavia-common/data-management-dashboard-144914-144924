@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import {
   ResponsiveContainer,
@@ -35,6 +35,15 @@ export default function UsersSummaryBarChart({
       count: Number.isFinite(Number(d?.count)) ? Number(d.count) : 0,
     }));
   }, [data]);
+
+  // Debug: log mapped safe data length and first 3 items
+  useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.debug('[UsersSummaryBarChart] data', {
+      length: safeData.length,
+      sample: safeData.slice(0, 3),
+    });
+  }, [safeData]);
 
   const theme = getChartTheme ? getChartTheme() : {
     primary: '#2563EB',
@@ -145,7 +154,7 @@ export default function UsersSummaryBarChart({
                 formatter={(value) => [value, 'Users']}
                 labelFormatter={(label) => `${label}`}
               />
-              <Bar dataKey="count" fill={theme.primary} radius={[4, 4, 0, 0]} />
+              <Bar dataKey="count" name="Users" fill={theme.primary} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}

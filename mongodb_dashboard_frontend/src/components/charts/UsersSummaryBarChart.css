@@ -24,8 +24,9 @@
 .users-summary-chart__body {
   margin-top: 8px;
   flex: 1;
-  min-height: 280px; /* Ensure ResponsiveContainer has a definite height */
+  min-height: 320px; /* Ensure ResponsiveContainer has a definite height */
   position: relative; /* Allow overlay positioning */
+  overflow: visible; /* Avoid clipping tooltip/axis */
 }
 
 .users-summary-chart__loading,
