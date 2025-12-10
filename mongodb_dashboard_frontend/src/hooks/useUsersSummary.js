@@ -174,24 +174,45 @@ export default function useUsersSummary(params = {}) {
   const buckets = useMemo(() => (Array.isArray(state?.data?.buckets) ? state.data.buckets : []), [state]);
   // Compute orgTotals from top-level orgBuckets if available; otherwise from per-bucket orgBuckets aggregated above
   const orgTotals = useMemo(() => {
+    const isAllOrgs =
+      String(state?.data?.isAllOrgs ? 'T0000' : (state?.organization_id || '')).toUpperCase() === 'T0000' ||
+      state?.data?.isAllOrgs === true;
+
     const arr = Array.isArray(state?.data?.orgBuckets) ? state.data.orgBuckets : [];
     const totals = arr
-      .map((o) => ({
-        orgId: String(o?.organization_id ?? o?.tenant_id ?? o?.orgId ?? 'unknown'),
-        orgLabel: String(o?.organization_name ?? o?.tenant_name ?? o?.organization_id ?? o?.orgId ?? 'unknown'),
-        total: Number.isFinite(Number(o?.total)) ? Number(o.total) : 0,
-      }))
-      .filter((x) => x.total > 0);
+      .map((o) => {
+        const id = String(o?.organization_id ?? o?.tenant_id ?? o?.orgId ?? 'unknown');
+        const labelRaw =
+          o?.organization_name ??
+          o?.tenant_name ??
+          o?.organization_id ??
+          o?.orgId ??
+          'unknown';
+        const totalNum = Number(o?.total);
+        return {
+          orgId: id,
+          label: String(labelRaw),
+          total: Number.isFinite(totalNum) ? totalNum : 0,
+        };
+      })
+      .filter((x) => Number.isFinite(x.total) && x.total >= 0);
 
-    // Sort descending
+    // Sort descending to highlight top orgs
     totals.sort((a, b) => b.total - a.total);
+
+    // Ensure array type for consumers; when T0000, we guarantee [] not undefined
+    const safeTotals = Array.isArray(totals) ? totals : [];
 
     // Minimal guarded debug
     if (typeof window !== 'undefined' && window?.DEBUG?.usersSummary) {
       // eslint-disable-next-line no-console
-      console.debug('[useUsersSummary] orgTotals', { len: totals.length, sample: totals[0] });
+      console.debug('[useUsersSummary] orgTotals', {
+        isAllOrgs,
+        len: safeTotals.length,
+        sample: safeTotals.slice(0, 2),
+      });
     }
-    return totals;
+    return safeTotals;
   }, [state]);
 
   return {
