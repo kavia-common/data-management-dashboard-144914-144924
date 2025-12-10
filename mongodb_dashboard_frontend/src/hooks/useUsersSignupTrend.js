@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import useCurrentOrgId from './useCurrentOrgId';
-import { fetchUsersSummary } from '../api/usersSummary.client';
+import { fetchUsersSummary } from '../api/usersSummary';
 
 /**
  * PUBLIC_INTERFACE
