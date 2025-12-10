@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchUsersSummary } from '../api/usersSummary';
-import { useCurrentOrgId } from './useCurrentOrgId';
+import useCurrentOrgId from './useCurrentOrgId';
 
 // PUBLIC_INTERFACE
 export default function useUsersSummary(params = {}) {
