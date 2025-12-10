@@ -24,7 +24,8 @@
 .users-summary-chart__body {
   margin-top: 8px;
   flex: 1;
-  min-height: 200px; /* Ensure ResponsiveContainer has a height */
+  min-height: 280px; /* Ensure ResponsiveContainer has a definite height */
+  position: relative; /* Allow overlay positioning */
 }
 
 .users-summary-chart__loading,
@@ -32,6 +33,15 @@
   color: #6b7280;
   font-size: 13px;
   padding: 16px 4px;
+}
+
+.users-summary-chart__empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
 }
 
 /* Legacy non-Recharts fallback bars (kept for reference but not used now) */

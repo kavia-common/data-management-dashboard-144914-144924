@@ -76,7 +76,7 @@
   border-radius: 6px;
 }
 
-/* Ensure chart container gets an explicit height */
+/* Ensure chart container gets an explicit height (so ResponsiveContainer computes) */
 .overview-users-summary .users-summary-chart__body {
-  min-height: 220px;
+  min-height: 280px;
 }

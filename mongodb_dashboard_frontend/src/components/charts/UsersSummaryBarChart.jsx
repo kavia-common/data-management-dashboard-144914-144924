@@ -87,11 +87,33 @@ export default function UsersSummaryBarChart({
       <div className="users-summary-chart__header">
         {title ? <h3 className="users-summary-chart__title">{title}</h3> : null}
       </div>
-      <div className="users-summary-chart__body" style={{ width: '100%', height: height - 40 }}>
+
+      {/*
+        The chart MUST mount inside .users-summary-chart__body and that element
+        must provide a definite height so ResponsiveContainer can compute sizes.
+        We keep a minHeight here, but allow CSS to override if parent wants.
+      */}
+      <div
+        className="users-summary-chart__body"
+        style={{ width: '100%', minHeight: height - 40, position: 'relative' }}
+      >
         {isEmpty ? (
-          <div className="users-summary-chart__empty">No data</div>
+          // Keep the reserved space so layout remains stable while showing fallback
+          <>
+            <div style={{ width: '100%', height: '100%' }}>
+              <ResponsiveContainer width="100%" height="100%">
+                {/* Render an empty BarChart with empty data so axes render consistently */}
+                <BarChart data={[]} margin={{ top: 8, right: 16, left: 8, bottom: 16 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
+                  <XAxis dataKey="label" tickLine={false} axisLine={{ stroke: theme.axisTick }} />
+                  <YAxis tickLine={false} axisLine={{ stroke: theme.axisTick }} allowDecimals={false} domain={[0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="users-summary-chart__empty" aria-live="polite">No data</div>
+          </>
         ) : (
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer className="users-summary-chart__responsive" width="100%" height="100%">
             <BarChart
               data={safeData}
               margin={{ top: 8, right: 16, left: 8, bottom: 16 }}
