@@ -344,9 +344,68 @@ export default function Costs() {
     return base.slice();
   }, [items]);
 
+  // Derived minimal list for User Name, Total Cost, Projects
+  const summaryRows = useMemo(() => {
+    return (items || []).map((doc) => {
+      // Try best-effort project resolution
+      const projects =
+        doc.projects ||
+        doc.project_list ||
+        (Array.isArray(doc.details?.projects) ? doc.details.projects : null) ||
+        (Array.isArray(doc.metadata?.projects) ? doc.metadata.projects : null) ||
+        (doc.project_id ? [doc.project_id] : []);
+      return {
+        id: doc._id || doc.id,
+        userName: String(doc.user_id ?? doc.user?.name ?? doc.user?.id ?? '—'),
+        totalCost: Number(
+          typeof doc.total_cost === 'number'
+            ? doc.total_cost
+            : Number(String(doc.total_cost || '').replace(/[$,]/g, ''))
+        ),
+        projects: projects,
+        raw: doc,
+      };
+    });
+  }, [items]);
+
+  const summaryColumns = [
+    { key: 'userName', label: 'User Name', render: (v) => renderText(v) },
+    {
+      key: 'totalCost',
+      label: 'Total Cost',
+      render: (v) => (Number.isFinite(v) ? renderCreditsWithUsd(v) : '—'),
+    },
+    {
+      key: 'projects',
+      label: 'Projects',
+      render: (v) => renderCompact(v, 'Projects'),
+    },
+  ];
+
   return (
     <div>
-      {/* Table section */}
+      {/* Summary mini table */}
+      <Card
+        title="Costs Summary"
+        subtitle="User Name • Total Cost • Projects (derived)"
+        className="mt-4"
+      >
+        {error && <div className="error" role="alert">{error}</div>}
+        <DataTable
+          columns={summaryColumns}
+          data={summaryRows}
+          loading={loading}
+          pageSize={meta.limit || 10}
+          initialPage={meta.page || 1}
+          serverTotal={meta.total}
+          fetchPage={async (page, limit, sortKey, sortDir) => {
+            await load(page, limit, sortKey, sortDir);
+          }}
+          paginationTitle="Costs summary pages"
+        />
+      </Card>
+
+      {/* Full table section */}
       <Card
         title="Costs"
         subtitle="LLM usage cost records — compact view with expandable details"
@@ -361,7 +420,6 @@ export default function Costs() {
             onChange={(e) => setQuery(e.target.value)}
           />
           <div style={{ flex: 1 }} />
-          {/* View All button removed per requirements */}
         </div>
         {error && <div className="error" role="alert">{error}</div>}
         <DataTable

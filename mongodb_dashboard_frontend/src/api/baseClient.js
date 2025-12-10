@@ -68,7 +68,8 @@ function isSessionTrackingRoot(pathOrUrl) {
 /**
  * For endpoint-specific rules, sanitize query params before building the request.
  * - For "/api/users" GET: allow only { organization_id }.
- * - For "/api/session-tracking" root: strip organization_id, allow tenant_id only (appended later).
+ * - For "/api/session-tracking" root: strip organization_id; backend expects tenant_id (appended via ensureScopedQueryParams).
+ * - For "/api/llm-costs": strip unsupported filter/date params; we let backend apply window defaults.
  */
 function sanitizeEndpointParams(pathOrUrl, params = {}) {
   const path = String(pathOrUrl || "");
@@ -80,16 +81,18 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
     if (params && typeof params === "object" && "organization_id" in params) {
       out.organization_id = params.organization_id;
     }
+    if ("page" in params) out.page = params.page;
+    if ("limit" in params) out.limit = params.limit;
+    if ("sort" in params) out.sort = params.sort;
     return out;
   }
 
   if (isSessionTrackingRoot(pathOrUrl)) {
-    // Remove any organization_id remnants and 'filter' for session-tracking as backend ignores it now.
+    // Remove any organization_id remnants for session-tracking
     const { organization_id, filter, ...rest } = params || {};
     return rest || {};
   }
 
-  // For llm-costs list root: strip 'filter' and any date-range params per backend contract
   const isLlmCostsRoot =
     typeof pathOrUrl === "string" &&
     /\/api\/llm-costs(?:$|[?&#/])/.test(pathOrUrl) &&
@@ -102,7 +105,6 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
       end,
       from,
       to,
-      // keep everything else like page, limit, sort, organization_id
       ...rest
     } = params || {};
     return rest || {};
@@ -113,24 +115,13 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
 
 /**
  * Ensure query scoping parameters.
- * - For users endpoints: append organization_id (and only that for certain paths).
  * - For session-tracking root: append tenant_id instead of organization_id.
  * - Default: append organization_id if missing.
  */
 function ensureScopedQueryParams(pathOrUrl, params = {}) {
-  const isTenantSummary =
-    typeof pathOrUrl === "string" &&
-    /\/api\/users\/tenant-summary(?:$|[?&#/])/.test(pathOrUrl);
-
-  const isUsersRoot =
-    typeof pathOrUrl === "string" &&
-    /\/api\/users(?:$|[?&#/])/.test(pathOrUrl) &&
-    !/\/api\/users\/[A-Za-z0-9_-]/.test(pathOrUrl);
-
   const orgId = getOrganizationId();
 
   if (isSessionTrackingRoot(pathOrUrl)) {
-    // For session tracking, enforce tenant_id in query. We use stored organization id as tenant_id value.
     const existingHasTenant =
       "tenant_id" in (params || {}) ||
       (typeof pathOrUrl === "string" && /([?&])tenant_id=/.test(pathOrUrl));
@@ -139,19 +130,12 @@ function ensureScopedQueryParams(pathOrUrl, params = {}) {
     return { ...(params || {}), tenant_id: orgId };
   }
 
-  const baseParams = {};
-  if (orgId) baseParams.organization_id = orgId;
-
-  if (isTenantSummary || isUsersRoot) {
-    return baseParams; // strictly only organization_id
-  }
-
   const existingHasOrg =
     "organization_id" in (params || {}) ||
     (typeof pathOrUrl === "string" && /([?&])organization_id=/.test(pathOrUrl));
   if (existingHasOrg) return params || {};
   if (!orgId) return params || {};
-  return { ...(params || {}), ...baseParams };
+  return { ...(params || {}), organization_id: orgId };
 }
 
 /**
@@ -312,7 +296,7 @@ export async function health() {
 
 // PUBLIC_INTERFACE
 export async function listUsers(params = {}) {
-  /** Lists users; for /api/users only organization_id is sent. All other params (e.g., limit, page, sort, filter) are ignored for this endpoint by design. Returns normalized { items, total, meta }. */
+  /** Lists users; for /api/users only organization_id is sent. Returns normalized { items, total, meta }. */
   const res = await httpGet("/api/users", { params });
   return normalizeListPayload(res.data);
 }
