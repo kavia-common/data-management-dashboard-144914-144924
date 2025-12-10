@@ -2,12 +2,12 @@ import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
-import UsersSignupBarChart from "../../components/dashboard/UsersSignupBarChart";
+import { OverviewUsersSummarySection } from "../../components/overview";
 
 /**
  * PUBLIC_INTERFACE
  * Overview page
- * - Shows KPI cards and the Users Signup chart, which fetches /api/users/summary on mount and filter changes.
+ * - Shows KPI cards and the new Users Summary section with time-range filters.
  */
 export default function Overview() {
   const [loading, setLoading] = useState(true);
@@ -113,9 +113,9 @@ export default function Overview() {
         </div>
       )}
 
-      {/* Users Signup trend chart (invokes /api/users/summary via hook) */}
+      {/* New Users Summary section */}
       <div className="block-full" style={{ alignSelf: "stretch" }}>
-        <UsersSignupBarChart />
+        <OverviewUsersSummarySection defaultRange="daily" />
       </div>
     </div>
   );

@@ -18,7 +18,7 @@ export default function useUsersSignupTrend(initial = {}) {
   // Default params to daily and allow overrides from initial
   const [params, setParams] = useState(() => ({ range: 'daily', ...initial }));
 
-  // Compute effective params including org fallback; keep stable reference via useMemo
+  // Compute effective params including org fallback
   const effectiveParams = useMemo(() => {
     const p = { ...params };
     if (!p.organization_id && !p.tenant_id && orgId) p.organization_id = orgId;
@@ -38,12 +38,12 @@ export default function useUsersSignupTrend(initial = {}) {
 
       // Debug log to verify requests and tenant propagation
       // eslint-disable-next-line no-console
-      console.info('[useUsersSignupTrend] GET /api/users/summary', debugParams);
+      console.log('[useUsersSignupTrend] fetching /api/users/summary', debugParams);
 
       const data = await fetchUsersSummary(effectiveParams);
 
       // eslint-disable-next-line no-console
-      console.info('[useUsersSignupTrend] DONE /api/users/summary', {
+      console.log('[useUsersSignupTrend] fetched', {
         buckets: data?.buckets?.length ?? 0,
         range: data?.range,
         start_date: data?.start_date,
@@ -58,7 +58,7 @@ export default function useUsersSignupTrend(initial = {}) {
     }
   }, [effectiveParams]);
 
-  // Trigger initial fetch on mount
+  // Trigger initial fetch on mount (range defaults to daily)
   useEffect(() => {
     if (initialRef.current) {
       initialRef.current = false;
@@ -66,28 +66,13 @@ export default function useUsersSignupTrend(initial = {}) {
     }
   }, [reload]);
 
-  // If orgId arrives asynchronously after mount, trigger fetch when it becomes available
+  // Refetch when dependencies change (range/date/org etc.)
   useEffect(() => {
-    if (orgId) {
-      // eslint-disable-next-line no-console
-      console.info('[useUsersSignupTrend] orgId available -> refetch', orgId);
-      reload();
-    }
-  }, [orgId, reload]);
-
-  // Refetch when dependencies change (range/date/org) using explicit keys to avoid object identity pitfalls
-  useEffect(() => {
+    // Skip immediate re-run on first mount since above effect covers it
     if (!initialRef.current) {
       reload();
     }
-  }, [
-    effectiveParams.range,
-    effectiveParams.start_date,
-    effectiveParams.end_date,
-    effectiveParams.organization_id,
-    effectiveParams.tenant_id,
-    reload,
-  ]);
+  }, [effectiveParams.range, effectiveParams.start_date, effectiveParams.end_date, effectiveParams.organization_id, effectiveParams.tenant_id, reload]);
 
   return {
     ...state,
