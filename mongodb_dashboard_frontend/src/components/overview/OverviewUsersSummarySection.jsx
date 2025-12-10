@@ -118,7 +118,7 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
         loading={loading}
         error={error}
         title=""
-        height={260}
+        height={280}
       />
     </section>
   );

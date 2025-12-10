@@ -75,3 +75,8 @@
   border: 1px solid #e5e7eb;
   border-radius: 6px;
 }
+
+/* Ensure chart container gets an explicit height */
+.overview-users-summary .users-summary-chart__body {
+  min-height: 220px;
+}

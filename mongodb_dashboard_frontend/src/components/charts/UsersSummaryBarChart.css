@@ -24,6 +24,7 @@
 .users-summary-chart__body {
   margin-top: 8px;
   flex: 1;
+  min-height: 200px; /* Ensure ResponsiveContainer has a height */
 }
 
 .users-summary-chart__loading,
@@ -33,6 +34,7 @@
   padding: 16px 4px;
 }
 
+/* Legacy non-Recharts fallback bars (kept for reference but not used now) */
 .users-summary-chart__bars {
   display: grid;
   grid-auto-flow: column;
