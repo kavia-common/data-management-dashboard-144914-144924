@@ -31,8 +31,33 @@ export default function UsersSummaryStackedBar({ rows, orgs, loading, error, hei
   };
 
   // Normalize inputs: always arrays
-  const series = useMemo(() => (Array.isArray(orgs) ? orgs.filter(Boolean) : []), [orgs]);
-  const data = useMemo(() => (Array.isArray(rows) ? rows : []), [rows]);
+  const safeRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows]);
+  const safeOrgs = useMemo(() => (Array.isArray(orgs) ? orgs.filter(Boolean) : []), [orgs]);
+
+  // Derive seriesKeys from union of keys in rows if orgs not provided
+  const seriesKeys = useMemo(() => {
+    if (safeOrgs.length > 0) return safeOrgs;
+    // collect keys present in rows besides 'label'
+    const s = new Set();
+    for (const r of safeRows) {
+      if (r && typeof r === 'object') {
+        Object.keys(r).forEach((k) => {
+          if (k !== 'label') s.add(k);
+        });
+      }
+    }
+    return Array.from(s);
+  }, [safeOrgs, safeRows]);
+
+  // Final chart data (guarded)
+  const chartData = useMemo(() => safeRows.map((r, i) => ({
+    label: String(r?.label ?? `Bucket ${i + 1}`),
+    ...seriesKeys.reduce((acc, key) => {
+      const v = Number(r?.[key]);
+      acc[key] = Number.isFinite(v) ? v : 0;
+      return acc;
+    }, {}),
+  })), [safeRows, seriesKeys]);
 
   const isProd = (process.env.REACT_APP_NODE_ENV || process.env.NODE_ENV) === 'production';
   if (!isProd) {
@@ -40,10 +65,13 @@ export default function UsersSummaryStackedBar({ rows, orgs, loading, error, hei
     console.debug('[UsersSummaryStackedBar] debug', {
       loading: !!loading,
       hasError: !!error,
-      buckets: (data || []).length,
-      series: (series || []).length,
-      orgKeys: series,
-      sample: (data || []).slice(0, 2),
+      rowsProvided: Array.isArray(rows),
+      orgsProvided: Array.isArray(orgs),
+      rowsLen: safeRows.length,
+      orgsLen: safeOrgs.length,
+      seriesKeysLen: seriesKeys.length,
+      seriesKeys,
+      sampleRow: safeRows[0] || null,
     });
   }
 
@@ -62,8 +90,9 @@ export default function UsersSummaryStackedBar({ rows, orgs, loading, error, hei
   }
 
   // If no data or no series, render an empty-state container to avoid recharts mapping on undefined
-  const hasData = (data || []).length > 0 && (series || []).length > 0;
-  if (!hasData) {
+  const hasSeries = Array.isArray(seriesKeys) && seriesKeys.length > 0;
+  const hasRows = Array.isArray(chartData) && chartData.length > 0;
+  if (!hasSeries || !hasRows) {
     return (
       <div className="users-summary-chart" style={{ minHeight: height, height }}>
         <div className="users-summary-chart__body" />
@@ -76,7 +105,7 @@ export default function UsersSummaryStackedBar({ rows, orgs, loading, error, hei
     <div className="users-summary-chart" style={{ minHeight: height, height }}>
       <div className="users-summary-chart__body" style={{ width: '100%', height: '100%' }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} margin={{ top: 12, right: 16, left: 12, bottom: 18 }}>
+          <BarChart data={chartData} margin={{ top: 12, right: 16, left: 12, bottom: 18 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
             <XAxis
               dataKey="label"
@@ -105,7 +134,7 @@ export default function UsersSummaryStackedBar({ rows, orgs, loading, error, hei
               labelFormatter={(label) => `${label}`}
             />
             <Legend />
-            {(series || []).map((org, idx) => (
+            {seriesKeys.map((org, idx) => (
               <Bar
                 key={org}
                 dataKey={org}

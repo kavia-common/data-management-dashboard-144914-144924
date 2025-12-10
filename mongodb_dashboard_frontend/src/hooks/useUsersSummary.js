@@ -63,6 +63,8 @@ export default function useUsersSummary(params = {}) {
     error: null,
   });
 
+  const isProd = (process.env.REACT_APP_NODE_ENV || process.env.NODE_ENV) === 'production';
+
   useEffect(() => {
     let cancelled = false;
     setState((s) => ({ ...s, loading: true, error: null }));
@@ -110,12 +112,17 @@ export default function useUsersSummary(params = {}) {
         // }>
         const rawOrgBuckets = Array.isArray(root.orgBuckets) ? root.orgBuckets : [];
         const normalizedOrgBuckets = rawOrgBuckets.map((entry) => {
-          const orgId = String(entry?.organization_id ?? entry?.tenant_id ?? entry?.orgId ?? 'unknown');
+          const orgIdStr = entry?.organization_id ?? entry?.tenant_id ?? entry?.orgId ?? 'unknown';
+          const orgId = String(orgIdStr);
           const counts = Array.isArray(entry?.buckets) ? entry.buckets : [];
-          const safeBuckets = counts.map((d, i) => ({
-            label: String(d?.label ?? d?.key ?? buckets[i]?.label ?? `Bucket ${i + 1}`),
-            count: Number.isFinite(Number(d?.count)) ? Number(d.count) : 0,
-          }));
+          const safeBuckets = counts.map((d, i) => {
+            const lbl = d?.label ?? d?.key ?? buckets[i]?.label ?? `Bucket ${i + 1}`;
+            const c = Number(d?.count);
+            return {
+              label: String(lbl),
+              count: Number.isFinite(c) ? c : 0,
+            };
+          });
           const total = safeBuckets.reduce((acc, b) => acc + (Number.isFinite(b.count) ? b.count : 0), 0);
           return {
             organization_id: orgId,
@@ -123,6 +130,8 @@ export default function useUsersSummary(params = {}) {
             total,
           };
         });
+        // Final guard to ensure it's always an array
+        const finalOrgBuckets = Array.isArray(normalizedOrgBuckets) ? normalizedOrgBuckets : [];
 
         // Determine T0000 (all orgs) path using effective params
         const isAllOrgs =
@@ -138,6 +147,17 @@ export default function useUsersSummary(params = {}) {
             orgKeys: normalizedOrgBuckets.map(o => o.organization_id).slice(0, 6),
           });
 
+          // extra instrumentation
+          if (!isProd) {
+            // eslint-disable-next-line no-console
+            console.debug('[useUsersSummary] final state preview', {
+              bucketsLen: buckets.length,
+              isAllOrgs,
+              orgBucketsLen: (finalOrgBuckets || []).length,
+              orgBucketsSample: (finalOrgBuckets || []).slice(0, 2),
+            });
+          }
+
           setState({
             loading: false,
             data: {
@@ -145,7 +165,7 @@ export default function useUsersSummary(params = {}) {
               range: root.range ?? effectiveParams.range,
               start_date: root.start_date ?? effectiveParams.start_date,
               end_date: root.end_date ?? effectiveParams.end_date,
-              orgBuckets: normalizedOrgBuckets,
+              orgBuckets: finalOrgBuckets,
               isAllOrgs,
             },
             error: null,

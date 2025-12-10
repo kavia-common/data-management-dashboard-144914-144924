@@ -63,16 +63,21 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
 
     // Build unified x-axis labels from top-level buckets to preserve date bars
     const labels = (Array.isArray(data?.buckets) ? data.buckets : []).map(b => String(b.label));
-    // Determine the per-organization keys (use up to top 6 for readability)
-    const orgs = (orgBuckets || []).map(o => String(o?.organization_id || 'unknown')).slice(0, 6);
+
+    // Determine org ids present across orgBuckets and limit for readability
+    const orgsSet = new Set((orgBuckets || []).map(o => String(o?.organization_id || 'unknown')));
+    const orgs = Array.from(orgsSet).slice(0, 6);
 
     // Compose dataset for Recharts stacked bars: [{ label, [org1]: n, [org2]: n, ... }]
-    const rows = (labels || []).map((lbl) => {
+    const rows = (labels || []).map((lbl, idx) => {
       const row = { label: lbl };
       for (const org of (orgs || [])) {
         const ob = (orgBuckets || []).find((x) => String(x?.organization_id || 'unknown') === org);
-        const day = (ob?.buckets || []).find((d) => String(d?.label) === lbl);
-        row[org] = Number.isFinite(Number(day?.count)) ? Number(day.count) : 0;
+        const bucketsArr = Array.isArray(ob?.buckets) ? ob.buckets : [];
+        // match by label; fallback to index if needed
+        const day = bucketsArr.find((d) => String(d?.label) === lbl) ?? bucketsArr[idx];
+        const val = Number(day?.count);
+        row[org] = Number.isFinite(val) ? val : 0;
       }
       return row;
     });
