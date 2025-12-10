@@ -16,12 +16,18 @@ export async function fetchUsersSummary({ organization_id, tenant_id, range = 'd
     if (end_date) params.end_date = end_date;
   }
 
-  const path = `/api/users/summary?${qs.stringify(params)}`;
+  const query = qs.stringify(params);
+  const path = `/api/users/summary?${query}`;
 
+  // Temporary debug logging to verify full URL (should be relative for proxy) and params
   // eslint-disable-next-line no-console
-  console.log('[usersSummary.client] GET', path);
+  console.info('[usersSummary.client] GET', { path, params });
 
   // Use centralized apiGet to ensure Authorization and organization_id propagation when missing
   const data = await apiGet(path, { headers: { 'content-type': 'application/json' } });
+
+  // eslint-disable-next-line no-console
+  console.info('[usersSummary.client] OK', { buckets: data?.buckets?.length ?? 0, range: data?.range });
+
   return data; // { buckets: [{key,label,count}], range, start_date, end_date }
 }
