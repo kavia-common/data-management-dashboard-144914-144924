@@ -47,10 +47,9 @@ export default function OverviewUsersSummary({ defaultRange = 'daily' }) {
   // Normalize to chart data shape { key, label, count } and log a small sample for verification
   const chartData = useMemo(() => {
     const buckets = Array.isArray(data?.buckets) ? data.buckets : [];
-    const flat = buckets.map((b, i) => ({
-      key: String(b?.key ?? b?.label ?? `bucket-${i}`),
-      label: String(b?.label ?? b?.key ?? `Bucket ${i + 1}`),
-      count: Number.isFinite(Number(b?.count)) ? Number(b?.count) : 0,
+    const flat = buckets.map(({ label, count }, i) => ({
+      label: String(label ?? `Bucket ${i + 1}`),
+      count: Number.isFinite(Number(count)) ? Number(count) : 0,
     }));
     // eslint-disable-next-line no-console
     console.debug('[OverviewUsersSummary] chartData', { length: flat.length, sample: flat.slice(0, 3) });

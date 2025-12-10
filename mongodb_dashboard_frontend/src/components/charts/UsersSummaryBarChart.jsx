@@ -33,23 +33,14 @@ export default function UsersSummaryBarChart({
       label: String(d?.label ?? d?.key ?? `Bucket ${i + 1}`),
       count: Number.isFinite(Number(d?.count)) ? Number(d.count) : 0,
     }));
-    // Temporary hardcoded fallback for visual confirmation when no data provided
-    if (mapped.length === 0) {
-      return [
-        { label: '2025-11-01', count: 0 },
-        { label: '2025-11-02', count: 0 },
-        { label: '2025-11-03', count: 4 },
-        { label: '2025-11-04', count: 0 },
-        { label: '2025-11-05', count: 4 },
-      ];
-    }
+    // Never hide chart when data is empty; render axes with no bars.
     return mapped;
   }, [data]);
 
   // Log a small sample of the chart data for verification
   useEffect(() => {
     // eslint-disable-next-line no-console
-    console.debug('Chart data sample', normalized.slice(0, 3));
+    console.debug('[UsersSummaryBarChart] data sample', normalized.slice(0, 3));
   }, [normalized]);
 
   const theme = getChartTheme ? getChartTheme() : {
