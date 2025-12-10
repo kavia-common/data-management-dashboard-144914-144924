@@ -143,7 +143,7 @@ export default function UsersSummaryStackedBar({ rows, orgs, loading, error, hei
         <XAxis type="number" allowDecimals={false} domain={[0, 'dataMax']} />
         <Tooltip />
         <Legend />
-        <Bar dataKey="total" name="Total" fill={PALETTE[0]} isAnimationActive={false} />
+        <Bar dataKey="total" name="Total" fill="#FF6600" isAnimationActive={false} />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -156,13 +156,13 @@ export default function UsersSummaryStackedBar({ rows, orgs, loading, error, hei
         <XAxis type="number" allowDecimals={false} domain={[0, 'dataMax']} />
         <Tooltip />
         <Legend />
-        {seriesKeys.map((key, idx) => (
+        {seriesKeys.map((key) => (
           <Bar
             key={key}
             dataKey={key}
             stackId="users"
             name={key}
-            fill={PALETTE[idx % PALETTE.length]}
+            fill="#FF6600"
             isAnimationActive={false}
           />
         ))}
