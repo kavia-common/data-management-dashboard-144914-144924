@@ -8,7 +8,7 @@ import { format } from 'date-fns';
  * useUsersSummary
  * Fetches users created summary buckets from /api/users/summary.
  * Params:
- *  - range: 'daily' | 'weekly' | 'monthly' | 'custom' (default 'daily')
+ *  - range: 'daily' | 'weekly' | 'monthly' | 'custom' (default 'daily'). For weekly/monthly the API returns daily buckets within the selected window.
  *  - start_date: 'YYYY-MM-DD' (required when range='custom')
  *  - end_date: 'YYYY-MM-DD' (required when range='custom')
  *  - organization_id / tenant_id: will be inferred from auth/query via useCurrentOrgId when not provided

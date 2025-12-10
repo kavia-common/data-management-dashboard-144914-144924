@@ -24,5 +24,5 @@ export async function fetchUsersSummary({ organization_id, tenant_id, range = 'd
     headers: { 'content-type': 'application/json' },
     organization_id: organization_id, // optional hint; apiGet also reads from auth context
   });
-  return data; // { buckets: [{key,label,count}], range, start_date, end_date }
+  return data; // { buckets: [{ label, start, end, count }], range, start_date, end_date }
 }
