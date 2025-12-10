@@ -4,13 +4,13 @@ import UsersSummaryBarChart from '../charts/UsersSummaryBarChart';
 import './overview.css';
 import './overviewUsersSummary.css';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
+import useUsersSummary from '../../hooks/useUsersSummary';
 import { format, parseISO } from 'date-fns';
 
 /**
  * PUBLIC_INTERFACE
- * OverviewUsersSummarySection (placeholder)
- * Previously used useUsersSummary to call /api/users/summary.
- * Now renders static/empty data to keep the UI stable without network calls.
+ * OverviewUsersSummarySection
+ * Renders users created summary with time range filters and consumes /api/users/summary.
  */
 export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) {
   const orgId = useCurrentOrgId();
@@ -18,12 +18,6 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const [startDate, setStartDate] = useState(todayStr);
   const [endDate, setEndDate] = useState(todayStr);
-
-  // Prepare placeholder data shape consistent with UsersSummaryBarChart
-  const chartData = useMemo(() => {
-    // Could add fake buckets for demo; keep empty to avoid implying real data.
-    return [];
-  }, [range, startDate, endDate, orgId]);
 
   // Keep custom dates in sensible order
   useEffect(() => {
@@ -38,8 +32,30 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
     }
   }, [range, startDate, endDate]);
 
+  // Build params for hook
+  const hookParams = useMemo(() => {
+    const p = { range, organization_id: orgId || undefined };
+    if (range === 'custom') {
+      p.start_date = startDate;
+      p.end_date = endDate;
+    }
+    return p;
+  }, [range, startDate, endDate, orgId]);
+
+  const { loading, data, error } = useUsersSummary(hookParams);
+
+  // Map API buckets -> chart data
+  const chartData = useMemo(() => {
+    const buckets = Array.isArray(data?.buckets) ? data.buckets : [];
+    return buckets.map((b) => ({
+      key: String(b.key ?? b.label ?? ''),
+      label: String(b.label ?? b.key ?? ''),
+      count: Number(b.count ?? 0),
+    }));
+  }, [data]);
+
   return (
-    <section className="overview-users-summary" aria-label="Users created summary (placeholder)">
+    <section className="overview-users-summary" aria-label="Users created summary">
       <div className="overview-users-summary__header">
         <h2 className="overview-users-summary__title">Users Created</h2>
         <div className="overview-users-summary__controls">
@@ -99,8 +115,8 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
       </div>
       <UsersSummaryBarChart
         data={chartData}
-        loading={false}
-        error={null}
+        loading={loading}
+        error={error}
         title=""
         height={260}
       />

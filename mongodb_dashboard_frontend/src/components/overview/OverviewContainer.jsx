@@ -1,18 +1,20 @@
 import React from 'react';
 import OverviewTimeControls from './OverviewTimeControls';
 import OverviewKpiCards from './OverviewKpiCards';
+import OverviewUsersSummarySection from './OverviewUsersSummarySection';
 import './overview.css';
 
 /**
  * PUBLIC_INTERFACE
- * OverviewContainer (simplified)
- * Provides time controls and KPI cards only. Trend charts removed.
+ * OverviewContainer
+ * Provides KPI cards and the Users Created summary section with filters.
  */
 export default function OverviewContainer() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <OverviewTimeControls />
       <OverviewKpiCards />
+      <OverviewUsersSummarySection />
     </div>
   );
 }
