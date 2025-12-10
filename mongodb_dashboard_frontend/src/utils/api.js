@@ -3,8 +3,9 @@ import { buildAuthHeaders, getOrganizationId } from '../api/authTokenProvider';
 /**
  * PUBLIC_INTERFACE
  * apiGet (JS wrapper)
- * Centralized GET helper that automatically injects Authorization, resolves the correct baseURL with /api,
- * appends organization_id when available (without duplicating), and logs the final resolved URL.
+ * Centralized GET helper that automatically injects Authorization, resolves the correct baseURL with /api
+ * (works for absolute URLs, '/api/*' paths, or relative paths), appends organization_id when available
+ * (without duplicating), and logs the final resolved URL.
  */
 function isAbsoluteUrl(url) {
   return /^https?:\/\//i.test(url);

@@ -6,6 +6,7 @@ import { apiGet } from '../utils/api';
  * fetchUsersSummary
  * Fetches /api/users/summary with range and optional custom date window.
  * Params: { organization_id?, tenant_id?, range='daily'|'weekly'|'monthly'|'custom', start_date?, end_date? }
+ * Returns: { buckets: [{ label, key?, start?, end?, count }], range, start_date, end_date }
  */
 export async function fetchUsersSummary({ organization_id, tenant_id, range = 'daily', start_date, end_date } = {}) {
   const params = { range };

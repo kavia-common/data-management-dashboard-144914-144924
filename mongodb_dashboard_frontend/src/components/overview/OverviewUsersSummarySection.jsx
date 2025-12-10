@@ -47,10 +47,10 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
   // Map API buckets -> chart data
   const chartData = useMemo(() => {
     const buckets = Array.isArray(data?.buckets) ? data.buckets : [];
-    return buckets.map((b) => ({
-      key: String(b.key ?? b.label ?? ''),
-      label: String(b.label ?? b.key ?? ''),
-      count: Number(b.count ?? 0),
+    return buckets.map((b, i) => ({
+      key: String(b.key ?? b.label ?? `bucket-${i}`),
+      label: String(b.label ?? b.key ?? `Bucket ${i + 1}`),
+      count: Number.isFinite(Number(b.count)) ? Number(b.count) : 0,
     }));
   }, [data]);
 
