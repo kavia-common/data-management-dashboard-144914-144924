@@ -3,44 +3,27 @@ import PropTypes from 'prop-types';
 import UsersSummaryBarChart from '../charts/UsersSummaryBarChart';
 import './overview.css';
 import './overviewUsersSummary.css';
-import useUsersSummary from '../../hooks/useUsersSummary';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import { format, parseISO } from 'date-fns';
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * OverviewUsersSummarySection (placeholder)
+ * Previously used useUsersSummary to call /api/users/summary.
+ * Now renders static/empty data to keep the UI stable without network calls.
+ */
 export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) {
-  /**
-   * Section component that renders filter controls (daily/weekly/monthly/custom)
-   * with date pickers for custom, and a bar chart wired to useUsersSummary hook.
-   */
   const orgId = useCurrentOrgId();
   const [range, setRange] = useState(defaultRange);
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const [startDate, setStartDate] = useState(todayStr);
   const [endDate, setEndDate] = useState(todayStr);
 
-  // Normalize params for the hook based on selected range
-  const params = useMemo(() => {
-    const base = {
-      range,
-      organization_id: orgId || undefined,
-    };
-    if (range === 'custom') {
-      base.start_date = startDate;
-      base.end_date = endDate;
-    }
-    return base;
-  }, [range, startDate, endDate, orgId]);
-
-  // Fetch data
-  const { data, loading, error } = useUsersSummary(params);
-
-  // Map to chart data
+  // Prepare placeholder data shape consistent with UsersSummaryBarChart
   const chartData = useMemo(() => {
-    const buckets = data?.buckets || [];
-    // ensure stable ordering by key if backend doesn't guarantee
-    return [...buckets].sort((a, b) => (a.key > b.key ? 1 : -1));
-  }, [data]);
+    // Could add fake buckets for demo; keep empty to avoid implying real data.
+    return [];
+  }, [range, startDate, endDate, orgId]);
 
   // Keep custom dates in sensible order
   useEffect(() => {
@@ -56,7 +39,7 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
   }, [range, startDate, endDate]);
 
   return (
-    <section className="overview-users-summary">
+    <section className="overview-users-summary" aria-label="Users created summary (placeholder)">
       <div className="overview-users-summary__header">
         <h2 className="overview-users-summary__title">Users Created</h2>
         <div className="overview-users-summary__controls">
@@ -116,8 +99,8 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
       </div>
       <UsersSummaryBarChart
         data={chartData}
-        loading={loading}
-        error={error}
+        loading={false}
+        error={null}
         title=""
         height={260}
       />

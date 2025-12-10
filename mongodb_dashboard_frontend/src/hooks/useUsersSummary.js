@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { fetchUsersSummary } from '../api/usersSummary';
 import useCurrentOrgId from './useCurrentOrgId';
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * useUsersSummary (placeholder)
+ * This hook previously fetched /api/users/summary.
+ * It now returns a stable placeholder shape without performing any network requests.
+ */
 export default function useUsersSummary(params = {}) {
-  /**
-   * React hook to load users summary buckets from API.
-   * It automatically fills organization_id from auth context if not provided.
-   */
   const orgId = useCurrentOrgId();
-  const [state, setState] = useState({ loading: true, data: null, error: null });
 
+  // Normalize params, but no longer used for fetching
   const effectiveParams = useMemo(() => {
     const p = { range: 'daily', ...params };
     if (!p.organization_id && !p.tenant_id && orgId) {
@@ -19,21 +19,16 @@ export default function useUsersSummary(params = {}) {
     return p;
   }, [params, orgId]);
 
+  const [state, setState] = useState({
+    loading: false,
+    data: { buckets: [] },
+    error: null,
+  });
+
+  // Keep the same effect dependency to avoid behavioral changes, but do nothing
   useEffect(() => {
-    let cancelled = false;
-    async function run() {
-      setState(s => ({ ...s, loading: true, error: null }));
-      try {
-        const data = await fetchUsersSummary(effectiveParams);
-        if (!cancelled) setState({ loading: false, data, error: null });
-      } catch (err) {
-        if (!cancelled) setState({ loading: false, data: null, error: err });
-      }
-    }
-    run();
-    return () => {
-      cancelled = true;
-    };
+    // no-op: API disabled; ensure stable, empty data
+    setState({ loading: false, data: { buckets: [] }, error: null });
   }, [effectiveParams]);
 
   return state;
