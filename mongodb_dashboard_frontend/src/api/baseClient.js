@@ -199,6 +199,10 @@ async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
     ensureScopedQueryParams(pathOrUrl, params)
   );
   const url = buildUrlWithParams(pathOrUrl, effParams);
+  if (process.env.NODE_ENV !== 'production') {
+    // eslint-disable-next-line no-console
+    console.debug('[api/baseClient] GET', url);
+  }
   const res = await fetch(url, {
     method: "GET",
     headers: buildAuthHeaders({
@@ -228,6 +232,10 @@ async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {
     ensureScopedQueryParams(pathOrUrl, params)
   );
   const url = buildUrlWithParams(pathOrUrl, effParams);
+  if (process.env.NODE_ENV !== 'production') {
+    // eslint-disable-next-line no-console
+    console.debug(`[api/baseClient] ${method}`, url);
+  }
   const res = await fetch(url, {
     method,
     headers: buildAuthHeaders({

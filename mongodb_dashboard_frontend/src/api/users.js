@@ -13,16 +13,14 @@ export async function getUserBasic(userId) {
   const api = getApiClient();
   if (!userId) throw new Error("userId is required");
   try {
-    const res = await api.get(`/users/${encodeURIComponent(userId)}`);
-    // Backend returns { id, name }
+    // Always include /api prefix and let the client handle base + auth + tenant propagation
+    const res = await api.get(`/api/users/${encodeURIComponent(userId)}`);
     return res.data;
   } catch (err) {
-    const status = err?.response?.status;
+    const status = err?.response?.status || err?.status;
     if (status === 404) {
-      // Not found: return a graceful minimal payload
       return { id: String(userId), name: null };
     }
-    // Invalid ID or other failures should be handled by the caller for displaying 'Unknown user'
     throw err;
   }
 }
