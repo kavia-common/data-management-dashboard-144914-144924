@@ -30,9 +30,12 @@ export default function UsersSummaryStackedBar({ rows, orgs, loading, error, hei
     palette: ['#2563EB', '#F59E0B', '#10B981', '#EC4899', '#8B5CF6', '#F43F5E', '#0EA5E9'],
   };
 
-  // Normalize inputs: always arrays
-  const safeRows = useMemo(() => (Array.isArray(rows) ? rows : []), [rows]);
-  const safeOrgs = useMemo(() => (Array.isArray(orgs) ? orgs.filter(Boolean) : []), [orgs]);
+  // Normalize inputs: always arrays, filter out junk values
+  const safeRows = useMemo(() => (Array.isArray(rows) ? rows.filter(Boolean) : []), [rows]);
+  const safeOrgs = useMemo(
+    () => (Array.isArray(orgs) ? orgs.filter((o) => typeof o === 'string' && o.trim().length > 0) : []),
+    [orgs]
+  );
 
   // Derive seriesKeys from union of keys in rows if orgs not provided
   const seriesKeys = useMemo(() => {
@@ -50,14 +53,18 @@ export default function UsersSummaryStackedBar({ rows, orgs, loading, error, hei
   }, [safeOrgs, safeRows]);
 
   // Final chart data (guarded)
-  const chartData = useMemo(() => safeRows.map((r, i) => ({
-    label: String(r?.label ?? `Bucket ${i + 1}`),
-    ...seriesKeys.reduce((acc, key) => {
-      const v = Number(r?.[key]);
-      acc[key] = Number.isFinite(v) ? v : 0;
-      return acc;
-    }, {}),
-  })), [safeRows, seriesKeys]);
+  const chartData = useMemo(() => {
+    if (!Array.isArray(safeRows) || safeRows.length === 0) return [];
+    return safeRows.map((r, i) => {
+      const base = { label: String(r?.label ?? `Bucket ${i + 1}`) };
+      if (!Array.isArray(seriesKeys) || seriesKeys.length === 0) return base;
+      for (const key of seriesKeys) {
+        const v = Number(r?.[key]);
+        base[key] = Number.isFinite(v) ? v : 0;
+      }
+      return base;
+    });
+  }, [safeRows, seriesKeys]);
 
   const isProd = (process.env.REACT_APP_NODE_ENV || process.env.NODE_ENV) === 'production';
   if (!isProd) {
@@ -134,16 +141,18 @@ export default function UsersSummaryStackedBar({ rows, orgs, loading, error, hei
               labelFormatter={(label) => `${label}`}
             />
             <Legend />
-            {seriesKeys.map((org, idx) => (
-              <Bar
-                key={org}
-                dataKey={org}
-                stackId="users"
-                name={org}
-                fill={theme.palette[idx % theme.palette.length]}
-                radius={[4, 4, 0, 0]}
-              />
-            ))}
+            {Array.isArray(seriesKeys) && seriesKeys.length > 0
+              ? seriesKeys.map((org, idx) => (
+                  <Bar
+                    key={org}
+                    dataKey={org}
+                    stackId="users"
+                    name={org}
+                    fill={theme.palette[idx % theme.palette.length]}
+                    radius={[4, 4, 0, 0]}
+                  />
+                ))
+              : null}
           </BarChart>
         </ResponsiveContainer>
       </div>

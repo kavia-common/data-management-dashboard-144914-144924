@@ -59,18 +59,33 @@ export default function OverviewUsersSummary({ defaultRange = 'daily' }) {
   const stackedConfig = useMemo(() => {
     const isAll = !!data?.isAllOrgs;
     const orgBuckets = Array.isArray(data?.orgBuckets) ? data.orgBuckets : [];
-    if (!isAll || orgBuckets.length === 0) return null;
-    const labels = (Array.isArray(data?.buckets) ? data.buckets : []).map(b => String(b.label));
-    const orgs = (orgBuckets || []).map(o => String(o?.organization_id || 'unknown')).slice(0, 6);
-    const rows = (labels || []).map((lbl) => {
+    const baseBuckets = Array.isArray(data?.buckets) ? data.buckets : [];
+    if (!isAll || orgBuckets.length === 0 || baseBuckets.length === 0) return null;
+
+    const labels = baseBuckets.map((b, i) => String(b?.label ?? b?.key ?? `Bucket ${i + 1}`));
+
+    // Build orgs safely and limit fanout
+    const orgs = orgBuckets
+      .map((o) => String(o?.organization_id ?? 'unknown'))
+      .filter(Boolean)
+      .slice(0, 6);
+
+    // Build rows defensively
+    const rows = labels.map((lbl, idx) => {
       const row = { label: lbl };
-      for (const org of (orgs || [])) {
-        const ob = (orgBuckets || []).find((x) => String(x?.organization_id || 'unknown') === org);
-        const day = (ob?.buckets || []).find((d) => String(d?.label) === lbl);
-        row[org] = Number.isFinite(Number(day?.count)) ? Number(day.count) : 0;
+      for (const org of orgs) {
+        const ob = orgBuckets.find(
+          (x) => String(x?.organization_id ?? 'unknown') === org
+        );
+        const day = Array.isArray(ob?.buckets)
+          ? ob.buckets.find((d) => String(d?.label ?? d?.key ?? '') === lbl)
+          : undefined;
+        const val = Number(day?.count);
+        row[org] = Number.isFinite(val) ? val : 0;
       }
       return row;
     });
+
     return { labels, orgs, rows };
   }, [data]);
 

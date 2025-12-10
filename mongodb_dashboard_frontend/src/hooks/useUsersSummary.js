@@ -111,25 +111,30 @@ export default function useUsersSummary(params = {}) {
         //   total: number
         // }>
         const rawOrgBuckets = Array.isArray(root.orgBuckets) ? root.orgBuckets : [];
-        const normalizedOrgBuckets = rawOrgBuckets.map((entry) => {
-          const orgIdStr = entry?.organization_id ?? entry?.tenant_id ?? entry?.orgId ?? 'unknown';
-          const orgId = String(orgIdStr);
-          const counts = Array.isArray(entry?.buckets) ? entry.buckets : [];
-          const safeBuckets = counts.map((d, i) => {
-            const lbl = d?.label ?? d?.key ?? buckets[i]?.label ?? `Bucket ${i + 1}`;
-            const c = Number(d?.count);
+        const normalizedOrgBuckets = rawOrgBuckets
+          .filter(Boolean)
+          .map((entry) => {
+            const orgIdStr = entry?.organization_id ?? entry?.tenant_id ?? entry?.orgId ?? 'unknown';
+            const orgId = String(orgIdStr);
+            const counts = Array.isArray(entry?.buckets) ? entry.buckets : [];
+            const safeBuckets = counts.map((d, i) => {
+              const lbl = d?.label ?? d?.key ?? buckets[i]?.label ?? `Bucket ${i + 1}`;
+              const c = Number(d?.count);
+              return {
+                label: String(lbl),
+                count: Number.isFinite(c) ? c : 0,
+              };
+            });
+            const total = safeBuckets.reduce(
+              (acc, b) => acc + (Number.isFinite(b.count) ? b.count : 0),
+              0
+            );
             return {
-              label: String(lbl),
-              count: Number.isFinite(c) ? c : 0,
+              organization_id: orgId,
+              buckets: safeBuckets,
+              total,
             };
           });
-          const total = safeBuckets.reduce((acc, b) => acc + (Number.isFinite(b.count) ? b.count : 0), 0);
-          return {
-            organization_id: orgId,
-            buckets: safeBuckets,
-            total,
-          };
-        });
         // Final guard to ensure it's always an array
         const finalOrgBuckets = Array.isArray(normalizedOrgBuckets) ? normalizedOrgBuckets : [];
 
