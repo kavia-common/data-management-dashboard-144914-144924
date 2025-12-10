@@ -194,11 +194,19 @@ async function parseResponse(res) {
  * Axios-like "get" returning { data }.
  */
 async function httpGet(pathOrUrl, { params, headers, signal } = {}) {
-  const effParams = sanitizeEndpointParams(
-    pathOrUrl,
-    ensureScopedQueryParams(pathOrUrl, params)
-  );
+  // Build scoped params first (ensures organization_id/tenant_id present when needed)
+  const scoped = ensureScopedQueryParams(pathOrUrl, params);
+  // Sanitize endpoint-specific rules (prevents stripping the tenant params)
+  const effParams = sanitizeEndpointParams(pathOrUrl, scoped);
   const url = buildUrlWithParams(pathOrUrl, effParams);
+
+  if (process.env.NODE_ENV !== "production") {
+    try {
+      // eslint-disable-next-line no-console
+      console.debug("[httpGet] ->", url);
+    } catch {}
+  }
+
   const res = await fetch(url, {
     method: "GET",
     headers: buildAuthHeaders({
@@ -253,11 +261,28 @@ async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {
 }
 
 function normalizeListPayload(payload) {
-  const items = Array.isArray(payload) ? payload : payload?.data || [];
+  // Handle shapes:
+  // - envelope: { success, data: [...], meta: { total, page, limit } }
+  // - raw array: [...]
+  // - fallback: { items: [...] }
+  let items;
+  if (Array.isArray(payload)) {
+    items = payload;
+  } else if (payload && Array.isArray(payload.data)) {
+    items = payload.data;
+  } else if (payload && Array.isArray(payload.items)) {
+    items = payload.items;
+  } else {
+    items = [];
+  }
+
   const total =
     (payload && payload.meta && typeof payload.meta.total === "number" && payload.meta.total) ||
     (Array.isArray(items) ? items.length : 0);
-  return { items, total, meta: payload?.meta || null };
+
+  const meta = payload && payload.meta ? payload.meta : null;
+
+  return { items, total, meta };
 }
 
 // PUBLIC_INTERFACE

@@ -277,17 +277,25 @@ export default function Costs() {
     setLoading(true);
     setError("");
     try {
-      const params = { page, limit };
+      const params = {};
+      params.page = Number.isFinite(page) ? page : 1;
+      params.limit = Number.isFinite(limit) ? limit : (meta.limit || 10);
       if (sortKey) {
         params.sort = sortDir === "desc" ? `-${sortKey}` : String(sortKey);
       }
+
+      if (process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.debug("[Costs.load] requesting /api/llm-costs with", params);
+      }
+
       const res = await listLlmCosts(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
       setMeta({
-        page: res?.meta?.page || page,
-        limit: res?.meta?.limit || limit,
+        page: res?.meta?.page || params.page,
+        limit: res?.meta?.limit || params.limit,
         total: res?.meta?.total ?? arr.length,
       });
     } catch (e) {
