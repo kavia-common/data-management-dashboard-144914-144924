@@ -20,15 +20,35 @@ import { getChartTheme } from '../charts/chartTheme';
  * orgs: ['orgA','orgB',...]
  */
 export default function UsersSummaryStackedBar({ rows, orgs, loading, error, height = 280 }) {
+  // Safe static palette fallback to remove dependency on undefined theme.palette
+  const PALETTE = [
+    '#2563EB', // blue-600
+    '#F59E0B', // amber-500
+    '#10B981', // emerald-500
+    '#8B5CF6', // violet-500
+    '#EF4444', // red-500
+    '#14B8A6', // teal-500
+    '#F97316', // orange-500
+    '#3B82F6', // blue-500
+  ];
+
   // Defensive fallback theme to avoid runtime errors if chartTheme isn't wired
-  const theme = getChartTheme ? getChartTheme() : {
-    primary: '#2563EB',
-    grid: '#e5e7eb',
-    label: '#374151',
-    axisTick: '#9ca3af',
-    tooltip: { bg: '#111827', border: '#374151', text: '#F9FAFB' },
-    palette: ['#2563EB', '#F59E0B', '#10B981', '#EC4899', '#8B5CF6', '#F43F5E', '#0EA5E9'],
-  };
+  const theme = getChartTheme
+    ? getChartTheme()
+    : {
+        primary: '#2563EB',
+        grid: '#e5e7eb',
+        label: '#374151',
+        axisTick: '#9ca3af',
+        tooltip: { bg: '#111827', border: '#374151', text: '#F9FAFB' },
+        palette: PALETTE,
+      };
+
+  // Use provided theme.palette if it exists and is a non-empty array; otherwise use PALETTE
+  const colors =
+    theme && theme.palette && Array.isArray(theme.palette) && theme.palette.length > 0
+      ? theme.palette
+      : PALETTE;
 
   // Normalize inputs: always arrays, filter out junk values
   const safeRows = useMemo(() => (Array.isArray(rows) ? rows.filter(Boolean) : []), [rows]);
@@ -74,11 +94,12 @@ export default function UsersSummaryStackedBar({ rows, orgs, loading, error, hei
       hasError: !!error,
       rowsProvided: Array.isArray(rows),
       orgsProvided: Array.isArray(orgs),
-      rowsLen: safeRows.length,
-      orgsLen: safeOrgs.length,
-      seriesKeysLen: seriesKeys.length,
+      rowsLen: Array.isArray(safeRows) ? safeRows.length : 0,
+      orgsLen: Array.isArray(safeOrgs) ? safeOrgs.length : 0,
+      seriesKeysLen: Array.isArray(seriesKeys) ? seriesKeys.length : 0,
+      colorsLen: Array.isArray(colors) ? colors.length : 0,
       seriesKeys,
-      sampleRow: safeRows[0] || null,
+      sampleRow: Array.isArray(safeRows) && safeRows.length > 0 ? safeRows[0] : null,
     });
   }
 
@@ -142,16 +163,20 @@ export default function UsersSummaryStackedBar({ rows, orgs, loading, error, hei
             />
             <Legend />
             {Array.isArray(seriesKeys) && seriesKeys.length > 0
-              ? seriesKeys.map((org, idx) => (
-                  <Bar
-                    key={org}
-                    dataKey={org}
-                    stackId="users"
-                    name={org}
-                    fill={theme.palette[idx % theme.palette.length]}
-                    radius={[4, 4, 0, 0]}
-                  />
-                ))
+              ? seriesKeys.map((org, idx) => {
+                  const palette = Array.isArray(colors) && colors.length > 0 ? colors : PALETTE;
+                  const color = palette[idx % palette.length];
+                  return (
+                    <Bar
+                      key={org}
+                      dataKey={org}
+                      stackId="users"
+                      name={org}
+                      fill={color}
+                      radius={[4, 4, 0, 0]}
+                    />
+                  );
+                })
               : null}
           </BarChart>
         </ResponsiveContainer>
