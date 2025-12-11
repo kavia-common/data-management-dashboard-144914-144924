@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getProjectName } from '../api/projectName';
+import { fetchProjectNameDirect } from '../api/projectName';
 
 // Simple in-memory caches at module scope
 // Cache structure: Map<normalizedProjectId, { value: string|null, expiresAt: number }>
@@ -59,7 +59,7 @@ async function fetchProjectNameDedupe(key) {
   }
   const p = (async () => {
     try {
-      const { projectName } = await getProjectName(key);
+      const projectName = await fetchProjectNameDirect(key);
       // Cache even null responses to avoid refetching for TTL duration
       setCachedName(key, projectName ?? null);
       return projectName ?? null;

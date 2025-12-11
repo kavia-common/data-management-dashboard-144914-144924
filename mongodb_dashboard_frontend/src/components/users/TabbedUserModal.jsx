@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import PropTypes from 'prop-types';
 
 // Prefer existing UI primitives if available
@@ -10,6 +10,9 @@ import DataTable from '../DataTable.jsx';
 import { listSessions, listLlmCosts } from '../../api/baseClient';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
+import { getUserProjects } from '../../api/users';
+import useCurrentOrgId from '../../hooks/useCurrentOrgId';
+import useProjectName from '../../hooks/useProjectName';
 
 /**
  * Internal presentational view for user details
@@ -198,7 +201,7 @@ export default function TabbedUserModal({
   const tabs = useMemo(
     () => [
       { key: 'details', label: 'User Details' },
-      // Removed Projects tab as part of feature removal
+      { key: 'projects', label: 'Project Details' }, // Inserted after User Details
       { key: 'sessions', label: 'Session Details' },
       { key: 'credits', label: 'Credits Consumed' },
       { key: 'analytics', label: 'Analytics' },
@@ -242,6 +245,170 @@ export default function TabbedUserModal({
     activeKey: PropTypes.string,
     onChange: PropTypes.func.isRequired,
   };
+
+  // Project Details Tab
+  function ProjectDetailsTab({ userId }) {
+    const [rows, setRows] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const orgId = useCurrentOrgId();
+
+    // local memo cache for resolved names during a single modal open to avoid duplicate calls
+    const nameMemoRef = useRef(new Map());
+
+    const ensureNameResolved = (projectId, currentName) => {
+      const pid = projectId ? String(projectId) : '';
+      const memo = nameMemoRef.current;
+      const cached = memo.get(pid);
+      // If currentName present, store and return
+      if (currentName && !cached) {
+        memo.set(pid, currentName);
+        return { projectName: currentName, strategy: 'api-list' };
+      }
+      // Prefer memoized value, may be null to indicate not found
+      if (cached !== undefined) {
+        return { projectName: cached, strategy: 'memo' };
+      }
+      // Not resolved here; the row renderer will use the hook to fetch and update memo
+      return { projectName: null, strategy: 'hook' };
+    };
+
+    async function load() {
+      if (!userId) return;
+      if (!orgId) {
+        setRows([]);
+        setError('Missing organization context');
+        return;
+      }
+      setLoading(true);
+      setError('');
+      try {
+        const data = await getUserProjects(userId, { organization_id: orgId });
+        const projects = Array.isArray(data?.projects) ? data.projects : [];
+        // Normalize fields
+        const normalized = projects.map((p) => {
+          const project_id = p?.project_id ?? p?.projectId ?? p?.id ?? p?._id ?? '';
+          const project_name = p?.project_name ?? p?.projectName ?? null;
+          const last_activity = p?.last_activity ?? p?.lastActivity ?? null;
+
+          const { projectName } = ensureNameResolved(project_id, project_name);
+          return {
+            project_id: project_id ? String(project_id) : '',
+            project_name: projectName ?? null,
+            last_activity: last_activity || null,
+          };
+        });
+        setRows(normalized);
+      } catch (e) {
+        setRows([]);
+        setError(e?.message || 'Failed to load projects.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    useEffect(() => {
+      // reset memo cache on mount of the tab
+      nameMemoRef.current = new Map();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId, orgId]);
+
+    useEffect(() => {
+      load();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId, orgId]);
+
+    const Header = () => (
+      <div
+        className="card"
+        style={{
+          marginBottom: 12,
+          padding: 12,
+          background: 'var(--bg-surface, #fff)',
+          border: '1px solid var(--border-subtle,#e5e7eb)',
+          borderRadius: 10,
+        }}
+      >
+        <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)', fontWeight: 700, letterSpacing: '.02em' }}>
+          Projects for user
+        </div>
+        <div style={{ fontSize: 14, color: 'var(--text-secondary,#374151)' }}>
+          {userId || '—'}
+        </div>
+      </div>
+    );
+
+    const Table = () => {
+      if (loading) {
+        return (
+          <div role="status" aria-live="polite" style={{ minHeight: 140, display: 'grid', placeItems: 'center' }}>
+            Loading projects...
+          </div>
+        );
+      }
+      if (error) {
+        return (
+          <div>
+            <div role="alert" className="error">{error}</div>
+            <button type="button" onClick={load} className="btn btn-ghost">Retry</button>
+          </div>
+        );
+      }
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return <div className="table-empty">No project associations found for this user.</div>;
+      }
+
+      // Render a simple responsive table using existing DataTable when possible.
+      // We construct rows with derived displayName using useProjectName hook per row.
+      const dataForTable = rows.map((r) => {
+        const pid = r.project_id;
+        // Resolve via hook if needed; prefer memo
+        let memoName = nameMemoRef.current.get(pid);
+        const HookNameCell = () => {
+          const { projectName } = useProjectName(pid);
+          const finalName = memoName ?? projectName ?? null;
+          // Cache once we have a value (including null) to avoid re-fetching
+          if (memoName === undefined) {
+            nameMemoRef.current.set(pid, finalName);
+          }
+          return <span title={finalName || pid}>{finalName || pid}</span>;
+        };
+
+        return {
+          project_id: pid,
+          project_name_cell: <HookNameCell />,
+          last_activity: r.last_activity || '—',
+        };
+      });
+
+      const columns = [
+        { key: 'project_id', label: 'Project ID', priority: 1 },
+        { key: 'project_name_cell', label: 'Project Name', priority: 1 },
+        { key: 'last_activity', label: 'Last Activity', priority: 2 },
+      ];
+
+      return (
+        <DataTable
+          data={dataForTable}
+          columns={columns}
+          loading={false}
+          pageSize={10}
+          initialPage={1}
+          paginationTitle="Projects pages"
+          maxBodyHeight={360}
+          forceHorizontalScroll
+        />
+      );
+    };
+
+    return (
+      <div data-testid="project-details-tab">
+        <Header />
+        <Table />
+      </div>
+    );
+  }
+  ProjectDetailsTab.propTypes = { userId: PropTypes.string };
 
   // Session Details Tab
   function SessionDetailsTab({ userId }) {
@@ -702,7 +869,7 @@ export default function TabbedUserModal({
       <div role="region" style={{ flex: 1, overflow: "auto", background: "var(--bg-canvas, #f9fafb)" }}>
         <div style={{ padding: 20 }}>
           {activeTab === 'details' && <UserDetailsView user={user} />}
-          {/* Projects tab removed */}
+          {activeTab === 'projects' && <ProjectDetailsTab userId={userId} />}
           {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
           {activeTab === 'credits' && <CreditsConsumedTab userId={userId} />}
           {activeTab === 'analytics' && (
