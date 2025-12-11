@@ -23,7 +23,7 @@ export function buildQueryString(params = {}) {
 export function getApiBaseUrl() {
   const env = process.env.REACT_APP_API_BASE_URL;
   if (env && typeof env === "string" && env.trim()) {
-    return env.replace(/\/+$/, "");
+    return env.replace(/\/*$/, "");
   }
   try {
     const url = new URL(window.location.href);
@@ -32,4 +32,16 @@ export function getApiBaseUrl() {
     // Fallback for non-browser contexts
     return "http://localhost:3001/api";
   }
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getTenantHeaders
+ * Build headers including x-organization-id when an organization/tenant id is provided.
+ * Accepts orgIdOrTenantId; returns {} when not provided.
+ */
+export function getTenantHeaders(orgIdOrTenantId) {
+  const org = orgIdOrTenantId;
+  if (!org) return {};
+  return { 'x-organization-id': String(org) };
 }

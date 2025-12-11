@@ -6,3 +6,4 @@ export { default as OverviewKpiCards } from './OverviewKpiCards.jsx';
 export { default as OverviewKpiCountCards } from './OverviewKpiCountCards.jsx';
 export { default as OverviewTimeControls } from './OverviewTimeControls.jsx';
 export { default as SummaryPanel } from './SummaryPanel.jsx';
+export { default as ProjectsCreatedBarChart } from './ProjectsCreatedBarChart.jsx';
