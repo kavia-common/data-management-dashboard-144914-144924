@@ -3,8 +3,8 @@ import { apiGet } from '../utils/api';
 /**
 // PUBLIC_INTERFACE
  * getOverviewProjects
- * Fetches aggregated "Total Projects" over time with filters and returns
- * a normalized array sorted by a stable bucket key.
+ * Fetches aggregated "Total Projects" per day with filters and returns normalized buckets
+ * sorted by a stable bucket_start (YYYY-MM-DD).
  *
  * Input params:
  *  - timeframe|range: 'daily' | 'weekly' | 'monthly' | 'custom'
@@ -13,11 +13,15 @@ import { apiGet } from '../utils/api';
  *
  * Return:
  *  {
- *    items: Array<{
- *      bucket_start: string, // ISO or YYYY-MM-DD
+ *    buckets: Array<{
+ *      date: string,         // YYYY-MM-DD
+ *      bucket_start: string, // YYYY-MM-DD
  *      count: number,
- *      ...other
- *    }>
+ *      by_user?: Array<{ user_name: string, count: number }>,
+ *      by_project?: Array<{ project_name: string|null, count: number }>
+ *    }>,
+ *    total?: number,
+ *    meta?: object
  *  }
  */
 export async function getOverviewProjects(params = {}) {
@@ -32,37 +36,44 @@ export async function getOverviewProjects(params = {}) {
   if (params.tenant_id) q.set('tenant_id', params.tenant_id);
 
   const path = `/overview/projects?${q.toString()}`;
-  // apiGet ensures '/api' base prefix and headers as configured.
   const result = await apiGet(path);
 
-  // Accept both shapes: { items: [...] } or a raw array.
-  const rawItems = Array.isArray(result?.items)
-    ? result.items
-    : (Array.isArray(result) ? result : []);
+  // Preferred shape: { buckets: [...] }
+  let rawBuckets = Array.isArray(result?.buckets)
+    ? result.buckets
+    : (Array.isArray(result) ? result : (Array.isArray(result?.items) ? result.items : []));
 
-  const items = rawItems.map((it) => {
+  const buckets = rawBuckets.map((it) => {
     const bucket =
       it.bucket_start ??
-      it.bucket ??
       it.date ??
+      it.bucket ??
       it.key ??
       it.created_at ??
       it.timestamp ??
       it.time;
 
+    const count = typeof it.count === 'number' ? it.count : (typeof it.total === 'number' ? it.total : 0);
+
     return {
       ...it,
+      date: typeof it.date === 'string' ? it.date : (typeof bucket === 'string' ? bucket : it.date),
       bucket_start: bucket,
-      count: typeof it.count === 'number' ? it.count : (typeof it.total === 'number' ? it.total : 0),
+      count,
+      // keep by_user/by_project if present
     };
   });
 
-  items.sort((a, b) => {
-    const ta = new Date(a.bucket_start).getTime();
-    const tb = new Date(b.bucket_start).getTime();
+  buckets.sort((a, b) => {
+    const ta = new Date(`${a.bucket_start}T00:00:00.000Z`).getTime();
+    const tb = new Date(`${b.bucket_start}T00:00:00.000Z`).getTime();
     if (!Number.isNaN(ta) && !Number.isNaN(tb)) return ta - tb;
     return String(a.bucket_start).localeCompare(String(b.bucket_start));
   });
 
-  return { items };
+  return {
+    buckets,
+    total: typeof result?.total === 'number' ? result.total : buckets.reduce((acc, b) => acc + (b.count || 0), 0),
+    meta: result?.meta
+  };
 }
