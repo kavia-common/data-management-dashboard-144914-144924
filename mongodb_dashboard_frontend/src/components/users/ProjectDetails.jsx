@@ -110,7 +110,7 @@ export default function ProjectDetails({ selectedUser }) {
 
   if (loading) {
     return (
-      <div className="p-4 text-sm text-gray-600">
+      <div className="p-4 text-sm">
         Loading project details...
       </div>
     );
@@ -126,7 +126,7 @@ export default function ProjectDetails({ selectedUser }) {
 
   if (!projects || projects.length === 0) {
     return (
-      <div className="p-4 text-sm text-gray-600">
+      <div className="p-4 text-sm ">
         No project details available for this user.
       </div>
     );
@@ -138,22 +138,25 @@ export default function ProjectDetails({ selectedUser }) {
         {projects.map((p, idx) => (
           <li
             key={`${p.project_id || 'unknown'}-${idx}`}
-            className="rounded-md border border-gray-200 bg-white p-3 shadow-sm"
+            className="rounded-md border border-gray-700 bg-gray-900 p-3 shadow-sm"
           >
             <div className="text-sm">
-              <div className="font-medium text-gray-900">
+              <div className="font-medium text-white">
                 {p.project_name || 'Unnamed Project'}
               </div>
-              <div className="text-gray-600">
+
+              <div className="text-white">
                 Project ID: <span className="font-mono">{p.project_id || '—'}</span>
               </div>
+
               {p.last_activity && (
-                <div className="text-gray-500 text-xs mt-1">
+                <div className="text-xs mt-1 text-gray-300">
                   Last activity: {new Date(p.last_activity).toLocaleString()}
                 </div>
               )}
             </div>
           </li>
+
         ))}
       </ul>
     </div>
