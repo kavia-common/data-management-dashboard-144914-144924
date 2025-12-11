@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Card from '../../components/common/Card.jsx';
+import OverviewTotalProjectsSection from '../../components/overview/OverviewTotalProjectsSection.jsx';
 
 import { getOverviewTotals } from '../../api/overviewAnalytics';
 import { useAuth } from '../../context/AuthContext';
@@ -49,6 +50,11 @@ export default function OverviewWrapper() {
         <Card title="Totals">
           <pre>{JSON.stringify(totals, null, 2)}</pre>
         </Card>
+      </div>
+
+      {/* Total Projects section */}
+      <div style={{ marginTop: 24 }}>
+        <OverviewTotalProjectsSection />
       </div>
     </div>
   );
