@@ -75,7 +75,7 @@ export default function ProjectsCreatedBarChart() {
     }
   }, [range]);
 
-  const fetchData = async (opts = {}) => {
+  const fetchData = async () => {
     if (!organizationId) return;
     setLoading(true);
     setError(null);
@@ -84,14 +84,10 @@ export default function ProjectsCreatedBarChart() {
         organization_id: organizationId,
         range,
       };
+      // Only include start/end for custom range
       if (range === 'custom') {
         if (startDate) params.start_date = startDate;
         if (endDate) params.end_date = endDate;
-      }
-      // For non-custom, still send server-friendly defaults to avoid empty
-      if (range !== 'custom') {
-        params.start_date = defaults.start_date;
-        params.end_date = defaults.end_date;
       }
 
       const data = await getProjectsSummary(params);
