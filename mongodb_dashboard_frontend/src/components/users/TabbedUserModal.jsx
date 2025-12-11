@@ -11,7 +11,6 @@ import { listSessions, listLlmCosts } from '../../api/baseClient';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
 import { getUserProjects } from '../../api/userProjects';
-import { fetchProjectNameDirect } from '../../api/projectName';
 
 /**
  * Internal presentational view for user details
@@ -601,10 +600,6 @@ export default function TabbedUserModal({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    // Per-row projectName resolution state
-    const [nameById, setNameById] = useState({});
-    const [resolving, setResolving] = useState({}); // projectId => boolean
-
     useEffect(() => {
       let cancelled = false;
       async function load() {
@@ -612,32 +607,13 @@ export default function TabbedUserModal({
           setRows([]);
           setLoading(false);
           setError('');
-          setNameById({});
-          setResolving({});
           return;
         }
         setLoading(true);
         setError('');
         try {
           const data = await getUserProjects({ userId, tenantId, from, to });
-          const list = Array.isArray(data?.projects) ? data.projects : [];
-          if (!cancelled) {
-            setRows(list);
-            // Prime nameById with any provided project_name values
-            const initial = {};
-            list.forEach((p) => {
-              const pid = p?.project_id != null ? String(p.project_id) : null;
-              const nm = p?.project_name ?? p?.name ?? p?.title ?? p?.projectName ?? null;
-              if (pid) {
-                if (typeof nm === 'string' && nm.trim()) {
-                  initial[pid] = nm.trim();
-                } else {
-                  initial[pid] = null;
-                }
-              }
-            });
-            setNameById(initial);
-          }
+          if (!cancelled) setRows(Array.isArray(data?.projects) ? data.projects : []);
         } catch (e) {
           if (!cancelled) {
             setRows([]);
@@ -653,66 +629,6 @@ export default function TabbedUserModal({
       };
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [String(userId || ''), String(tenantId || ''), String(from || ''), String(to || '')]);
-
-    // After rows load, resolve missing names per-row using dedicated endpoint.
-    useEffect(() => {
-      let cancelled = false;
-      async function resolveMissing() {
-        const tasks = [];
-        const seen = new Set();
-
-        (rows || []).forEach((r) => {
-          const pid = r?.project_id != null ? String(r.project_id) : null;
-          if (!pid) return;
-          if (seen.has(pid)) return;
-          seen.add(pid);
-
-          const current = nameById[pid];
-          if (typeof current === 'string' && current.trim()) {
-            // already have a name
-            return;
-          }
-          if (resolving[pid]) {
-            // already in-flight
-            return;
-          }
-
-          tasks.push(
-            (async () => {
-              try {
-                setResolving((prev) => ({ ...prev, [pid]: true }));
-                const name = await fetchProjectNameDirect(pid);
-                if (cancelled) return;
-                setNameById((prev) => ({ ...prev, [pid]: name || null }));
-              } catch (err) {
-                if (!cancelled) {
-                  // keep null; don't set error per-row to avoid noisy UI
-                  setNameById((prev) => ({ ...prev, [pid]: null }));
-                }
-              } finally {
-                if (!cancelled) {
-                  setResolving((prev) => {
-                    const next = { ...prev };
-                    delete next[pid];
-                    return next;
-                  });
-                }
-              }
-            })()
-          );
-        });
-
-        // Run all in parallel; ignore errors (handled per task)
-        await Promise.allSettled(tasks);
-      }
-
-      if (Array.isArray(rows) && rows.length > 0) {
-        resolveMissing();
-      }
-      return () => {
-        cancelled = true;
-      };
-    }, [rows, nameById, resolving]);
 
     // Render styles consistent with Ocean Professional
     const cardStyle = {
@@ -805,6 +721,7 @@ export default function TabbedUserModal({
                 </thead>
                 <tbody>
                   {(() => {
+                    // Debug log once to verify mapping shape in UI
                     try {
                       if (Array.isArray(rows) && rows.length > 0) {
                         // eslint-disable-next-line no-console
@@ -813,19 +730,11 @@ export default function TabbedUserModal({
                     } catch {}
                     return rows.map((r, idx) => {
                       const id = r?.project_id ? String(r.project_id) : '—';
-                      const cachedName = id && Object.prototype.hasOwnProperty.call(nameById, id) ? nameById[id] : null;
-                      const isResolving = !!(id && resolving[id]);
-
-                      let displayName;
-                      if (isResolving && (!cachedName || !String(cachedName).trim())) {
-                        displayName = 'Loading…';
-                      } else if (typeof cachedName === 'string' && cachedName.trim()) {
-                        displayName = cachedName.trim();
-                      } else {
-                        // Not available yet after resolution
-                        displayName = 'Not available';
-                      }
-
+                      // Prefer the human-readable name; fallback gracefully
+                      const rawName =
+                        (r && (r.project_name ?? r.name ?? r.title ?? r.projectName)) || null;
+                      const name =
+                        rawName && String(rawName).trim().length > 0 ? String(rawName) : id || '—';
                       const subText = r?.last_activity ? new Date(r.last_activity).toLocaleString() : null;
                       return (
                         <tr key={`${id}-${idx}`} style={{ borderBottom: '1px solid var(--border-subtle,#E5E7EB)' }}>
@@ -837,8 +746,8 @@ export default function TabbedUserModal({
                               </div>
                             )}
                           </td>
-                          <td style={{ padding: '10px', color: 'var(--text-primary,#111827)' }} title={String(displayName)}>
-                            {displayName}
+                          <td style={{ padding: '10px', color: 'var(--text-primary,#111827)' }} title={name}>
+                            {name}
                           </td>
                         </tr>
                       );
