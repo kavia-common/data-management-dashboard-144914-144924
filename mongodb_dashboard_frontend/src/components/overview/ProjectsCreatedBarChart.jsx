@@ -19,9 +19,10 @@ import { getOverviewProjectsSummary } from '../../api/overviewAnalytics';
 /**
  * PUBLIC_INTERFACE
  * ProjectsCreatedBarChart
- * - Filter controls consistent with users summary: range select and custom date pickers with Apply.
- * - API behavior: always send range; send start_date and end_date ONLY when range === 'custom'.
- * - UX: loading skeleton, empty state, concise error message.
+ * Ensures single, debounced API call per filter change.
+ * - Always send range; include start/end only for custom.
+ * - Debounce user-triggered fetches by 150ms.
+ * - Guard initial mount to avoid StrictMode double fetch.
  */
 export default function ProjectsCreatedBarChart() {
   const organizationId = useCurrentOrgId();
@@ -35,11 +36,15 @@ export default function ProjectsCreatedBarChart() {
   const [error, setError] = useState(null);
   const [buckets, setBuckets] = useState([]);
 
-  const mountedRef = useRef(false);
   const theme = getChartTheme();
 
-  const load = useCallback(async () => {
+  // Stable debounced fetch using a ref-held timeout
+  const debounceRef = useRef(null);
+  const hasMountedRef = useRef(false);
+
+  const fetchSummary = useCallback(async () => {
     if (!organizationId) return;
+
     setStatus('loading');
     setError(null);
 
@@ -51,8 +56,6 @@ export default function ProjectsCreatedBarChart() {
 
     try {
       const req = buildOverviewFilterParams({ organizationId, params });
-      // Note: organization_id is injected into the query centrally by baseClient for /api/projects/summary,
-      // so the resulting network URL will visibly include ?organization_id=<id> as filters change.
       const res = await getOverviewProjectsSummary(req);
       const list = Array.isArray(res?.buckets) ? res.buckets : [];
       if (list.length === 0) {
@@ -68,23 +71,51 @@ export default function ProjectsCreatedBarChart() {
     }
   }, [organizationId, range, appliedStart, appliedEnd]);
 
+  // Centralized debounced effect controlling all fetches
   useEffect(() => {
-    if (!mountedRef.current) {
-      mountedRef.current = true;
-      load();
+    // On initial mount, fetch once
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      fetchSummary();
       return;
     }
+
+    // Reset custom when changing away from custom
     if (range !== 'custom') {
-      setAppliedStart('');
-      setAppliedEnd('');
-      load();
-    } else if (range === 'custom' && appliedStart && appliedEnd) {
-      load();
+      if (appliedStart || appliedEnd) {
+        // Avoid extra double fetch caused by state change; just clear and rely on current fetch firing
+        // via the range dependency change below
+        // Clear applied bounds synchronously
+        // Note: These setStates will trigger this effect again; debounce will coalesce into one fetch.
+        setAppliedStart('');
+        setAppliedEnd('');
+      }
+    } else {
+      // For custom, only fetch when both applied dates are set
+      if (!(appliedStart && appliedEnd)) {
+        // Nothing to fetch yet
+        return;
+      }
     }
-  }, [range, appliedStart, appliedEnd, load]);
+
+    // Debounce subsequent fetches to avoid double calls from fast state transitions
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+    debounceRef.current = setTimeout(() => {
+      fetchSummary();
+    }, 150);
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, [range, appliedStart, appliedEnd, fetchSummary]);
 
   const onApplyCustom = () => {
     if (pendingStart && pendingEnd) {
+      // Setting appliedStart/appliedEnd triggers a single debounced fetch via the effect
       setAppliedStart(pendingStart);
       setAppliedEnd(pendingEnd);
     }
