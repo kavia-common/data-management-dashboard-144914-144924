@@ -720,27 +720,9 @@ export default function TabbedUserModal({
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, idx) => {
-                    const id = r?.project_id ? String(r.project_id) : '—';
-                    // Prefer project_name; fallback to id if name missing (still useful to users)
-                    const name = r?.project_name && String(r.project_name).trim().length > 0 ? String(r.project_name) : id || '—';
-                    const subText = r?.last_activity ? new Date(r.last_activity).toLocaleString() : null;
-                    return (
-                      <tr key={`${id}-${idx}`} style={{ borderBottom: '1px solid var(--border-subtle,#E5E7EB)' }}>
-                        <td style={{ padding: '10px', fontWeight: 600, color: 'var(--text-primary,#111827)' }}>
-                          <div title={id}>{id}</div>
-                          {subText && (
-                            <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)' }}>
-                              Last activity: {subText}
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ padding: '10px', color: 'var(--text-primary,#111827)' }} title={name}>
-                          {name}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {rows.map((r, idx) => (
+                    <ProjectRow key={`${r?.project_id ?? 'unknown'}-${idx}`} row={r} />
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -756,6 +738,56 @@ export default function TabbedUserModal({
     tenantId: PropTypes.string,
     from: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
     to: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
+  };
+
+  // Child component for a single project row to allow using hooks safely
+  function ProjectRow({ row }) {
+    const id = row?.project_id ? String(row.project_id) : '—';
+    const hasName = row?.project_name && String(row.project_name).trim().length > 0;
+    const [resolvedName, setResolvedName] = React.useState(hasName ? String(row.project_name) : null);
+
+    React.useEffect(() => {
+      let ignore = false;
+      async function resolve() {
+        if (!id || hasName) return;
+        try {
+          // dynamic require to avoid circular import issues at module top
+          const { fetchProjectNameDirect } = require('../../api/projectName');
+          const nm = await fetchProjectNameDirect(id);
+          if (!ignore) setResolvedName(nm || null);
+        } catch {
+          if (!ignore) setResolvedName(null);
+        }
+      }
+      resolve();
+      return () => { ignore = true; };
+    }, [id, hasName]);
+
+    const displayName = hasName ? String(row.project_name) : (resolvedName || id || '—');
+    const subText = row?.last_activity ? new Date(row.last_activity).toLocaleString() : null;
+
+    return (
+      <tr style={{ borderBottom: '1px solid var(--border-subtle,#E5E7EB)' }}>
+        <td style={{ padding: '10px', fontWeight: 600, color: 'var(--text-primary,#111827)' }}>
+          <div title={id}>{id}</div>
+          {subText && (
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)' }}>
+              Last activity: {subText}
+            </div>
+          )}
+        </td>
+        <td style={{ padding: '10px', color: 'var(--text-primary,#111827)' }} title={displayName || undefined}>
+          {displayName || '—'}
+        </td>
+      </tr>
+    );
+  }
+  ProjectRow.propTypes = {
+    row: PropTypes.shape({
+      project_id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+      project_name: PropTypes.any,
+      last_activity: PropTypes.any,
+    }),
   };
 
   // Credits Consumed Tab

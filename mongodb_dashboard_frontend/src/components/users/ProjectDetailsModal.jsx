@@ -30,6 +30,19 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
         setError(null);
         return;
       }
+      // Prefer provided name from props if present
+      const providedName =
+        project?.project_name ||
+        project?.projectName ||
+        project?.metadata?.projectName ||
+        project?.project?.name ||
+        null;
+      if (providedName) {
+        setProjectName(String(providedName));
+        setLoading(false);
+        setError(null);
+        return;
+      }
       try {
         setLoading(true);
         setError(null);
@@ -53,7 +66,7 @@ export default function ProjectDetailsModal({ open, onClose, project }) {
     return () => {
       ignore = true;
     };
-  }, [open, projectId]);
+  }, [open, projectId, project]);
 
   const details = useMemo(() => {
     const rows = [];
