@@ -838,7 +838,8 @@ export default function TabbedUserModal({
                             )}
                           </td>
                           <td style={{ padding: '10px', color: 'var(--text-primary,#111827)' }} title={String(displayName)}>
-                            {displayName}
+                            {/* If name is still not resolved and looks like a numeric-only ID, keep showing 'Not available' */}
+                            {typeof displayName === 'string' && /^\d+$/.test(String(displayName)) ? 'Not available' : displayName}
                           </td>
                         </tr>
                       );

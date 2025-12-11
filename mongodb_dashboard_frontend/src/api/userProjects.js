@@ -52,12 +52,20 @@ export async function getUserProjects({ userId, tenantId, from, to }) {
       p?.title ??
       p?.projectName ??
       (deployment?.project_name ?? deployment?.name ?? deployment?.title ?? null);
-    const projectName =
+
+    let projectName =
       rawName == null
         ? null
         : typeof rawName === "string"
         ? rawName
         : String(rawName);
+
+    // Normalize: trim and filter out purely numeric strings which are likely IDs
+    if (typeof projectName === 'string') {
+      projectName = projectName.trim();
+      if (!projectName) projectName = null;
+      else if (/^\d+$/.test(projectName)) projectName = null;
+    }
 
     return {
       project_id: projectId,
