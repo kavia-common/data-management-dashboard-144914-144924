@@ -19,6 +19,7 @@ import { getApiClient } from "./index";
  * @param {string|Date} [params.from] - Optional ISO date-time lower bound
  * @param {string|Date} [params.to] - Optional ISO date-time upper bound
  */
+// PUBLIC_INTERFACE
 export async function getUserProjects({ userId, tenantId, from, to }) {
   if (!userId) throw new Error("getUserProjects: userId is required");
   if (!tenantId) throw new Error("getUserProjects: tenantId is required");
