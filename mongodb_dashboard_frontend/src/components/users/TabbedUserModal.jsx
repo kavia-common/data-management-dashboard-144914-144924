@@ -10,6 +10,7 @@ import DataTable from '../DataTable.jsx';
 import { listSessions, listLlmCosts } from '../../api/baseClient';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
+import { getUserProjects } from '../../api/userProjects';
 
 /**
  * Internal presentational view for user details
@@ -593,6 +594,169 @@ export default function TabbedUserModal({
   }
   SessionDetailsTab.propTypes = { userId: PropTypes.string };
 
+  // Project Details inline section (list of projects for selected user)
+  function UserProjectsSection({ userId, tenantId, from, to }) {
+    const [rows, setRows] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    useEffect(() => {
+      let cancelled = false;
+      async function load() {
+        if (!userId || !tenantId) {
+          setRows([]);
+          setLoading(false);
+          setError('');
+          return;
+        }
+        setLoading(true);
+        setError('');
+        try {
+          const data = await getUserProjects({ userId, tenantId, from, to });
+          if (!cancelled) setRows(Array.isArray(data?.projects) ? data.projects : []);
+        } catch (e) {
+          if (!cancelled) {
+            setRows([]);
+            setError(e?.message || 'Failed to load user projects.');
+          }
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      }
+      load();
+      return () => {
+        cancelled = true;
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [String(userId || ''), String(tenantId || ''), String(from || ''), String(to || '')]);
+
+    // Render styles consistent with Ocean Professional
+    const cardStyle = {
+      background: 'var(--bg-surface, #ffffff)',
+      border: '1px solid var(--border-subtle, #E6EAF0)',
+      borderRadius: 12,
+      boxShadow: 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))',
+      padding: 16,
+      marginTop: 12,
+    };
+
+    return (
+      <section aria-label="Project details" style={cardStyle}>
+        <header style={{ marginBottom: 8 }}>
+          <h4 style={{ margin: 0, fontSize: 16 }}>Project Details</h4>
+          <div style={{ color: 'var(--text-secondary,#475569)', fontSize: 12 }}>
+            Projects linked to this user (from session activity)
+          </div>
+        </header>
+
+        {loading && (
+          <div role="status" aria-live="polite" style={{ minHeight: 100, display: 'grid', placeItems: 'center' }}>
+            Loading projects…
+          </div>
+        )}
+
+        {!loading && error && (
+          <div>
+            <div role="alert" className="error">{error}</div>
+            <button type="button" className="btn btn-ghost" onClick={() => {
+              // re-trigger effect by nudging dependency (safe because based on userId string already)
+              setError('');
+              setLoading(true);
+              setTimeout(() => setLoading(false), 0);
+            }}>
+              Retry
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && (
+          Array.isArray(rows) && rows.length > 0 ? (
+            <div style={{ overflow: 'auto' }}>
+              <table
+                role="table"
+                style={{
+                  width: '100%',
+                  borderCollapse: 'separate',
+                  borderSpacing: 0,
+                  minWidth: 360,
+                }}
+              >
+                <thead>
+                  <tr>
+                    <th
+                      style={{
+                        textAlign: 'left',
+                        fontSize: 12,
+                        color: 'var(--text-tertiary,#64748B)',
+                        fontWeight: 700,
+                        letterSpacing: '.02em',
+                        padding: '8px 10px',
+                        borderBottom: '1px solid var(--border-subtle,#E5E7EB)',
+                        position: 'sticky',
+                        top: 0,
+                        background: 'var(--bg-surface,#fff)',
+                        zIndex: 1,
+                      }}
+                    >
+                      Project ID
+                    </th>
+                    <th
+                      style={{
+                        textAlign: 'left',
+                        fontSize: 12,
+                        color: 'var(--text-tertiary,#64748B)',
+                        fontWeight: 700,
+                        letterSpacing: '.02em',
+                        padding: '8px 10px',
+                        borderBottom: '1px solid var(--border-subtle,#E5E7EB)',
+                        position: 'sticky',
+                        top: 0,
+                        background: 'var(--bg-surface,#fff)',
+                        zIndex: 1,
+                      }}
+                    >
+                      Project Name
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, idx) => {
+                    const id = r?.project_id ? String(r.project_id) : '—';
+                    const name = r?.project_name || '—';
+                    const subText = r?.last_activity ? new Date(r.last_activity).toLocaleString() : null;
+                    return (
+                      <tr key={`${id}-${idx}`} style={{ borderBottom: '1px solid var(--border-subtle,#E5E7EB)' }}>
+                        <td style={{ padding: '10px', fontWeight: 600, color: 'var(--text-primary,#111827)' }}>
+                          <div title={id}>{id}</div>
+                          {subText && (
+                            <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)' }}>
+                              Last activity: {subText}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px', color: 'var(--text-primary,#111827)' }} title={name}>
+                          {name}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="table-empty">No project activity found for this user.</div>
+          )
+        )}
+      </section>
+    );
+  }
+  UserProjectsSection.propTypes = {
+    userId: PropTypes.string,
+    tenantId: PropTypes.string,
+    from: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
+    to: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
+  };
+
   // Credits Consumed Tab
   function CreditsConsumedTab({ userId }) {
     const [rows, setRows] = useState([]);
@@ -701,7 +865,12 @@ export default function TabbedUserModal({
 
       <div role="region" style={{ flex: 1, overflow: "auto", background: "var(--bg-canvas, #f9fafb)" }}>
         <div style={{ padding: 20 }}>
-          {activeTab === 'details' && <UserDetailsView user={user} />}
+          {activeTab === 'details' && (
+            <>
+              <UserDetailsView user={user} />
+              <UserProjectsSection userId={userId} tenantId={tenantId} from={from} to={to} />
+            </>
+          )}
           {/* Projects tab removed */}
           {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
           {activeTab === 'credits' && <CreditsConsumedTab userId={userId} />}
