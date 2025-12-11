@@ -129,7 +129,14 @@ export default function UsersAnalyticsPanel({
                 );
                 const payload = res.data?.data ?? res.data;
                 const list = Array.isArray(payload?.projects)
-                  ? payload.projects
+                  ? payload.projects.map((proj) => ({
+                      ...proj,
+                      // Ensure UI-friendly project_name with '-' fallback at data layer to simplify renderers
+                      project_name:
+                        proj && typeof proj.project_name === 'string' && proj.project_name.trim()
+                          ? proj.project_name.trim()
+                          : '-',
+                    }))
                   : [];
                 acc[String(u._id)] = list;
               } catch {
