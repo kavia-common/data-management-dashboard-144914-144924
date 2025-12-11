@@ -144,7 +144,9 @@ export default function ProjectDetails({ selectedUser }) {
 
               {/* Project Name */}
               <div className="font-medium text-white">
-                {p.project_name || 'Unnamed Project'}
+                <span className="font-semibold">Project Name:</span>
+                <span className="font-mono ml-1"> {p.project_name || '—'}</span>
+
               </div>
 
               {/* Project ID */}
