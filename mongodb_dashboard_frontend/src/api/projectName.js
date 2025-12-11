@@ -25,13 +25,6 @@ export async function fetchProjectNameDirect(projectId) {
       if (typeof data?.projectName === 'undefined') {
         console.debug('[ProjectName] Missing projectName in response (api client path)', { projectId, data });
       }
-      {
-        const nm = data?.projectName;
-        if (typeof nm === 'string') {
-          const trimmed = nm.trim();
-          return trimmed.length ? trimmed : null;
-        }
-      }
       return data?.projectName ?? null;
     }
     // Fallback to base URL + axios
@@ -41,13 +34,6 @@ export async function fetchProjectNameDirect(projectId) {
     const data = res?.data || {};
     if (typeof data?.projectName === 'undefined') {
       console.debug('[ProjectName] Missing projectName in response (fallback path)', { projectId, data });
-    }
-    {
-      const nm = data?.projectName;
-      if (typeof nm === 'string') {
-        const trimmed = nm.trim();
-        return trimmed.length ? trimmed : null;
-      }
     }
     return data?.projectName ?? null;
   } catch (e) {
