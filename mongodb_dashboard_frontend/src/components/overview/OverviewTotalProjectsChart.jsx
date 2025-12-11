@@ -16,23 +16,43 @@ import {
  * Renders line/area chart of total projects per bucket.
  */
 export default function OverviewTotalProjectsChart({ data = [], loading, error, height = 320 }) {
+  const containerStyle = {
+    width: '100%',
+    height,
+    background: '#ffffff',
+    borderRadius: 12,
+    boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
+    border: '1px solid #e5e7eb',
+    padding: 12,
+    display: 'flex',
+    alignItems: 'stretch',
+    justifyContent: 'stretch',
+  };
+
   if (error) {
-    return <div role="alert" style={{ color: '#EF4444' }}>Failed to load projects data.</div>;
+    return (
+      <div role="alert" style={{ ...containerStyle, alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ color: '#EF4444' }}>Failed to load projects data.</div>
+      </div>
+    );
   }
   if (loading) {
-    return <div aria-busy="true" style={{ opacity: 0.7 }}>Loading projects…</div>;
+    return (
+      <div aria-busy="true" style={{ ...containerStyle, alignItems: 'center', justifyContent: 'center', opacity: 0.8 }}>
+        Loading projects…
+      </div>
+    );
   }
   const safe = Array.isArray(data) ? data : [];
+  if (!safe.length) {
+    return (
+      <div style={{ ...containerStyle, alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>
+        No project activity for the selected range.
+      </div>
+    );
+  }
   return (
-    <div style={{
-      width: '100%',
-      height,
-      background: '#ffffff',
-      borderRadius: 12,
-      boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
-      border: '1px solid #e5e7eb',
-      padding: 12
-    }}>
+    <div style={containerStyle}>
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={safe} margin={{ top: 12, right: 20, left: 0, bottom: 0 }}>
           <defs>

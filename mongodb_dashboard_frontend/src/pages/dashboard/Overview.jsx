@@ -3,11 +3,13 @@ import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
 import { OverviewUsersSummarySection } from "../../components/overview";
+import OverviewTotalProjectsSection from "../../components/overview/OverviewTotalProjectsSection.jsx";
 
 /**
  * PUBLIC_INTERFACE
  * Overview page
  * - Shows KPI cards and the new Users Summary section with time-range filters.
+ * - Renders Total Projects section below Users Created.
  */
 export default function Overview() {
   const [loading, setLoading] = useState(true);
@@ -113,9 +115,14 @@ export default function Overview() {
         </div>
       )}
 
-      {/* New Users Summary section */}
+      {/* Users Created section */}
       <div className="block-full" style={{ alignSelf: "stretch" }}>
         <OverviewUsersSummarySection defaultRange="daily" />
+      </div>
+
+      {/* Total Projects section directly below Users Created */}
+      <div className="block-full" style={{ alignSelf: "stretch", marginTop: 16, minHeight: 420 }}>
+        <OverviewTotalProjectsSection />
       </div>
     </div>
   );

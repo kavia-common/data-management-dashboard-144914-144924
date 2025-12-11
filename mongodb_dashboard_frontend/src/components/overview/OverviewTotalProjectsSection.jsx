@@ -84,6 +84,11 @@ export default function OverviewTotalProjectsSection() {
           error={error}
           height={350}
         />
+        {(!loading && !error && (!dataBuckets || dataBuckets.length === 0)) && (
+          <div role="status" aria-live="polite" style={{ marginTop: 8, color: '#6b7280' }}>
+            No data to display for the selected range.
+          </div>
+        )}
       </div>
 
       <div style={{ marginTop: 12, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
