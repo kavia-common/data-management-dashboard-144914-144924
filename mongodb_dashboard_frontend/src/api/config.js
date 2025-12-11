@@ -1,28 +1,13 @@
-//
-// Centralized API base URL used by API clients
-// Keep this URL exactly as provided.
-//
-const apiBase = 
-//  `https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api`;
-'https://vscode-internal-31965-beta.beta01.cloud.kavia.ai:3001/api';
+const DEFAULT_BASE = '/api';
 
 /**
  * PUBLIC_INTERFACE
  * getApiBase
- * Returns the base URL for backend API requests.
- * This exists for modules that expect a function-based accessor.
+ * Return the API base path. Can be overridden by window.__API_BASE__ if defined.
  */
 export function getApiBase() {
-  return apiBase;
+  if (typeof window !== 'undefined' && window.__API_BASE__) {
+    return String(window.__API_BASE__);
+  }
+  return DEFAULT_BASE;
 }
-
-// Default export as an object to match existing import style in the codebase
-const config = {
-  apiBase,
-  getApiBase,
-};
-
-export default config;
-
-// Also provide a named export for modules that import { apiBase }
-export { apiBase };

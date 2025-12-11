@@ -36,7 +36,7 @@ export async function getProjectsSummary(params = {}) {
 
   // Important: pass an absolute /api path so axiosInstance baseURL '/.../api' + '/api/...'
   // is normalized correctly by axios without duplicating '/api/api' (axios strips base part on absolute path).
-  const url = `/api/projects/summary${query.toString() ? `?${query.toString()}` : ''}`;
+  const url = `/projects/summary${query.toString() ? `?${query.toString()}` : ''}`;
   const res = await client.get(url, { headers });
   return res.data;
 }

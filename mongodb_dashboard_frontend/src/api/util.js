@@ -16,9 +16,6 @@ export function buildQueryString(params = {}) {
  * PUBLIC_INTERFACE
  * getApiBaseUrl
  * Backward-compatible resolver returning the API base URL string.
- * Priority:
- * - REACT_APP_API_BASE_URL env var if present (injected at build time)
- * - window.location-based heuristic pointing to port 3001
  */
 export function getApiBaseUrl() {
   const env = process.env.REACT_APP_API_BASE_URL;
@@ -29,19 +26,17 @@ export function getApiBaseUrl() {
     const url = new URL(window.location.href);
     return `${url.protocol}//${url.hostname}:3001/api`;
   } catch {
-    // Fallback for non-browser contexts
     return "http://localhost:3001/api";
   }
 }
 
 /**
  * PUBLIC_INTERFACE
- * getTenantHeaders
- * Build headers including x-organization-id when an organization/tenant id is provided.
- * Accepts orgIdOrTenantId; returns {} when not provided.
+ * withTenantHeaders
+ * Adds x-organization-id header when provided.
  */
-export function getTenantHeaders(orgIdOrTenantId) {
-  const org = orgIdOrTenantId;
-  if (!org) return {};
-  return { 'x-organization-id': String(org) };
+export function withTenantHeaders(organizationId) {
+  const headers = {};
+  if (organizationId) headers['x-organization-id'] = String(organizationId);
+  return headers;
 }
