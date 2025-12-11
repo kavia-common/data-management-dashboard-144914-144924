@@ -1,26 +1,28 @@
-import { getApiClient } from "./index";
+import { getApiClient } from './baseClient';
 
 /**
  * PUBLIC_INTERFACE
  * getUserBasic
- * Fetch minimal user info by MongoDB ObjectId.
- * GET /api/users/:id -> { id, name }
- *
- * @param {string} userId - MongoDB ObjectId as string
- * @returns {Promise<{ id: string, name: string|null }>}
+ * Fetch a single user document by id from /api/users/{id}.
+ * Returns the raw user document payload as { ... }.
  */
-export async function getUserBasic(userId) {
+export async function getUserBasic(userId, params = {}) {
+  if (!userId) throw new Error('userId is required');
   const api = getApiClient();
-  if (!userId) throw new Error("userId is required");
-  try {
-    // Always include /api prefix and let the client handle base + auth + tenant propagation
-    const res = await api.get(`/api/users/${encodeURIComponent(userId)}`);
-    return res.data;
-  } catch (err) {
-    const status = err?.response?.status || err?.status;
-    if (status === 404) {
-      return { id: String(userId), name: null };
-    }
-    throw err;
-  }
+  const { data } = await api.get(`/api/users/${encodeURIComponent(userId)}`, { params });
+  return data;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getUserProjects
+ * Fetch distinct projects for a given user from session tracking aggregation.
+ * Accepts a params object that can carry tenant scoping and optional time range:
+ * { organization_id?: string, tenant_id?: string, from?: string, to?: string }
+ */
+export async function getUserProjects(userId, params = {}) {
+  if (!userId) throw new Error('userId is required');
+  const api = getApiClient();
+  const { data } = await api.get(`/api/users/${encodeURIComponent(userId)}/projects`, { params });
+  return data;
 }

@@ -10,6 +10,7 @@ import DataTable from '../DataTable.jsx';
 import { listSessions, listLlmCosts } from '../../api/baseClient';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
+import ProjectDetails from './ProjectDetails.jsx';
 
 /**
  * Internal presentational view for user details
@@ -198,7 +199,7 @@ export default function TabbedUserModal({
   const tabs = useMemo(
     () => [
       { key: 'details', label: 'User Details' },
-      // Removed Projects tab as part of feature removal
+      { key: 'projects', label: 'Project Details' },
       { key: 'sessions', label: 'Session Details' },
       { key: 'credits', label: 'Credits Consumed' },
       { key: 'analytics', label: 'Analytics' },
@@ -702,7 +703,7 @@ export default function TabbedUserModal({
       <div role="region" style={{ flex: 1, overflow: "auto", background: "var(--bg-canvas, #f9fafb)" }}>
         <div style={{ padding: 20 }}>
           {activeTab === 'details' && <UserDetailsView user={user} />}
-          {/* Projects tab removed */}
+          {activeTab === 'projects' && <ProjectDetails selectedUser={user || null} />}
           {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
           {activeTab === 'credits' && <CreditsConsumedTab userId={userId} />}
           {activeTab === 'analytics' && (

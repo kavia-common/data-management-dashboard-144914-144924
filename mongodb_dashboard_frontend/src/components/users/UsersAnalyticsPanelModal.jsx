@@ -216,7 +216,7 @@ export default function UsersAnalyticsPanelModal({ userId, tenantId, from, to })
 
   if (loading) {
     return (
-      <div role="status" aria-live="polite" style={{ minHeight: 220, display: 'grid', placeItems: 'center' }}>
+      <div role="status" aria-live="polite" style={{ minHeight: 220, display: 'grid', placeItems: 'center', color:'white' }}>
         Loading analytics…
       </div>
     );
