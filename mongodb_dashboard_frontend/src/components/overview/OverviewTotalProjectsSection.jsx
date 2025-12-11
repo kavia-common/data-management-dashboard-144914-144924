@@ -6,7 +6,7 @@ import OverviewTotalProjectsChart from './OverviewTotalProjectsChart';
 // PUBLIC_INTERFACE
  * OverviewTotalProjectsSection
  * Renders filters + total projects chart and summary.
- * Displays compact per-day list under the chart: "YYYY-MM-DD — total: X — by user: A(x), B(y)".
+ * Shows a details list below the chart with per-project counts. If timeframe is daily/custom and backend returns per-day breakdowns, details can be expanded later.
  */
 export default function OverviewTotalProjectsSection() {
   const [range, setRange] = useState('daily');
@@ -18,7 +18,6 @@ export default function OverviewTotalProjectsSection() {
   const [loading, setLoading] = useState(false);
   const [dataBuckets, setDataBuckets] = useState([]);
   const [error, setError] = useState(null);
-  const [total, setTotal] = useState(0);
 
   const apiParams = useMemo(() => {
     const p = { timeframe: range };
@@ -38,10 +37,7 @@ export default function OverviewTotalProjectsSection() {
         const resp = await getOverviewProjects(apiParams);
         if (!mounted) return;
         const buckets = Array.isArray(resp?.buckets) ? resp.buckets : [];
-        // Ensure ascending sort by date
-        buckets.sort((a, b) => String(a.bucket_start || a.date).localeCompare(String(b.bucket_start || b.date)));
         setDataBuckets(buckets);
-        setTotal(Number(resp?.total || 0));
       } catch (e) {
         if (!mounted) return;
         setError(e);
@@ -53,15 +49,18 @@ export default function OverviewTotalProjectsSection() {
     return () => { mounted = false; };
   }, [apiParams]);
 
-  const byDayList = useMemo(() => {
+  const totalProjects = useMemo(() => {
+    if (!Array.isArray(dataBuckets)) return 0;
+    return dataBuckets.reduce((sum, p) => sum + (p.count || 0), 0);
+  }, [dataBuckets]);
+
+  const detailsList = useMemo(() => {
     if (!Array.isArray(dataBuckets)) return [];
-    return dataBuckets.map((b) => {
-      const label = b.date || b.bucket_start;
-      const totalCount = b.count ?? b.total ?? 0;
-      const users = Array.isArray(b.by_user) ? b.by_user : [];
-      const topUsers = users.slice(0, 5).map((u) => `${u.user_name ?? 'unknown'}(${u.count})`).join(', ');
-      return { label, totalCount, topUsers };
-    });
+    return dataBuckets.map((p) => ({
+      project_id: p.project_id,
+      project_name: p.project_name || p.project_id || 'unknown',
+      count: p.count || 0,
+    }));
   }, [dataBuckets]);
 
   return (
@@ -96,6 +95,7 @@ export default function OverviewTotalProjectsSection() {
           loading={loading}
           error={error}
           height={350}
+          range={range}
         />
         {(!loading && !error && (!dataBuckets || dataBuckets.length === 0)) && (
           <div role="status" aria-live="polite" style={{ marginTop: 8, color: '#6b7280' }}>
@@ -112,8 +112,8 @@ export default function OverviewTotalProjectsSection() {
           padding: 12,
           minWidth: 220
         }}>
-          <div style={{ fontSize: 12, color: '#6b7280' }}>Total projects</div>
-          <div style={{ fontSize: 22, fontWeight: 600, color: '#111827' }}>{total}</div>
+          <div style={{ fontSize: 12, color: '#6b7280' }}>Total sessions across projects</div>
+          <div style={{ fontSize: 22, fontWeight: 600, color: '#111827' }}>{totalProjects}</div>
         </div>
 
         <div style={{
@@ -124,21 +124,20 @@ export default function OverviewTotalProjectsSection() {
           minWidth: 260,
           flex: '1 1 300px'
         }}>
-          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Per day details</div>
-          {byDayList && byDayList.length > 0 ? (
+          <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 6 }}>Per-project counts</div>
+          {detailsList && detailsList.length > 0 ? (
             <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 6 }}>
-              {byDayList.map((d) => (
-                <li key={d.label} style={{ fontSize: 14, color: '#374151' }}>
-                  <span style={{ fontWeight: 600 }}>{d.label}</span>
-                  <span> — total: {d.totalCount}</span>
-                  {d.topUsers && d.topUsers.length > 0 && (
-                    <span> — by user: {d.topUsers}</span>
-                  )}
+              {detailsList.map((d) => (
+                <li key={d.project_id} style={{ fontSize: 14, color: '#374151', display: 'flex', justifyContent: 'space-between' }}>
+                  <span title={d.project_id} style={{ maxWidth: '70%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {d.project_name}
+                  </span>
+                  <span style={{ color: '#111827', fontWeight: 600 }}>{d.count}</span>
                 </li>
               ))}
             </ul>
           ) : (
-            <div style={{ color: '#6b7280', fontSize: 13 }}>No per-day details</div>
+            <div style={{ color: '#6b7280', fontSize: 13 }}>No project details</div>
           )}
         </div>
       </div>

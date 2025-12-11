@@ -1,16 +1,15 @@
 import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
-import { format } from 'date-fns';
 
 /**
 // PUBLIC_INTERFACE
  * OverviewTotalProjectsChart
- * Renders total projects trend over time as a bar chart.
- * - X axis shows full date labels (YYYY-MM-DD for stability).
- * - Tooltip shows full date and count and lists top users for that day when available.
+ * Renders total projects per project as a bar chart.
+ * - X axis shows project_name (or project_id fallback).
+ * - Tooltip shows project_name, project_id and count.
  * Props:
- *  - data: array of per-day buckets: { date, bucket_start, count, by_user? }
+ *  - data: array of buckets: { project_id, project_name, count, days? }
  *  - range: string
  *  - height: number
  *  - loading: bool
@@ -28,42 +27,18 @@ export default function OverviewTotalProjectsChart({ data = [], range = 'daily',
     display: 'flex',
   };
 
-  function toFullDateLabel(raw) {
-    if (!raw) return '';
-    try {
-      if (typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-      const d = new Date(raw);
-      if (Number.isNaN(d.getTime())) return String(raw);
-      return format(d, 'yyyy-MM-dd');
-    } catch {
-      return String(raw);
-    }
-  }
-
   const chartData = useMemo(() => {
     if (!Array.isArray(data)) return [];
-
     const mapped = data.map((row) => {
-      const bucket = row.bucket_start ?? row.date;
-      const date = toFullDateLabel(bucket);
-      const count = typeof row.count === 'number' ? row.count : (typeof row.total === 'number' ? row.total : 0);
-      const users = Array.isArray(row.by_user) ? row.by_user : Array.isArray(row.users) ? row.users : [];
-
+      const label = row.project_name || row.project_id || 'unknown';
       return {
-        date,
-        count,
-        _iso: bucket,
-        _users: users,
+        label,
+        count: typeof row.count === 'number' ? row.count : (typeof row.total === 'number' ? row.total : 0),
+        project_id: row.project_id,
+        project_name: row.project_name || null,
       };
     });
-
-    mapped.sort((a, b) => {
-      const ta = new Date(`${a._iso}T00:00:00.000Z`).getTime();
-      const tb = new Date(`${b._iso}T00:00:00.000Z`).getTime();
-      if (!Number.isNaN(ta) && !Number.isNaN(tb)) return ta - tb;
-      return String(a.date).localeCompare(String(b.date));
-    });
-
+    // Already sorted by backend; preserve order.
     return mapped;
   }, [data]);
 
@@ -89,29 +64,14 @@ export default function OverviewTotalProjectsChart({ data = [], range = 'daily',
     );
   }
 
-  const axisTickFormatter = (value) => value;
-  const tooltipLabelFormatter = (label) => `Date: ${label}`;
-  const CustomTooltip = ({ active, payload, label }) => {
+  const CustomTooltip = ({ active, payload }) => {
     if (active && payload && payload.length) {
       const item = payload[0]?.payload;
-      const topUsers = (item?._users || []).slice(0, 5);
       return (
         <div style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 8, padding: 8 }}>
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>{tooltipLabelFormatter(label)}</div>
-          <div style={{ marginBottom: 6 }}>Projects: <strong>{item?.count ?? payload[0].value}</strong></div>
-          {topUsers.length > 0 && (
-            <div>
-              <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 2 }}>Top users</div>
-              <ul style={{ margin: 0, paddingLeft: 16 }}>
-                {topUsers.map((u) => (
-                  <li key={String(u.user_name ?? 'unknown')}>
-                    <span style={{ color: '#374151' }}>{u.user_name ?? 'unknown'}</span>
-                    <span style={{ color: '#2563EB' }}> ({u.count})</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>{item?.project_name || item?.label}</div>
+          <div style={{ marginBottom: 4, fontSize: 12, color: '#6b7280' }}>Project ID: {item?.project_id}</div>
+          <div>Sessions: <strong>{item?.count ?? payload[0].value}</strong></div>
         </div>
       );
     }
@@ -119,11 +79,11 @@ export default function OverviewTotalProjectsChart({ data = [], range = 'daily',
   };
 
   return (
-    <div className="overview-card" aria-label="Total Projects over time" style={{ width: '100%' }}>
+    <div className="overview-card" aria-label="Total Projects by project" style={{ width: '100%' }}>
       <h3 className="overview-card-title">Total Projects</h3>
       <div className="overview-chart-wrapper" role="img" aria-describedby="total-projects-desc" style={{ width: '100%' }}>
         <p id="total-projects-desc" className="sr-only">
-          Bar chart showing the number of projects created per day with full dates on the x-axis.
+          Bar chart showing the number of sessions per project, labeled by project name.
         </p>
         <ResponsiveContainer width="100%" height={height - 60}>
           <BarChart
@@ -133,12 +93,11 @@ export default function OverviewTotalProjectsChart({ data = [], range = 'daily',
           >
             <CartesianGrid stroke="#e5e7eb" strokeDasharray="3 3" />
             <XAxis
-              dataKey="date"
-              tickFormatter={axisTickFormatter}
+              dataKey="label"
               tick={{ fontSize: 12, fill: '#111827' }}
               interval="preserveStartEnd"
-              minTickGap={24}
-              height={32}
+              minTickGap={12}
+              height={38}
             />
             <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#111827' }} />
             <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(0,0,0,0.04)' }} wrapperStyle={{ zIndex: 1000 }} />
@@ -157,10 +116,10 @@ export default function OverviewTotalProjectsChart({ data = [], range = 'daily',
 OverviewTotalProjectsChart.propTypes = {
   data: PropTypes.arrayOf(
     PropTypes.shape({
-      bucket_start: PropTypes.string,
-      date: PropTypes.string,
+      project_id: PropTypes.string,
+      project_name: PropTypes.string,
       count: PropTypes.number,
-      by_user: PropTypes.array,
+      days: PropTypes.array,
     })
   ),
   range: PropTypes.string,
