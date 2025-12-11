@@ -10,6 +10,7 @@ import DataTable from '../DataTable.jsx';
 import { listSessions, listLlmCosts } from '../../api/baseClient';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
+import ProjectDetails from './ProjectDetails.jsx';
 
 /**
  * Internal presentational view for user details
@@ -198,7 +199,7 @@ export default function TabbedUserModal({
   const tabs = useMemo(
     () => [
       { key: 'details', label: 'User Details' },
-      // Removed Projects tab as part of feature removal
+      { key: 'projects', label: 'Project Details' },
       { key: 'sessions', label: 'Session Details' },
       { key: 'credits', label: 'Credits Consumed' },
       { key: 'analytics', label: 'Analytics' },
@@ -248,6 +249,7 @@ export default function TabbedUserModal({
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [serviceTypes, setServiceTypes] = useState([]);
 
     // Helpers: safe getters and formatting for aggregation panel
     const toStringSafe = (v) => (v === null || v === undefined ? '' : String(v));
@@ -297,6 +299,20 @@ export default function TabbedUserModal({
           return uid && String(uid) === normalizedUserId;
         });
         setItems(filtered);
+
+        // compute distinct service types across filtered sessions
+        const stSet = new Set();
+        for (const it of filtered) {
+          const st =
+            it?.service_type ??
+            it?.serviceType ??
+            it?.session_data?.service_type ??
+            it?.session?.service_type ??
+            it?.metadata?.service_type;
+          const val = (st == null ? '' : String(st)).trim();
+          if (val) stSet.add(val);
+        }
+        setServiceTypes(Array.from(stSet));
       } catch (e) {
         setItems([]);
         setError(e?.message || 'Failed to load sessions.');
@@ -533,10 +549,13 @@ export default function TabbedUserModal({
 
             <div>
               <span style={labelStyle}>Service type</span>
-              <div style={valueStyle} title={aggregate.serviceType || undefined}>
-                {aggregate.serviceType || '—'}
+              <div style={valueStyle} title={(serviceTypes && serviceTypes.length > 0) ? serviceTypes.join(', ') : (aggregate.serviceType || undefined)}>
+                {serviceTypes && serviceTypes.length > 0
+                  ? serviceTypes.join(', ')
+                  : (aggregate.serviceType || '—')}
               </div>
             </div>
+
 
             <div>
               <span style={labelStyle}>Organization</span>
@@ -702,7 +721,7 @@ export default function TabbedUserModal({
       <div role="region" style={{ flex: 1, overflow: "auto", background: "var(--bg-canvas, #f9fafb)" }}>
         <div style={{ padding: 20 }}>
           {activeTab === 'details' && <UserDetailsView user={user} />}
-          {/* Projects tab removed */}
+          {activeTab === 'projects' && <ProjectDetails selectedUser={user || null} />}
           {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
           {activeTab === 'credits' && <CreditsConsumedTab userId={userId} />}
           {activeTab === 'analytics' && (
