@@ -44,12 +44,14 @@ export async function getUserProjects({ userId, tenantId, from, to }) {
   // - Coerce to string when possible
   const normalizedProjects = projects.map((p) => {
     const projectId = p?.project_id != null ? String(p.project_id) : "";
+    // Accept nested deployment object and flatten if present
+    const deployment = p?.deployment || p?.app_deployment || null;
     const rawName =
       p?.project_name ??
       p?.name ??
       p?.title ??
       p?.projectName ??
-      null;
+      (deployment?.project_name ?? deployment?.name ?? deployment?.title ?? null);
     const projectName =
       rawName == null
         ? null
@@ -63,6 +65,15 @@ export async function getUserProjects({ userId, tenantId, from, to }) {
       last_activity: p?.last_activity ?? null,
     };
   });
+
+  // Small unit verification by logging a sample row mapping (first item)
+  if (normalizedProjects.length > 0) {
+    // eslint-disable-next-line no-console
+    console.log(
+      "[api/userProjects] sample mapped row",
+      JSON.stringify(normalizedProjects[0])
+    );
+  }
 
   return {
     user_id: data.user_id ?? String(userId),

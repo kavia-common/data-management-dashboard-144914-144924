@@ -720,27 +720,39 @@ export default function TabbedUserModal({
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, idx) => {
-                    const id = r?.project_id ? String(r.project_id) : '—';
-                    // Prefer project_name; fallback to id if name missing (still useful to users)
-                    const name = r?.project_name && String(r.project_name).trim().length > 0 ? String(r.project_name) : id || '—';
-                    const subText = r?.last_activity ? new Date(r.last_activity).toLocaleString() : null;
-                    return (
-                      <tr key={`${id}-${idx}`} style={{ borderBottom: '1px solid var(--border-subtle,#E5E7EB)' }}>
-                        <td style={{ padding: '10px', fontWeight: 600, color: 'var(--text-primary,#111827)' }}>
-                          <div title={id}>{id}</div>
-                          {subText && (
-                            <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)' }}>
-                              Last activity: {subText}
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ padding: '10px', color: 'var(--text-primary,#111827)' }} title={name}>
-                          {name}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                  {(() => {
+                    // Debug log once to verify mapping shape in UI
+                    try {
+                      if (Array.isArray(rows) && rows.length > 0) {
+                        // eslint-disable-next-line no-console
+                        console.log('[TabbedUserModal] UserProjectsSection first row', rows[0]);
+                      }
+                    } catch {}
+                    return rows.map((r, idx) => {
+                      const id = r?.project_id ? String(r.project_id) : '—';
+                      // Prefer the human-readable name; fallback gracefully
+                      const rawName =
+                        (r && (r.project_name ?? r.name ?? r.title ?? r.projectName)) || null;
+                      const name =
+                        rawName && String(rawName).trim().length > 0 ? String(rawName) : id || '—';
+                      const subText = r?.last_activity ? new Date(r.last_activity).toLocaleString() : null;
+                      return (
+                        <tr key={`${id}-${idx}`} style={{ borderBottom: '1px solid var(--border-subtle,#E5E7EB)' }}>
+                          <td style={{ padding: '10px', fontWeight: 600, color: 'var(--text-primary,#111827)' }}>
+                            <div title={id}>{id}</div>
+                            {subText && (
+                              <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)' }}>
+                                Last activity: {subText}
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '10px', color: 'var(--text-primary,#111827)' }} title={name}>
+                            {name}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
                 </tbody>
               </table>
             </div>
