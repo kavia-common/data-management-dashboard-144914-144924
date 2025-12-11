@@ -249,6 +249,7 @@ export default function TabbedUserModal({
     const [items, setItems] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [serviceTypes, setServiceTypes] = useState([]);
 
     // Helpers: safe getters and formatting for aggregation panel
     const toStringSafe = (v) => (v === null || v === undefined ? '' : String(v));
@@ -298,6 +299,20 @@ export default function TabbedUserModal({
           return uid && String(uid) === normalizedUserId;
         });
         setItems(filtered);
+
+        // compute distinct service types across filtered sessions
+        const stSet = new Set();
+        for (const it of filtered) {
+          const st =
+            it?.service_type ??
+            it?.serviceType ??
+            it?.session_data?.service_type ??
+            it?.session?.service_type ??
+            it?.metadata?.service_type;
+          const val = (st == null ? '' : String(st)).trim();
+          if (val) stSet.add(val);
+        }
+        setServiceTypes(Array.from(stSet));
       } catch (e) {
         setItems([]);
         setError(e?.message || 'Failed to load sessions.');
@@ -573,6 +588,56 @@ export default function TabbedUserModal({
 
     return (
       <div data-testid="session-details-tab">
+        {/* Service Types aggregated block */}
+        <section
+          aria-label="Service Types"
+          style={{
+            background: 'var(--bg-surface, #ffffff)',
+            border: '1px solid var(--border-subtle, #e5e7eb)',
+            borderRadius: 12,
+            boxShadow: 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))',
+            padding: 12,
+            marginBottom: 12,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span
+              style={{
+                display: 'inline-block',
+                fontSize: 12,
+                fontWeight: 700,
+                color: 'var(--text-tertiary, #64748B)',
+                letterSpacing: '.02em',
+                marginRight: 4,
+              }}
+            >
+              Service {serviceTypes.length > 1 ? 'Types' : 'Type'}:
+            </span>
+            {serviceTypes.length > 0 ? (
+              serviceTypes.map((st) => (
+                <span
+                  key={st}
+                  className="tag"
+                  style={{
+                    display: 'inline-block',
+                    padding: '2px 8px',
+                    background: 'rgba(37,99,235,0.08)',
+                    color: 'var(--text-primary, #111827)',
+                    border: '1px solid rgba(37,99,235,0.20)',
+                    borderRadius: 999,
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                >
+                  {st}
+                </span>
+              ))
+            ) : (
+              <span style={{ fontWeight: 600, color: 'var(--text-primary, #111827)' }}>—</span>
+            )}
+          </div>
+        </section>
+
         <AggregatesPanel />
         {!loading && !error && (!Array.isArray(items) || items.length === 0) ? (
           <div
