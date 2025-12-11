@@ -10,11 +10,12 @@ import DataTable from '../DataTable.jsx';
 import { listSessions, listLlmCosts } from '../../api/baseClient';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
+import UserProjectsTab from './UserProjectsTab.jsx';
 
 /**
  * Internal presentational view for user details
  * 2x2 responsive grid with Ocean Professional styling and neutral divider.
- * Fields: Name | Email (row 1), Role | Tenant (row 2).
+ * Fields: Name | Email (row 1), Department | Tenant (row 2).
  */
 function UserDetailsView({ user }) {
   if (!user) return <div className="text-gray-500">No user selected</div>;
@@ -198,7 +199,7 @@ export default function TabbedUserModal({
   const tabs = useMemo(
     () => [
       { key: 'details', label: 'User Details' },
-      // Removed Projects tab as part of feature removal
+      { key: 'projects', label: 'Project Details' },
       { key: 'sessions', label: 'Session Details' },
       { key: 'credits', label: 'Credits Consumed' },
       { key: 'analytics', label: 'Analytics' },
@@ -702,7 +703,7 @@ export default function TabbedUserModal({
       <div role="region" style={{ flex: 1, overflow: "auto", background: "var(--bg-canvas, #f9fafb)" }}>
         <div style={{ padding: 20 }}>
           {activeTab === 'details' && <UserDetailsView user={user} />}
-          {/* Projects tab removed */}
+          {activeTab === 'projects' && <UserProjectsTab user={user} />}
           {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
           {activeTab === 'credits' && <CreditsConsumedTab userId={userId} />}
           {activeTab === 'analytics' && (
@@ -735,7 +736,7 @@ TabbedUserModal.propTypes = {
   onClose: PropTypes.func.isRequired,
   user: PropTypes.object,
   tenantId: PropTypes.string,
-  defaultTab: PropTypes.oneOf(['details', 'sessions', 'credits', 'analytics']),
+  defaultTab: PropTypes.oneOf(['details', 'projects', 'sessions', 'credits', 'analytics']),
   from: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
   to: PropTypes.oneOfType([PropTypes.string, PropTypes.instanceOf(Date)]),
 };
