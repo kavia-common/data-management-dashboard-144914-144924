@@ -42,19 +42,16 @@ export async function getUserProjects({ userId, tenantId, from, to }) {
   // - Output MUST be { project_id, project_name } to align with UI consumption
   // - project_name may be null/empty; UI will fallback to '−'
   const normalizedProjects = projects.map((p) => {
-    const projectId = p?.project_id != null ? String(p.project_id) : "";
-    const rawName =
-      p?.project_name ??
-      p?.name ??
-      p?.title ??
-      p?.projectName ??
-      null;
+    // Preserve backend project_id and project_name when provided.
+    // Do not coerce or fallback to '-' here; UI will handle display fallback.
+    const projectId =
+      p && (p.project_id !== undefined && p.project_id !== null)
+        ? String(p.project_id)
+        : "";
+    // Prefer explicit project_name from backend. If absent, pass through null.
+    // Avoid mapping to other fields here to prevent incorrect names; resolution can happen in UI via resolver hook.
     const projectName =
-      rawName == null
-        ? null
-        : typeof rawName === "string"
-        ? rawName
-        : String(rawName);
+      p && (p.project_name !== undefined ? p.project_name : null);
 
     return {
       project_id: projectId,

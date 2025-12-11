@@ -743,13 +743,23 @@ export default function TabbedUserModal({
   // Child component for a single project row to allow using hooks safely
   function ProjectRow({ row }) {
     const id = row?.project_id ? String(row.project_id) : '—';
-    const hasName = row?.project_name && String(row.project_name).trim().length > 0;
+    const hasName = typeof row?.project_name === 'string' && row.project_name.trim().length > 0;
     const [resolvedName, setResolvedName] = React.useState(hasName ? String(row.project_name) : null);
+
+    // Quick debug: verify actual values during rendering (run once per row id/name change)
+    React.useEffect(() => {
+      // eslint-disable-next-line no-console
+      console.debug('[TabbedUserModal.ProjectRow] render', {
+        project_id: row?.project_id,
+        project_name: row?.project_name,
+        hasName,
+      });
+    }, [row?.project_id, row?.project_name, hasName]);
 
     React.useEffect(() => {
       let ignore = false;
       async function resolve() {
-        if (!id || hasName) return;
+        if (!id || id === '—' || hasName) return;
         try {
           // dynamic require to avoid circular import issues at module top
           const { fetchProjectNameDirect } = require('../../api/projectName');
@@ -763,7 +773,7 @@ export default function TabbedUserModal({
       return () => { ignore = true; };
     }, [id, hasName]);
 
-    const displayName = hasName ? String(row.project_name) : (resolvedName || id || '—');
+    const displayName = hasName ? String(row.project_name) : (resolvedName || '−');
     const subText = row?.last_activity ? new Date(row.last_activity).toLocaleString() : null;
 
     return (
@@ -778,9 +788,9 @@ export default function TabbedUserModal({
         </td>
         <td
           style={{ padding: '10px', color: 'var(--text-primary,#111827)' }}
-          title={(row?.project_name && String(row.project_name).trim()) || undefined}
+          title={(hasName ? String(row.project_name).trim() : undefined)}
         >
-          {row?.project_name && String(row.project_name).trim() ? String(row.project_name) : '−'}
+          {displayName}
         </td>
       </tr>
     );
