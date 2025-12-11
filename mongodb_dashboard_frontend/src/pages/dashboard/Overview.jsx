@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
-import { OverviewUsersSummarySection, ProjectsCreatedBarChart } from "../../components/overview";
+import { OverviewUsersSummarySection } from "../../components/overview";
 
 /**
  * PUBLIC_INTERFACE
@@ -116,9 +116,6 @@ export default function Overview() {
       {/* New Users Summary section */}
       <div className="block-full" style={{ alignSelf: "stretch" }}>
         <OverviewUsersSummarySection defaultRange="daily" />
-      </div>
-      <div className="block-full" style={{ alignSelf: "stretch" }}>
-        <ProjectsCreatedBarChart defaultRange="daily" />
       </div>
     </div>
   );

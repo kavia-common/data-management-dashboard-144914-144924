@@ -209,7 +209,7 @@ export default function ProjectsCreatedBarChart() {
               <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
               <XAxis
                 dataKey="label"
-                tick={{ fontSize: 12, fill: theme.axisTick }}
+                tick={{ fontSize: 12, fill: theme.primary }}
                 axisLine={{ stroke: theme.axisTick }}
                 tickLine={{ stroke: theme.axisTick }}
                 interval="preserveEnd"
@@ -223,7 +223,8 @@ export default function ProjectsCreatedBarChart() {
               <Tooltip
                 formatter={(value) => [value, 'Projects']}
                 labelFormatter={(label) => `Date: ${label}`}
-                contentStyle={{ borderRadius: 8, borderColor: '#e5e7eb' }}
+                fill={theme.primary}
+                contentStyle={{ background: 'transparent', borderRadius: 8, borderColor: '#e5e7eb' }}
               />
               <Bar dataKey="count" name="Projects" fill={theme.primary} radius={[4, 4, 0, 0]} />
             </BarChart>
