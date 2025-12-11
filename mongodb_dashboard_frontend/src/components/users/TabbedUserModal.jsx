@@ -549,8 +549,10 @@ export default function TabbedUserModal({
 
             <div>
               <span style={labelStyle}>Service type</span>
-              <div style={valueStyle} title={aggregate.serviceType || undefined}>
-                {aggregate.serviceType || '—'}
+              <div style={valueStyle} title={(serviceTypes && serviceTypes.length > 0) ? serviceTypes.join(', ') : (aggregate.serviceType || undefined)}>
+                {serviceTypes && serviceTypes.length > 0
+                  ? serviceTypes.join(', ')
+                  : (aggregate.serviceType || '—')}
               </div>
             </div>
 
@@ -588,56 +590,6 @@ export default function TabbedUserModal({
 
     return (
       <div data-testid="session-details-tab">
-        {/* Service Types aggregated block */}
-        <section
-          aria-label="Service Types"
-          style={{
-            background: 'var(--bg-surface, #ffffff)',
-            border: '1px solid var(--border-subtle, #e5e7eb)',
-            borderRadius: 12,
-            boxShadow: 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))',
-            padding: 12,
-            marginBottom: 12,
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span
-              style={{
-                display: 'inline-block',
-                fontSize: 12,
-                fontWeight: 700,
-                color: 'var(--text-tertiary, #64748B)',
-                letterSpacing: '.02em',
-                marginRight: 4,
-              }}
-            >
-              Service {serviceTypes.length > 1 ? 'Types' : 'Type'}:
-            </span>
-            {serviceTypes.length > 0 ? (
-              serviceTypes.map((st) => (
-                <span
-                  key={st}
-                  className="tag"
-                  style={{
-                    display: 'inline-block',
-                    padding: '2px 8px',
-                    background: 'rgba(37,99,235,0.08)',
-                    color: 'var(--text-primary, #111827)',
-                    border: '1px solid rgba(37,99,235,0.20)',
-                    borderRadius: 999,
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
-                >
-                  {st}
-                </span>
-              ))
-            ) : (
-              <span style={{ fontWeight: 600, color: 'var(--text-primary, #111827)' }}>—</span>
-            )}
-          </div>
-        </section>
-
         <AggregatesPanel />
         {!loading && !error && (!Array.isArray(items) || items.length === 0) ? (
           <div
