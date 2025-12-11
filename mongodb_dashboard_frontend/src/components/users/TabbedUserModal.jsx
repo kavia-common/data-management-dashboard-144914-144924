@@ -556,6 +556,7 @@ export default function TabbedUserModal({
               </div>
             </div>
 
+
             <div>
               <span style={labelStyle}>Organization</span>
               <div style={valueStyle} title={aggregate.organizationName || undefined}>
