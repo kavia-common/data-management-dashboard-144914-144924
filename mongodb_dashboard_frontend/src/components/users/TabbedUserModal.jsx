@@ -773,7 +773,9 @@ export default function TabbedUserModal({
       return () => { ignore = true; };
     }, [id, hasName]);
 
-    const displayName = hasName ? String(row.project_name) : (resolvedName || '−');
+    const displayName = hasName
+      ? String(row.project_name)
+      : (typeof resolvedName === 'string' && resolvedName.trim().length > 0 ? resolvedName : '−');
     const subText = row?.last_activity ? new Date(row.last_activity).toLocaleString() : null;
 
     return (

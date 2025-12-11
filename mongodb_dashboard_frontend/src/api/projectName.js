@@ -1,12 +1,14 @@
 /**
  * Resolve project name via dedicated endpoint.
  * Uses GET /api/app-deployments/project/{projectId}/name which returns { projectId, projectName } with 200.
- * Provides fallback to base URL utility if configured client isn't available.
+ * Always prefers the shared axios client (with interceptors). If an HTTP fallback is needed,
+ * include Authorization and x-tenant-id headers via buildAuthHeaders and stored tenant id.
  */
 
 import axios from 'axios';
 import { getApiBaseUrl } from './util';
 import { getApiClient } from './index';
+import { buildAuthHeaders, getTenantId, getOrganizationId } from './authTokenProvider';
 
 /**
  * PUBLIC_INTERFACE
@@ -19,6 +21,8 @@ export async function fetchProjectNameDirect(projectId) {
   try {
     const path = `/app-deployments/project/${encodeURIComponent(String(projectId))}/name`;
     const api = typeof getApiClient === 'function' ? getApiClient() : null;
+
+    // Prefer shared axios client with interceptors (adds Authorization and x-tenant-id)
     if (api) {
       const res = await api.get(path);
       const data = res?.data || {};
@@ -27,10 +31,18 @@ export async function fetchProjectNameDirect(projectId) {
       }
       return data?.projectName ?? null;
     }
-    // Fallback to base URL + axios
+
+    // Fallback to base URL + axios, but include Authorization and x-tenant-id headers
     const base = (typeof getApiBaseUrl === 'function' && getApiBaseUrl()) || '/api';
     const url = `${String(base).replace(/\/$/, '')}${path}`;
-    const res = await axios.get(url);
+
+    // Build headers with Authorization and x-tenant-id when available
+    const tenant = getTenantId?.() || getOrganizationId?.() || null;
+    const headers = buildAuthHeaders({
+      ...(tenant ? { 'x-tenant-id': tenant } : {}),
+    });
+
+    const res = await axios.get(url, { headers });
     const data = res?.data || {};
     if (typeof data?.projectName === 'undefined') {
       console.debug('[ProjectName] Missing projectName in response (fallback path)', { projectId, data });
