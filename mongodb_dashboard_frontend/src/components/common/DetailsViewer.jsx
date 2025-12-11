@@ -86,9 +86,13 @@ export default function DetailsViewer({
 
   // PUBLIC_INTERFACE
   function safePretty(payload) {
-    /** Returns JSON.stringify with fallback. */
+    /** Returns a safe JSON string with fallback using safeStringify. */
     try {
       if (typeof payload === "string") return payload;
+      // Lazy import to avoid cycles
+      const { safeStringify } = require("../../utils/safeStringify.js");
+      const txt = safeStringify(payload, 2);
+      if (typeof txt === "string") return txt;
       return JSON.stringify(payload, null, 2);
     } catch {
       try {

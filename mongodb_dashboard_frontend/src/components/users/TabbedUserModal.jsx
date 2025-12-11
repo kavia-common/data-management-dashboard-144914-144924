@@ -362,28 +362,36 @@ export default function TabbedUserModal({
       // We construct rows with derived displayName using useProjectName hook per row.
       const dataForTable = rows.map((r) => {
         const pid = r.project_id;
-        // Resolve via hook if needed; prefer memo
+        // derive a serializable placeholder; actual element rendering moves to column.render
         let memoName = nameMemoRef.current.get(pid);
-        const HookNameCell = () => {
-          const { projectName } = useProjectName(pid);
-          const finalName = memoName ?? projectName ?? null;
-          // Cache once we have a value (including null) to avoid re-fetching
-          if (memoName === undefined) {
-            nameMemoRef.current.set(pid, finalName);
-          }
-          return <span title={finalName || pid}>{finalName || pid}</span>;
-        };
-
+        const serialName = memoName ?? null;
         return {
           project_id: pid,
-          project_name_cell: <HookNameCell />,
+          project_name: serialName, // keep primitive, render will resolve
           last_activity: r.last_activity || '—',
         };
       });
 
       const columns = [
         { key: 'project_id', label: 'Project ID', priority: 1 },
-        { key: 'project_name_cell', label: 'Project Name', priority: 1 },
+        {
+          key: 'project_name',
+          label: 'Project Name',
+          priority: 1,
+          render: (value, row) => {
+            const pid = row?.project_id;
+            const HookNameCell = () => {
+              const { projectName } = useProjectName(pid);
+              const finalName = value ?? projectName ?? pid;
+              // Cache the resolved name (including null) so later rows reuse it
+              if (!nameMemoRef.current.has(pid)) {
+                nameMemoRef.current.set(pid, finalName === pid ? null : finalName);
+              }
+              return <span title={finalName || pid}>{finalName || pid}</span>;
+            };
+            return <HookNameCell />;
+          },
+        },
         { key: 'last_activity', label: 'Last Activity', priority: 2 },
       ];
 

@@ -426,87 +426,106 @@ export default function DataTable({
               </tr>
             )}
             {!loading &&
-              (pageRows || []).map((row) => (
-                <tr
-                  className="tr"
-                  key={row._id || row.id || JSON.stringify(row)}
-                  onClick={() => { if (typeof onRowClick === "function") onRowClick(row); }}
-                  onKeyDown={(e) => {
-                    if (!onRowClick) return;
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      onRowClick(row);
-                    }
-                  }}
-                  tabIndex={typeof onRowClick === "function" ? 0 : undefined}
-                  style={typeof onRowClick === "function" ? { cursor: "pointer" } : undefined}
-                >
-                  {columns.map((c) => {
-                    const value = getValue(row, c.key);
-                    const content = c.render ? c.render(value, row) : value ?? "";
-                    const isNumber = typeof value === "number";
-                    const priorityClass = c.priority ? `col-priority-${c.priority}` : "";
-                    const baseStyle = autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined;
-                    return (
+              (pageRows || []).map((row, rowIdx) => {
+                // compute stable, serializable key without JSON.stringify of full row
+                const primaryId = (row && (row._id ?? row.id)) ?? null;
+                let derivedId = "";
+                if (Array.isArray(columns) && columns.length) {
+                  derivedId = columns
+                    .slice(0, 3)
+                    .map((c) => {
+                      try {
+                        const v = getValue(row, c.key);
+                        return typeof v === "object" ? "" : String(v ?? "");
+                      } catch {
+                        return "";
+                      }
+                    })
+                    .join("|");
+                }
+                const rowKey = (primaryId != null ? primaryId : null) || (derivedId ? derivedId : null) || `row-${rowIdx}`;
+                return (
+                  <tr
+                    className="tr"
+                    key={rowKey}
+                    onClick={() => { if (typeof onRowClick === "function") onRowClick(row); }}
+                    onKeyDown={(e) => {
+                      if (!onRowClick) return;
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onRowClick(row);
+                      }
+                    }}
+                    tabIndex={typeof onRowClick === "function" ? 0 : undefined}
+                    style={typeof onRowClick === "function" ? { cursor: "pointer" } : undefined}
+                  >
+                    {columns.map((c) => {
+                      const value = getValue(row, c.key);
+                      const content = c.render ? c.render(value, row) : value ?? "";
+                      const isNumber = typeof value === "number";
+                      const priorityClass = c.priority ? `col-priority-${c.priority}` : "";
+                      const baseStyle = autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined;
+                      return (
+                        <td
+                          key={c.key}
+                          className={`td ${isNumber ? "num" : ""} ${priorityClass} ${c.key === "name" ? "td--emphasis-name" : ""} ${c.className || ""}`.trim()}
+                          style={baseStyle}
+                          title={typeof content === "string" ? content : undefined}
+                        >
+                          {content === null || content === undefined || content === "" ? "—" : content}
+                        </td>
+                      );
+                    })}
+                    {actionColIncluded ? (
                       <td
-                        key={c.key}
-                        className={`td ${isNumber ? "num" : ""} ${priorityClass} ${c.key === "name" ? "td--emphasis-name" : ""} ${c.className || ""}`.trim()}
-                        style={baseStyle}
-                        title={typeof content === "string" ? content : undefined}
+                        className="td actions col-priority-4"
+                        style={{ width: columnWidths.__actions, minWidth: columnWidths.__actions }}
                       >
-                        {content === null || content === undefined || content === "" ? "—" : content}
+                        {onEdit && (
+                          <button
+                            className="btn btn-ghost"
+                            onClick={(e) => { e.stopPropagation(); onEdit(row); }}
+                            aria-label="Edit row"
+                            title="Edit"
+                          >
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="currentColor"
+                              aria-hidden="true"
+                            >
+                              <circle cx="12" cy="5" r="2" />
+                              <circle cx="12" cy="12" r="2" />
+                              <circle cx="12" cy="19" r="2" />
+                            </svg>
+                          </button>
+                        )}
+                        {onDelete && (
+                          <button
+                            className="btn btn-danger"
+                            onClick={(e) => { e.stopPropagation(); onDelete(row); }}
+                            aria-label="Delete row"
+                            title="Delete"
+                          >
+                            <svg
+                              width="16"
+                              height="16"
+                              viewBox="0 0 24 24"
+                              fill="currentColor"
+                              aria-hidden="true"
+                            >
+                              <circle cx="12" cy="5" r="2" />
+                              <circle cx="12" cy="12" r="2" />
+                              <circle cx="12" cy="19" r="2" />
+                            </svg>
+                          </button>
+                        )}
                       </td>
-                    );
-                  })}
-                  {actionColIncluded ? (
-                    <td
-                      className="td actions col-priority-4"
-                      style={{ width: columnWidths.__actions, minWidth: columnWidths.__actions }}
-                    >
-                      {onEdit && (
-                        <button
-                          className="btn btn-ghost"
-                          onClick={(e) => { e.stopPropagation(); onEdit(row); }}
-                          aria-label="Edit row"
-                          title="Edit"
-                        >
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                            aria-hidden="true"
-                          >
-                            <circle cx="12" cy="5" r="2" />
-                            <circle cx="12" cy="12" r="2" />
-                            <circle cx="12" cy="19" r="2" />
-                          </svg>
-                        </button>
-                      )}
-                      {onDelete && (
-                        <button
-                          className="btn btn-danger"
-                          onClick={(e) => { e.stopPropagation(); onDelete(row); }}
-                          aria-label="Delete row"
-                          title="Delete"
-                        >
-                          <svg
-                            width="16"
-                            height="16"
-                            viewBox="0 0 24 24"
-                            fill="currentColor"
-                            aria-hidden="true"
-                          >
-                            <circle cx="12" cy="5" r="2" />
-                            <circle cx="12" cy="12" r="2" />
-                            <circle cx="12" cy="19" r="2" />
-                          </svg>
-                        </button>
-                      )}
-                    </td>
-                  ) : null}
-                </tr>
-              ))}
+                    ) : null}
+                  </tr>
+                );
+              })}
             {!loading &&
               fillerCount > 0 &&
               Array.from({ length: fillerCount }).map((_, idx) => (
