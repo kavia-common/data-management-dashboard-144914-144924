@@ -2,85 +2,39 @@
  * PUBLIC_INTERFACE
  * ProjectDetailsModal
  * Displays project details for a given project (Project ID, Project Name, Updated At).
- * Fetches projectName via GET /api/projects/{projectId}/name.
+ * Uses only fields present on the provided project object.
+ * - If project_name is present, renders it; otherwise falls back to showing project_id.
  *
  * Props:
  * - open: boolean
  * - onClose: function
- * - project: { project_id?: string, projectId?: string, updated_at?: string, updatedAt?: string, _id?: string }
+ * - project: { project_id?: string, projectId?: string, project_name?: string|null, projectName?: string|null, updated_at?: string, updatedAt?: string, _id?: string }
  */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import Modal from "../ui/Modal.jsx";
-import { fetchProjectNameDirect } from "../../api/projectName";
 
 export default function ProjectDetailsModal({ open, onClose, project }) {
-  const [projectName, setProjectName] = useState("—");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-
   const projectId = project?.project_id || project?.projectId || project?._id || null;
-
-  useEffect(() => {
-    let ignore = false;
-    async function load() {
-      if (!open || !projectId) {
-        setProjectName("—");
-        setLoading(false);
-        setError(null);
-        return;
-      }
-      try {
-        setLoading(true);
-        setError(null);
-        const name = await fetchProjectNameDirect(projectId);
-        if (ignore) return;
-        if (!name) {
-          console.debug("[ProjectDetailsModal] No projectName returned for projectId", { projectId });
-        }
-        setProjectName(name || "—");
-      } catch (err) {
-        if (!ignore) {
-          console.error("[ProjectDetailsModal] Error fetching project name", { projectId, error: err?.message || err });
-          setProjectName("—");
-          setError(err?.message || "Failed to load");
-        }
-      } finally {
-        if (!ignore) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      ignore = true;
-    };
-  }, [open, projectId]);
+  const projectName = project?.project_name ?? project?.projectName ?? null;
 
   const details = useMemo(() => {
     const rows = [];
     const idValue = projectId ? String(projectId) : "—";
+    const nameValue = projectName || idValue || "—";
     rows.push({ label: "Project ID", value: idValue });
-    rows.push({ label: "Project Name", value: loading ? "Loading…" : (projectName || "—") });
+    rows.push({ label: "Project Name", value: nameValue });
     rows.push({
       label: "Updated At",
       value: project?.updated_at || project?.updatedAt || "—",
     });
     return rows;
-  }, [projectId, projectName, loading, project]);
+  }, [projectId, projectName, project]);
 
   return (
     <Modal title="Project Details" open={open} onClose={onClose}>
       <div className="space-y-4">
         <KeyValueList items={details} />
-        {!loading && projectId && projectName === "—" && (
-          <p className="text-sm" style={{ color: "var(--text-tertiary)" }}>
-            Not available
-          </p>
-        )}
-        {error && (
-          <p className="text-sm" style={{ color: "var(--error, #EF4444)" }}>
-            {String(error)}
-          </p>
-        )}
       </div>
     </Modal>
   );

@@ -5,36 +5,7 @@
 
 import { getApiClient, listDeployments } from './index';
 
-/**
- * PUBLIC_INTERFACE
- * Fetch a single deployment by projectId to resolve the projectName.
- * It queries /api/app-deployments with a filter on project_id and limit=1.
- * Returns a string projectName or null if not found.
- */
-export async function fetchProjectNameByProjectId(projectId) {
-  try {
-    if (!projectId) return null;
 
-    const params = new URLSearchParams();
-    const filter = { project_id: String(projectId) };
-    const filterParam = JSON.stringify(filter);
-    params.set('filter', filterParam);
-    params.set('limit', '1');
-
-    const api = getApiClient();
-    const res = await api.get(`/api/app-deployments?${params.toString()}`);
-    const payload = res?.data ?? res;
-    const data = Array.isArray(payload) ? payload : payload?.data;
-
-    if (Array.isArray(data) && data.length > 0) {
-      const first = data[0] || {};
-      return first.projectName || first.project_name || null;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Internal: Normalize status into a human-friendly label without constraining to fixed set.
@@ -115,7 +86,6 @@ export async function fetchDeploymentStatusCounts(options = {}) {
 }
 
 const deploymentsApi = {
-  fetchProjectNameByProjectId,
   fetchDeploymentStatusCounts,
 };
 export default deploymentsApi;

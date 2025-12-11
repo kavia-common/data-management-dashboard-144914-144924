@@ -12,7 +12,7 @@ import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
 import { getUserProjects } from '../../api/users';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
-import useProjectName from '../../hooks/useProjectName';
+
 
 /**
  * Internal presentational view for user details
@@ -253,25 +253,7 @@ export default function TabbedUserModal({
     const [error, setError] = useState('');
     const orgId = useCurrentOrgId();
 
-    // local memo cache for resolved names during a single modal open to avoid duplicate calls
-    const nameMemoRef = useRef(new Map());
 
-    const ensureNameResolved = (projectId, currentName) => {
-      const pid = projectId ? String(projectId) : '';
-      const memo = nameMemoRef.current;
-      const cached = memo.get(pid);
-      // If currentName present, store and return
-      if (currentName && !cached) {
-        memo.set(pid, currentName);
-        return { projectName: currentName, strategy: 'api-list' };
-      }
-      // Prefer memoized value, may be null to indicate not found
-      if (cached !== undefined) {
-        return { projectName: cached, strategy: 'memo' };
-      }
-      // Not resolved here; the row renderer will use the hook to fetch and update memo
-      return { projectName: null, strategy: 'hook' };
-    };
 
     async function load() {
       if (!userId) return;
@@ -291,10 +273,9 @@ export default function TabbedUserModal({
           const project_name = p?.project_name ?? p?.projectName ?? null;
           const last_activity = p?.last_activity ?? p?.lastActivity ?? null;
 
-          const { projectName } = ensureNameResolved(project_id, project_name);
           return {
             project_id: project_id ? String(project_id) : '',
-            project_name: projectName ?? null,
+            project_name: project_name ?? null,
             last_activity: last_activity || null,
           };
         });
@@ -307,11 +288,7 @@ export default function TabbedUserModal({
       }
     }
 
-    useEffect(() => {
-      // reset memo cache on mount of the tab
-      nameMemoRef.current = new Map();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [userId, orgId]);
+
 
     useEffect(() => {
       load();
@@ -362,12 +339,10 @@ export default function TabbedUserModal({
       // We construct rows with derived displayName using useProjectName hook per row.
       const dataForTable = rows.map((r) => {
         const pid = r.project_id;
-        // derive a serializable placeholder; actual element rendering moves to column.render
-        let memoName = nameMemoRef.current.get(pid);
-        const serialName = memoName ?? null;
+        const pname = r.project_name ?? null;
         return {
           project_id: pid,
-          project_name: serialName, // keep primitive, render will resolve
+          project_name: pname,
           last_activity: r.last_activity || '—',
         };
       });
@@ -380,16 +355,8 @@ export default function TabbedUserModal({
           priority: 1,
           render: (value, row) => {
             const pid = row?.project_id;
-            const HookNameCell = () => {
-              const { projectName } = useProjectName(pid);
-              const finalName = value ?? projectName ?? pid;
-              // Cache the resolved name (including null) so later rows reuse it
-              if (!nameMemoRef.current.has(pid)) {
-                nameMemoRef.current.set(pid, finalName === pid ? null : finalName);
-              }
-              return <span title={finalName || pid}>{finalName || pid}</span>;
-            };
-            return <HookNameCell />;
+            const finalName = value ?? pid;
+            return <span title={finalName || pid}>{finalName || pid}</span>;
           },
         },
         { key: 'last_activity', label: 'Last Activity', priority: 2 },
