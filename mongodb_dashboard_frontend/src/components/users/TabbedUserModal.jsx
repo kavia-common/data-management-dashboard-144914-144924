@@ -776,8 +776,11 @@ export default function TabbedUserModal({
             </div>
           )}
         </td>
-        <td style={{ padding: '10px', color: 'var(--text-primary,#111827)' }} title={displayName || undefined}>
-          {displayName || '—'}
+        <td
+          style={{ padding: '10px', color: 'var(--text-primary,#111827)' }}
+          title={(row?.project_name && String(row.project_name).trim()) || undefined}
+        >
+          {row?.project_name && String(row.project_name).trim() ? String(row.project_name) : '−'}
         </td>
       </tr>
     );

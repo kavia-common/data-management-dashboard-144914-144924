@@ -38,10 +38,9 @@ export async function getUserProjects({ userId, tenantId, from, to }) {
 
   // Normalize shape
   const projects = Array.isArray(data.projects) ? data.projects : [];
-  // Normalize and add defensive mapping for project name:
-  // - Prefer project_name (backend contract)
-  // - Fallbacks: name, title, projectName (in case backend or aggregator uses alternate field)
-  // - Coerce to string when possible
+  // Normalize and add defensive mapping for project fields:
+  // - Output MUST be { project_id, project_name } to align with UI consumption
+  // - project_name may be null/empty; UI will fallback to '−'
   const normalizedProjects = projects.map((p) => {
     const projectId = p?.project_id != null ? String(p.project_id) : "";
     const rawName =
