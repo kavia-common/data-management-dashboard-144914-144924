@@ -140,22 +140,32 @@ export default function ProjectDetails({ selectedUser }) {
             key={`${p.project_id || 'unknown'}-${idx}`}
             className="rounded-md border border-gray-700 bg-gray-900 p-3 shadow-sm"
           >
-            <div className="text-sm">
+            <div className="text-sm space-y-1">
+
+              {/* Project Name */}
               <div className="font-medium text-white">
                 {p.project_name || 'Unnamed Project'}
               </div>
 
+              {/* Project ID */}
               <div className="text-white">
-                Project ID: <span className="font-mono">{p.project_id || '—'}</span>
+                <span className="font-semibold">Project ID:</span>
+                <span className="font-mono ml-1">{p.project_id || '—'}</span>
               </div>
 
+              {/* Last Activity */}
               {p.last_activity && (
-                <div className="text-xs mt-1 text-gray-300">
-                  Last activity: {new Date(p.last_activity).toLocaleString()}
+                <div className="text-xs text-gray-300">
+                  <span className="font-semibold">Last activity:</span>
+                  <span className="ml-1">
+                    {new Date(p.last_activity).toLocaleString()}
+                  </span>
                 </div>
               )}
+
             </div>
           </li>
+
 
         ))}
       </ul>
