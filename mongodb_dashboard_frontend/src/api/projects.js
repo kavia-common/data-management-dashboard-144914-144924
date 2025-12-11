@@ -13,19 +13,18 @@ export async function getProjectsSummary(params = {}) {
    *  - range: 'daily' | 'weekly' | 'monthly' | 'custom'
    *  - start_date: 'YYYY-MM-DD' (only when range='custom')
    *  - end_date: 'YYYY-MM-DD' (only when range='custom')
-   * Always attaches:
-   *  - Header: x-organization-id
+   * Always attaches (centralized in baseClient):
    *  - Query: organization_id
+   * Additionally attaches header:
+   *  - x-organization-id
    *
    * Returns: { range, start_date, end_date, buckets: [{ key, label, count }] }
    */
   const { range, start_date, end_date } = params || {};
 
   const orgId = getOrganizationId();
-  // Build query ensuring organization_id is present regardless of filters
-  const query = {
-    organization_id: orgId || params.organization_id || params.tenant_id || undefined,
-  };
+  // Build query (organization_id is appended centrally for this endpoint)
+  const query = {};
   if (range) query.range = range;
   if (String(range || '').toLowerCase() === 'custom') {
     if (start_date) query.start_date = start_date;

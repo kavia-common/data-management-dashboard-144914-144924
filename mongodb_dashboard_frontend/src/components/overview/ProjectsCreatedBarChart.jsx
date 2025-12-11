@@ -51,6 +51,8 @@ export default function ProjectsCreatedBarChart() {
 
     try {
       const req = buildOverviewFilterParams({ organizationId, params });
+      // Note: organization_id is injected into the query centrally by baseClient for /api/projects/summary,
+      // so the resulting network URL will visibly include ?organization_id=<id> as filters change.
       const res = await getOverviewProjectsSummary(req);
       const list = Array.isArray(res?.buckets) ? res.buckets : [];
       if (list.length === 0) {
