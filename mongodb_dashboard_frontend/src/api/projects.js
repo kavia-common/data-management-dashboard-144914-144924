@@ -32,7 +32,8 @@ export async function getProjectsSummary(params = {}) {
   if (organization_id) query.set('organization_id', organization_id);
   if (tenant_id) query.set('tenant_id', tenant_id);
 
-  const headers = getTenantHeaders(organization_id || tenant_id);
+  const orgId = organization_id || tenant_id;
+  const headers = getTenantHeaders(orgId);
 
   // Important: pass an absolute /api path so axiosInstance baseURL '/.../api' + '/api/...'
   // is normalized correctly by axios without duplicating '/api/api' (axios strips base part on absolute path).
