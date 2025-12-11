@@ -722,7 +722,8 @@ export default function TabbedUserModal({
                 <tbody>
                   {rows.map((r, idx) => {
                     const id = r?.project_id ? String(r.project_id) : '—';
-                    const name = r?.project_name || '—';
+                    // Prefer project_name; fallback to id if name missing (still useful to users)
+                    const name = r?.project_name && String(r.project_name).trim().length > 0 ? String(r.project_name) : id || '—';
                     const subText = r?.last_activity ? new Date(r.last_activity).toLocaleString() : null;
                     return (
                       <tr key={`${id}-${idx}`} style={{ borderBottom: '1px solid var(--border-subtle,#E5E7EB)' }}>

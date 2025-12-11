@@ -15,7 +15,7 @@ import { getApiClient } from "./index";
  *
  * @param {object} params
  * @param {string} params.userId - Required user id
- * @param {string} params.tenantId - Required tenant/organization id for scoping
+ * @param {string} params.tenantId - Required tenant/organization id for scoping (sent as organization_id per API spec; alias to tenant_id server-side)
  * @param {string|Date} [params.from] - Optional ISO date-time lower bound
  * @param {string|Date} [params.to] - Optional ISO date-time upper bound
  */
@@ -38,13 +38,35 @@ export async function getUserProjects({ userId, tenantId, from, to }) {
 
   // Normalize shape
   const projects = Array.isArray(data.projects) ? data.projects : [];
+  // Normalize and add defensive mapping for project name:
+  // - Prefer project_name (backend contract)
+  // - Fallbacks: name, title, projectName (in case backend or aggregator uses alternate field)
+  // - Coerce to string when possible
+  const normalizedProjects = projects.map((p) => {
+    const projectId = p?.project_id != null ? String(p.project_id) : "";
+    const rawName =
+      p?.project_name ??
+      p?.name ??
+      p?.title ??
+      p?.projectName ??
+      null;
+    const projectName =
+      rawName == null
+        ? null
+        : typeof rawName === "string"
+        ? rawName
+        : String(rawName);
+
+    return {
+      project_id: projectId,
+      project_name: projectName,
+      last_activity: p?.last_activity ?? null,
+    };
+  });
+
   return {
     user_id: data.user_id ?? String(userId),
     tenant_id: data.tenant_id ?? String(tenantId),
-    projects: projects.map((p) => ({
-      project_id: p?.project_id != null ? String(p.project_id) : "",
-      project_name: p?.project_name ?? null,
-      last_activity: p?.last_activity ?? null,
-    })),
+    projects: normalizedProjects,
   };
 }
