@@ -7,6 +7,7 @@ import './overviewUsersSummary.css';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import useUsersSummary from '../../hooks/useUsersSummary';
 import { format, parseISO } from 'date-fns';
+import ProjectsCreatedBarChart from './ProjectsCreatedBarChart';
 
 /**
  * PUBLIC_INTERFACE
@@ -123,6 +124,11 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
           // Existing non-T0000 chart path unchanged
           <UsersSummaryBarChart data={chartData} loading={loading} error={error} title="" height={350} />
         )}
+      </div>
+
+      {/* New: Projects Created chart positioned below Users summary */}
+      <div style={{ marginTop: 24 }}>
+        <ProjectsCreatedBarChart />
       </div>
     </section>
   );

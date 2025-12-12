@@ -1,45 +1,45 @@
-import { getApiClient } from './index';
+import { getApiClient } from './baseClient';
+import { getOrganizationId } from './authTokenProvider';
 
 /**
- * PUBLIC_INTERFACE
- * getProjectCost
- * Fetch the aggregated cost for a project from the backend.
- * Calls GET /api/projects/:projectId/cost and returns { projectId, cost, currency }.
+ * Projects API client
+ * Provides functions to retrieve projects-related analytics/summaries.
  */
-export async function getProjectCost(projectId) {
-  if (!projectId) {
-    throw new Error('getProjectCost: projectId is required');
+
+// PUBLIC_INTERFACE
+export async function getProjectsSummary(params = {}) {
+  /** Fetch projects created summary (time buckets).
+   * Params:
+   *  - range: 'daily' | 'weekly' | 'monthly' | 'custom'
+   *  - start_date: 'YYYY-MM-DD' (only when range='custom')
+   *  - end_date: 'YYYY-MM-DD' (only when range='custom')
+   * Always attaches (centralized in baseClient):
+   *  - Query: organization_id
+   * Additionally attaches header:
+   *  - x-organization-id
+   *
+   * Returns: { range, start_date, end_date, buckets: [{ key, label, count }] }
+   */
+  const { range, start_date, end_date } = params || {};
+
+  const orgId = getOrganizationId();
+  // Build query (organization_id is appended centrally for this endpoint)
+  const query = {};
+  if (range) query.range = range;
+  if (String(range || '').toLowerCase() === 'custom') {
+    if (start_date) query.start_date = start_date;
+    if (end_date) query.end_date = end_date;
   }
-  const api = getApiClient();
-  const res = await api.get(`/projects/${encodeURIComponent(String(projectId))}/cost`);
-  const json = res.data?.data ?? res.data;
-  return {
-    projectId: json?.projectId ?? String(projectId),
-    cost: Number(json?.cost ?? 0),
-    currency: json?.currency || 'USD',
-  };
+
+  // Use shared base client which injects Authorization and merges scoped params
+  const client = getApiClient();
+  const res = await client.get('/api/projects/summary', {
+    params: query,
+    headers: orgId ? { 'x-organization-id': String(orgId) } : undefined,
+  });
+  return res.data;
 }
 
-/**
- * PUBLIC_INTERFACE
- * getProjectCostHistorySum
- * Fetch the project's total cost aggregated from session_tracking cost_history deltas.
- * Calls GET /api/projects/:projectId/cost-history-sum and returns { projectId, cost }.
- * This supersedes naive total_cost summation as it accounts for granular deltas.
- */
-export async function getProjectCostHistorySum(projectId) {
-  if (!projectId) {
-    throw new Error('getProjectCostHistorySum: projectId is required');
-  }
-  const api = getApiClient();
-  const res = await api.get(`/projects/${encodeURIComponent(String(projectId))}/cost-history-sum`);
-  const json = res.data?.data ?? res.data;
-  return {
-    projectId: json?.projectId ?? String(projectId),
-    cost: Number(json?.cost ?? 0),
-  };
-}
-
-
-
-
+export default {
+  getProjectsSummary,
+};

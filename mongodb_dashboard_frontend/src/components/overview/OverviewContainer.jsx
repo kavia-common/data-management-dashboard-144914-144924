@@ -2,6 +2,7 @@ import React from 'react';
 import OverviewTimeControls from './OverviewTimeControls';
 import OverviewKpiCards from './OverviewKpiCards';
 import OverviewUsersSummarySection from './OverviewUsersSummarySection';
+import ProjectsCreatedBarChart from './ProjectsCreatedBarChart';
 import './overview.css';
 
 /**
@@ -15,6 +16,9 @@ export default function OverviewContainer() {
       <OverviewTimeControls />
       <OverviewKpiCards />
       <OverviewUsersSummarySection />
+      <div style={{ marginTop: 16 }}>
+        <ProjectsCreatedBarChart />
+      </div>
     </div>
   );
 }

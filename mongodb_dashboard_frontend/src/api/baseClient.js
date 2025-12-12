@@ -118,6 +118,8 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
  * - Default: append organization_id if missing.
  */
 function ensureScopedQueryParams(pathOrUrl, params = {}) {
+  const pathStr = String(pathOrUrl || "");
+
   const isTenantSummary =
     typeof pathOrUrl === "string" &&
     /\/api\/users\/tenant-summary(?:$|[?&#/])/.test(pathOrUrl);
@@ -126,6 +128,10 @@ function ensureScopedQueryParams(pathOrUrl, params = {}) {
     typeof pathOrUrl === "string" &&
     /\/api\/users(?:$|[?&#/])/.test(pathOrUrl) &&
     !/\/api\/users\/[A-Za-z0-9_-]/.test(pathOrUrl);
+
+  const isProjectsSummary =
+    typeof pathOrUrl === "string" &&
+    /\/api\/projects\/summary(?:$|[?&#/])/.test(pathStr);
 
   const orgId = getOrganizationId();
 
@@ -144,6 +150,15 @@ function ensureScopedQueryParams(pathOrUrl, params = {}) {
 
   if (isTenantSummary || isUsersRoot) {
     return baseParams; // strictly only organization_id
+  }
+
+  // For /api/projects/summary: ALWAYS ensure organization_id is appended to query
+  if (isProjectsSummary) {
+    const merged = { ...(params || {}) };
+    if (!("organization_id" in merged) && orgId) {
+      merged.organization_id = orgId;
+    }
+    return merged;
   }
 
   const existingHasOrg =
