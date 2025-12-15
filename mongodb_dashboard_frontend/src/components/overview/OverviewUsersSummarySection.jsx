@@ -163,7 +163,7 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
       </div>
 
       {/* Keep existing additional element below, if present */}
-      <div class="project_summary_chart" style={{ marginTop: 24 }}>
+      <div className="project_summary_chart" style={{ marginTop: 24 }}>
         <ProjectsCreatedBarChart />
       </div>
     </section>
