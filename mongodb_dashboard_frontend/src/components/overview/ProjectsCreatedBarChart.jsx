@@ -23,6 +23,10 @@ import { getOverviewProjectsSummary } from '../../api/overviewAnalytics';
  * - Always send range; include start/end only for custom.
  * - Debounce user-triggered fetches by 150ms.
  * - Guard initial mount to avoid StrictMode double fetch.
+ *
+ * Behavior:
+ * - For regular orgs: show time-bucketed bar chart (daily/weekly/monthly/custom).
+ * - For super org T0000: request tenant grouping and render a horizontal bar chart grouped by tenant.
  */
 export default function ProjectsCreatedBarChart() {
   const organizationId = useCurrentOrgId();
@@ -56,7 +60,7 @@ export default function ProjectsCreatedBarChart() {
       params.end_date = appliedEnd;
     }
 
-    // When super org, request tenant grouping
+    // When super org, request tenant grouping (frontend-only; backend remains unchanged)
     if (isSuperOrg) {
       params.group_by = 'tenant';
     }
@@ -64,7 +68,12 @@ export default function ProjectsCreatedBarChart() {
     try {
       const req = buildOverviewFilterParams({ organizationId, params });
       const res = await getOverviewProjectsSummary(req);
-      const list = Array.isArray(res?.buckets) ? res.buckets : [];
+      // When grouped by tenant, prefer res.orgBuckets if provided, else fallback to buckets
+      const list = Array.isArray(res?.orgBuckets)
+        ? res.orgBuckets
+        : Array.isArray(res?.buckets)
+        ? res.buckets
+        : [];
       if (list.length === 0) {
         setBuckets([]);
         setStatus('empty');
@@ -123,15 +132,15 @@ export default function ProjectsCreatedBarChart() {
     }
   };
 
-  // For super org, shape into { name: tenant_id, value: count }
+  // For super org, shape into { name: tenant_name_or_id, value: count }
   const tenantData = useMemo(() => {
     if (!isSuperOrg) return [];
     const items = Array.isArray(buckets) ? buckets : [];
-    // Expect backend to return buckets like { key: tenant_id, label?: tenant_id or name, count }
+    // Use label (name) when present, else key (id)
     const shaped = items.map((b) => ({
-      name: b.label || b.key || 'Unknown',
-      value: Number(b.count || 0),
-      tenant_id: b.key || b.label || 'unknown',
+      name: b.label || b.tenant_name || b.key || b.tenant_id || 'Unknown',
+      value: Number(b.count || b.total || 0),
+      tenant_id: b.tenant_id || b.key || b.label || 'unknown',
     }));
     // Sort descending for readability
     shaped.sort((a, b) => b.value - a.value);
@@ -153,26 +162,25 @@ export default function ProjectsCreatedBarChart() {
       <div className="overview-users-summary__header project summary" style={{ marginBottom: 8 }}>
         <h3 className="overview-users-summary__title">Projects Created</h3>
         <div className="overview-users-summary__controls">
-          {!isSuperOrg && (
-            <>
-              <label htmlFor="projects-range" className="overview-users-summary__label">
-                Range
-              </label>
-              <select
-                id="projects-range"
-                className="overview-users-summary__select"
-                value={range}
-                onChange={(e) => setRange(e.target.value)}
-              >
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="custom">Custom</option>
-              </select>
-            </>
-          )}
+          {/* Keep filters intact for both modes */}
+          <>
+            <label htmlFor="projects-range" className="overview-users-summary__label">
+              Range
+            </label>
+            <select
+              id="projects-range"
+              className="overview-users-summary__select"
+              value={range}
+              onChange={(e) => setRange(e.target.value)}
+            >
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="custom">Custom</option>
+            </select>
+          </>
 
-          {!isSuperOrg && range === 'custom' && (
+          {range === 'custom' && (
             <>
               <label htmlFor="projects-start" className="overview-users-summary__label">
                 Start
@@ -230,7 +238,7 @@ export default function ProjectsCreatedBarChart() {
               <BarChart
                 data={tenantData}
                 layout="vertical"
-                margin={{ top: 8, right: 24, left: 80, bottom: 8 }}
+                margin={{ top: 8, right: 24, left: 100, bottom: 8 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
                 <XAxis
@@ -242,7 +250,7 @@ export default function ProjectsCreatedBarChart() {
                   type="category"
                   dataKey="name"
                   tick={{ fontSize: 12, fill: theme.axisTick }}
-                  width={80}
+                  width={100}
                 />
                 <Tooltip
                   formatter={(value) => [value, 'Projects']}
