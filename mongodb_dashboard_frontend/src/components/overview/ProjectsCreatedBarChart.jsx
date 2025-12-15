@@ -274,7 +274,7 @@ export default function ProjectsCreatedBarChart() {
                   formatter={(value) => [value, 'Projects']}
                   labelFormatter={(label) => `Tenant: ${label}`}
                   fill={theme.primary}
-                  contentStyle={{ background: 'transparent', borderRadius: 8, borderColor: '#e5e7eb' }}
+                  contentStyle={{ backgroundColor: '#2b2723', borderRadius: 8, borderColor: '#e5e7eb', color: '#f9fafb' }}
                   cursor={{ fill: 'transparent' }}
                 />
                 <Bar dataKey="value" name="Projects" fill={theme.primary} radius={[4, 4, 4, 4]} />
@@ -299,7 +299,7 @@ export default function ProjectsCreatedBarChart() {
                   formatter={(value) => [value, 'Projects']}
                   labelFormatter={(label) => `Date: ${label}`}
                   fill={theme.primary}
-                  contentStyle={{ background: 'transparent', borderRadius: 8, borderColor: '#e5e7eb' }}
+                  contentStyle={{ backgroundColor: '#2b2723', borderRadius: 8, borderColor: '#e5e7eb', color: '#f9fafb' }}
                 />
                 <Bar dataKey="count" name="Projects" fill={theme.primary} radius={[4, 4, 0, 0]} />
               </BarChart>
