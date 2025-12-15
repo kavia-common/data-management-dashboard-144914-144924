@@ -28,7 +28,7 @@ export async function getServiceTypesSummary(params = {}, orgIdHeader, includeOr
   }
 
   const client = getApiClient();
-  const res = await client.get(`/api/services/summary?${query.toString()}`, { headers });
+  const res = await client.get(`/api/services-type/summary?${query.toString()}`, { headers });
   return res.data;
 }
 
