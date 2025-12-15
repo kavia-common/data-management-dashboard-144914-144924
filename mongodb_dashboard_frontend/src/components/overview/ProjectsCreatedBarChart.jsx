@@ -68,8 +68,9 @@ export default function ProjectsCreatedBarChart() {
     try {
       const req = buildOverviewFilterParams({ organizationId, params });
       const res = await getOverviewProjectsSummary(req);
-      // When grouped by tenant, prefer res.orgBuckets if provided, else fallback to buckets
-      const list = Array.isArray(res?.orgBuckets)
+      // Backend parity: orgBuckets present only for all-tenant (T0000) mode.
+      // Maintain backward compat by falling back to buckets when orgBuckets not provided.
+      const list = Array.isArray(res?.orgBuckets) && res.orgBuckets.length > 0
         ? res.orgBuckets
         : Array.isArray(res?.buckets)
         ? res.buckets
@@ -136,13 +137,12 @@ export default function ProjectsCreatedBarChart() {
   const tenantData = useMemo(() => {
     if (!isSuperOrg) return [];
     const items = Array.isArray(buckets) ? buckets : [];
-    // Use label (name) when present, else key (id)
+    // Backend orgBuckets shape: { organization_id, total, buckets:[{label,count}] }
     const shaped = items.map((b) => ({
-      name: b.label || b.tenant_name || b.key || b.tenant_id || 'Unknown',
-      value: Number(b.count || b.total || 0),
-      tenant_id: b.tenant_id || b.key || b.label || 'unknown',
+      name: b.tenant_name || b.organization_id || b.tenant_id || 'Unknown',
+      value: Number(b.total ?? b.count ?? 0),
+      tenant_id: b.organization_id || b.tenant_id || b.key || 'unknown',
     }));
-    // Sort descending for readability
     shaped.sort((a, b) => b.value - a.value);
     return shaped;
   }, [buckets, isSuperOrg]);
