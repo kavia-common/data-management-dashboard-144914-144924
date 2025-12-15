@@ -115,11 +115,11 @@ export default function Overview() {
       )}
 
       {/* Existing Sessions Created chart */}
-      <div className="block-full" style={{ alignSelf: "stretch" }}>
+      {/* <div className="block-full" style={{ alignSelf: "stretch" }}>
         <Card title="Sessions Created">
           <SessionsPerDayBarChart />
         </Card>
-      </div>
+      </div> */}
 
 
 

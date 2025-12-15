@@ -1,50 +1,64 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import { getServiceTypesSummary } from '../../api/servicesAnalytics';
+import { buildOverviewFilterParams } from '../../api/buildOverviewFilterParams';
+import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 
 /**
  * PUBLIC_INTERFACE
  * ServiceTypesCreatedBarChart
- * Renders a bar list of sessions grouped by service_type for the selected overview filters.
- * - Title corrected to "Sessions by Service Type"
- * - Adds standard overview filters (daily | weekly | monthly | custom with start/end pickers)
- * - Reuses useCurrentOrgId and passes { range, start_date, end_date } to backend client
+ * Renders a bar chart of counts grouped by service_type for the selected time range.
+ * - Uses same filter UI (daily/weekly/monthly/custom) as other overview charts.
+ * - Super admin (T0000) can optionally render grouped view via orgBuckets when showOrgBuckets=true.
+ *
+ * Note: This version builds plain key/value query params (range, start_date, end_date) and
+ * passes organization id explicitly to ensure headers/tenant scope are attached by the API client.
  */
-export default function ServiceTypesCreatedBarChart() {
+export default function ServiceTypesCreatedBarChart({ title = 'Service Types Created', showOrgBuckets = false }) {
   const orgId = useCurrentOrgId();
-
-  // Standard overview filter state
   const [range, setRange] = useState('daily');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-
-  // Build params expected by backend: { range, start_date, end_date }
-  const filterParams = useMemo(() => {
-    const params = { range };
-    if (range === 'custom') {
-      if (startDate) params.start_date = startDate;
-      if (endDate) params.end_date = endDate;
-    }
-    return params;
-  }, [range, startDate, endDate]);
-
-  const [data, setData] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [series, setSeries] = useState([]);
+  const [orgBuckets, setOrgBuckets] = useState([]);
+
+  // Build plain filter params without nesting
+  const params = useMemo(() => {
+    const p = {};
+    p.range = range;
+    if (range === 'custom') {
+      if (startDate) p.start_date = startDate;
+      if (endDate) p.end_date = endDate;
+    }
+    // organization_id is added in the API client as a query fallback; we also pass orgId separately
+    return p;
+  }, [range, startDate, endDate]);
 
   useEffect(() => {
     let mounted = true;
     async function load() {
+      // wait until we know org; prevents undefined on first render
       if (!orgId) return;
       setLoading(true);
       try {
-        const params = { organization_id: orgId, ...filterParams };
-        const resp = await getServiceTypesSummary(params, orgId);
+        // Ensure API receives plain params and tenant header via client
+        const data = await getServiceTypesSummary(
+          params,
+          orgId,
+          showOrgBuckets && orgId === 'T0000'
+        );
         if (!mounted) return;
-        setData(Array.isArray(resp?.items) ? resp.items : []);
+        const items = Array.isArray(data?.items) ? data.items : [];
+        // items expected as [{ service_type, count }]
+        setSeries(items);
+        setOrgBuckets(Array.isArray(data?.orgBuckets) ? data.orgBuckets : []);
       } catch (e) {
         // eslint-disable-next-line no-console
-        console.error('Failed to fetch service types summary', e);
-        if (mounted) setData([]);
+        console.error('Failed to load service types summary', e);
+        if (mounted) {
+          setSeries([]);
+          setOrgBuckets([]);
+        }
       } finally {
         if (mounted) setLoading(false);
       }
@@ -53,92 +67,73 @@ export default function ServiceTypesCreatedBarChart() {
     return () => {
       mounted = false;
     };
-  }, [orgId, filterParams]);
+  }, [orgId, params, showOrgBuckets]);
 
-  const hasData = data && data.length > 0;
+  const isSuper = orgId === 'T0000' && showOrgBuckets && orgBuckets.length > 0;
 
   return (
     <div className="rounded-lg shadow-sm bg-white p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-800">Sessions by Service Type</h3>
-
-        {/* Standard overview filter controls */}
+        <h3 className="text-sm font-semibold text-gray-800">{title}</h3>
         <div className="flex items-center gap-2">
-          <button
-            className={`px-2 py-1 text-xs rounded border ${range === 'daily' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
-            onClick={() => setRange('daily')}
-            aria-pressed={range === 'daily'}
+          <select
+            value={range}
+            onChange={(e) => setRange(e.target.value)}
+            className="border rounded px-2 py-1 text-sm"
           >
-            Daily
-          </button>
-          <button
-            className={`px-2 py-1 text-xs rounded border ${range === 'weekly' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
-            onClick={() => setRange('weekly')}
-            aria-pressed={range === 'weekly'}
-          >
-            Weekly
-          </button>
-          <button
-            className={`px-2 py-1 text-xs rounded border ${range === 'monthly' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
-            onClick={() => setRange('monthly')}
-            aria-pressed={range === 'monthly'}
-          >
-            Monthly
-          </button>
-          <button
-            className={`px-2 py-1 text-xs rounded border ${range === 'custom' ? 'bg-blue-50 border-blue-500 text-blue-700' : 'bg-white border-gray-300 text-gray-700'}`}
-            onClick={() => setRange('custom')}
-            aria-pressed={range === 'custom'}
-          >
-            Custom
-          </button>
-
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+            <option value="custom">Custom</option>
+          </select>
           {range === 'custom' && (
-            <div className="flex items-center gap-2">
+            <>
               <input
                 type="date"
-                className="border rounded px-2 py-1 text-xs"
+                className="border rounded px-2 py-1 text-sm"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                aria-label="Start date"
               />
-              <span className="text-xs text-gray-500">to</span>
               <input
                 type="date"
-                className="border rounded px-2 py-1 text-xs"
+                className="border rounded px-2 py-1 text-sm"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                aria-label="End date"
               />
-            </div>
+            </>
           )}
         </div>
       </div>
 
-      {loading && <div className="h-40 flex items-center justify-center text-gray-500 text-sm">Loading…</div>}
-      {!loading && !hasData && <div className="text-sm text-gray-500">No data</div>}
-      {!loading && hasData && (
-        <div className="space-y-2">
-          <BarList data={data} />
-        </div>
+      {loading ? (
+        <div className="h-40 flex items-center justify-center text-gray-500 text-sm">Loading…</div>
+      ) : (
+        <>
+          {!isSuper && (
+            <BarList data={series} />
+          )}
+          {isSuper && (
+            <GroupedByTenantList data={orgBuckets} />
+          )}
+        </>
       )}
     </div>
   );
 }
 
 function BarList({ data }) {
-  const max = Math.max(1, ...data.map((d) => d?.count || 0));
+  // simple vertical bar list; smallest dependency footprint without adding chart libs
+  const max = Math.max(1, ...data.map(d => d.count || 0));
   return (
-    <>
+    <div className="space-y-2">
+      {data.length === 0 && <div className="text-sm text-gray-500">No data</div>}
       {data.map((d, idx) => {
-        const count = d?.count || 0;
-        const label = d?.service_type || 'Unknown';
-        const pct = Math.round((count / max) * 100);
+        const pct = Math.round(((d.count || 0) / max) * 100);
         return (
-          <div key={`${label}-${idx}`}>
+          <div key={idx}>
             <div className="flex justify-between text-xs text-gray-600 mb-1">
-              <span title={label}>{label}</span>
-              <span>{count}</span>
+              <span title={d.service_type || 'Unknown'}>{(d.service_type || 'Unknown')}</span>
+              <span>{d.count}</span>
             </div>
             <div className="w-full bg-gray-100 h-2 rounded">
               <div className="bg-blue-500 h-2 rounded" style={{ width: `${pct}%` }} />
@@ -146,6 +141,20 @@ function BarList({ data }) {
           </div>
         );
       })}
-    </>
+    </div>
+  );
+}
+
+function GroupedByTenantList({ data }) {
+  return (
+    <div className="space-y-4">
+      {data.length === 0 && <div className="text-sm text-gray-500">No data</div>}
+      {data.map((tenant) => (
+        <div key={tenant.tenant_id} className="border rounded p-3">
+          <div className="text-xs font-medium text-gray-700 mb-2">{tenant.tenant_id} • Total {tenant.total}</div>
+          <BarList data={tenant.services || []} />
+        </div>
+      ))}
+    </div>
   );
 }

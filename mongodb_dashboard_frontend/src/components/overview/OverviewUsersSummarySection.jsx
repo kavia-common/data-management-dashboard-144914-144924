@@ -8,6 +8,7 @@ import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import useUsersSummary from '../../hooks/useUsersSummary';
 import { format, parseISO } from 'date-fns';
 import ProjectsCreatedBarChart from './ProjectsCreatedBarChart';
+import ServiceTypesCreatedBarChart from './ServiceTypesCreatedBarChart';
 
 /**
  * PUBLIC_INTERFACE
@@ -166,6 +167,12 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
       <div className="project_summary_chart" style={{ marginTop: 24 }}>
         <ProjectsCreatedBarChart />
       </div>
+
+      {/* ServiceTypesCreatedBarChart Keep existing additional element below, if present */}
+      <div className="service_types_summary_chart" style={{ marginTop: 24 }}>
+        <ServiceTypesCreatedBarChart />
+      </div>
+
     </section>
   );
 }
