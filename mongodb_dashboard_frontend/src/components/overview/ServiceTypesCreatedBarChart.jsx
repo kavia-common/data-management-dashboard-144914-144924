@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getServiceTypesSummary } from '../../api/servicesAnalytics';
-import { buildOverviewFilterParams } from '../../utils/date'; // follows existing overview charts
-import { useCurrentOrgId } from '../../hooks/useCurrentOrgId';
+import { buildOverviewFilterParams } from '../../api/buildOverviewFilterParams';
+import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 
 /**
  * PUBLIC_INTERFACE

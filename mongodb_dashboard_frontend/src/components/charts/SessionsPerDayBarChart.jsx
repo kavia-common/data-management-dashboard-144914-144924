@@ -10,8 +10,6 @@ import {
 } from 'recharts';
 import { useSessionsPerDay } from '../../hooks/useSessionsPerDay';
 import Card from '../ui/Card';
-import LoadingState from '../common/LoadingState';
-import ErrorState from '../common/ErrorState';
 import { getChartTheme } from './chartTheme';
 
 /**
@@ -28,8 +26,8 @@ export default function SessionsPerDayBarChart({ title = 'Sessions Per Day', fil
 
   return (
     <Card title={title}>
-      {loading && <LoadingState message="Loading sessions…" />}
-      {error && <ErrorState message={error.message || 'Failed to load data'} />}
+      {loading && <div className="chart-inline-state">Loading sessions…</div>}
+      {error && <div className="chart-inline-state">{error.message || 'Failed to load data'}</div>}
       {!loading && !error && (
         <div style={{ width: '100%', height: 360 }}>
           <ResponsiveContainer>

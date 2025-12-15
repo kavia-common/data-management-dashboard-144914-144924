@@ -1,4 +1,4 @@
-import http from '../utils/http';
+import { getApiClient } from './baseClient';
 
 /**
  * PUBLIC_INTERFACE
@@ -16,6 +16,7 @@ export async function getServiceTypesSummary(params = {}, orgIdHeader, includeOr
   if (orgIdHeader) {
     headers['x-organization-id'] = orgIdHeader;
   }
-  const { data } = await http.get(`/api/services/summary?${query.toString()}`, { headers });
-  return data;
+  const client = getApiClient();
+  const res = await client.get(`/api/services/summary?${query.toString()}`, { headers });
+  return res.data;
 }
