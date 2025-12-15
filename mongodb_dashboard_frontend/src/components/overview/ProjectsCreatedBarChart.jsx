@@ -178,7 +178,7 @@ export default function ProjectsCreatedBarChart() {
   return (
     <Card style={{ marginTop: 16 }}>
       <div className="overview-users-summary__header project summary" style={{ marginBottom: 8 }}>
-        <h3 className="overview-users-summary__title">Projects Created</h3>
+        <h3 className="overview-users-summary__title">Session Created</h3>
         <div className="overview-users-summary__controls">
           {/* Keep filters intact for both modes */}
           <>
