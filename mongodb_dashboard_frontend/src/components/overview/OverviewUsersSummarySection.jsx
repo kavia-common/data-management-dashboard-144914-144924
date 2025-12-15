@@ -12,8 +12,8 @@ import ProjectsCreatedBarChart from './ProjectsCreatedBarChart';
 /**
  * PUBLIC_INTERFACE
  * OverviewUsersSummarySection
- * For org_id === 'T0000', renders a horizontal per-organization totals chart.
- * For other orgs, renders the existing date-bucket chart unchanged.
+ * For org_id === 'T0000', renders a horizontal per-tenant totals chart using existing /api/users/summary
+ * data via useUsersSummary (orgTotals). For other orgs, preserve the current date-bucket bar chart.
  */
 export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) {
   const orgId = useCurrentOrgId();
@@ -22,6 +22,7 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
   const [startDate, setStartDate] = useState(todayStr);
   const [endDate, setEndDate] = useState(todayStr);
 
+  // Ensure custom date range order is valid
   useEffect(() => {
     if (range === 'custom' && startDate && endDate) {
       const s = parseISO(startDate);
@@ -33,6 +34,7 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
     }
   }, [range, startDate, endDate]);
 
+  // Hook params: reuse existing filters and org scoping
   const hookParams = useMemo(() => {
     const p = { range, organization_id: orgId || undefined };
     if (range === 'custom') {
@@ -42,10 +44,10 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
     return p;
   }, [range, startDate, endDate, orgId]);
 
-  const { loading, data, error, buckets, orgTotals } = useUsersSummary(hookParams);
+  const { loading, error, buckets, orgTotals } = useUsersSummary(hookParams);
   const isAllOrgs = useMemo(() => String(orgId || '').toUpperCase() === 'T0000', [orgId]);
 
-  // Build standard date-bucket chart data
+  // Non-T0000: map time buckets for existing vertical UsersSummaryBarChart
   const chartData = useMemo(() => {
     const mapped = (Array.isArray(buckets) ? buckets : []).map(({ label, count }, i) => ({
       label: String(label ?? `Bucket ${i + 1}`),
@@ -54,25 +56,27 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
     return mapped;
   }, [buckets]);
 
-  // For totals view, convert orgTotals -> rows suitable for stacked component as single-series per org
+  // T0000: build rows for horizontal totals by tenant (label uses tenant/org name if available)
   const totalsRows = useMemo(() => {
     if (!isAllOrgs) return [];
     const items = Array.isArray(orgTotals) ? orgTotals : [];
-    // Shape for horizontal chart: each row => { label: orgLabel, total }
-    const rows = items.map((o) => ({
-      label: String(o?.orgLabel ?? o?.orgId ?? 'unknown'),
-      total: Number.isFinite(Number(o?.total)) ? Number(o.total) : 0,
-    }));
-    return rows;
+    return items.map((o, i) => {
+      const tenantLabel =
+        o?.label ||
+        o?.tenant_name ||
+        o?.organization_name ||
+        o?.orgLabel ||
+        o?.orgId ||
+        `Tenant ${i + 1}`;
+      const totalVal = Number.isFinite(Number(o?.total)) ? Number(o.total) : 0;
+      return { label: String(tenantLabel), total: totalVal };
+    });
   }, [isAllOrgs, orgTotals]);
 
-  // Guarded debug for totals
+  // Guarded debug for totals view
   if (typeof window !== 'undefined' && window?.DEBUG?.usersSummary && isAllOrgs) {
     // eslint-disable-next-line no-console
-    console.debug('[OverviewUsersSummarySection] orgTotals', {
-      len: orgTotals?.length || 0,
-      sample: orgTotals?.[0],
-    });
+    console.debug('[OverviewUsersSummarySection] totalsRows sample', totalsRows.slice(0, 3));
   }
 
   return (
@@ -81,16 +85,32 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
         <h2 className="overview-users-summary__title">Users Created</h2>
         <div className="overview-users-summary__controls">
           <div className="btn-group" role="group" aria-label="Time range">
-            <button type="button" className={`btn ${range === 'daily' ? 'btn-active' : ''}`} onClick={() => setRange('daily')}>
+            <button
+              type="button"
+              className={`btn ${range === 'daily' ? 'btn-active' : ''}`}
+              onClick={() => setRange('daily')}
+            >
               Daily
             </button>
-            <button type="button" className={`btn ${range === 'weekly' ? 'btn-active' : ''}`} onClick={() => setRange('weekly')}>
+            <button
+              type="button"
+              className={`btn ${range === 'weekly' ? 'btn-active' : ''}`}
+              onClick={() => setRange('weekly')}
+            >
               Weekly
             </button>
-            <button type="button" className={`btn ${range === 'monthly' ? 'btn-active' : ''}`} onClick={() => setRange('monthly')}>
+            <button
+              type="button"
+              className={`btn ${range === 'monthly' ? 'btn-active' : ''}`}
+              onClick={() => setRange('monthly')}
+            >
               Monthly
             </button>
-            <button type="button" className={`btn ${range === 'custom' ? 'btn-active' : ''}`} onClick={() => setRange('custom')}>
+            <button
+              type="button"
+              className={`btn ${range === 'custom' ? 'btn-active' : ''}`}
+              onClick={() => setRange('custom')}
+            >
               Custom
             </button>
           </div>
@@ -98,35 +118,51 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
             <div className="date-range">
               <label className="date-field">
                 <span>From</span>
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} max={endDate} />
+                <input
+                  type="date"
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  max={endDate}
+                />
               </label>
               <label className="date-field">
                 <span>To</span>
-                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} min={startDate} />
+                <input
+                  type="date"
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  min={startDate}
+                />
               </label>
             </div>
           )}
         </div>
       </div>
 
-      {/* Chart body - preserve sizing */}
+      {/* Chart body - fixed height container */}
       <div className="users-summary-chart__body" style={{ minHeight: 350, height: 350 }}>
         {isAllOrgs ? (
-          // Horizontal totals chart
+          // Required: horizontal bar chart grouped by tenant for T0000
           <UsersSummaryStackedBar
-            rows={totalsRows.map((r) => ({ label: r.label, total: r.total }))}
+            rows={totalsRows}
             orgs={['total']}
             loading={loading}
             error={error}
             height={350}
           />
         ) : (
-          // Existing non-T0000 chart path unchanged
-          <UsersSummaryBarChart data={chartData} loading={loading} error={error} title="" height={350} />
+          // Preserve existing behavior for non-T0000 orgs
+          <UsersSummaryBarChart
+            data={chartData}
+            loading={loading}
+            error={error}
+            title=""
+            height={350}
+          />
         )}
       </div>
 
-      {/* New: Projects Created chart positioned below Users summary */}
+      {/* Keep existing additional element below, if present */}
       <div style={{ marginTop: 24 }}>
         <ProjectsCreatedBarChart />
       </div>
