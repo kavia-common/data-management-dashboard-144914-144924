@@ -3,6 +3,7 @@ import "./App.css";
 import { appLogo } from "./assets/logo"; // REQ-UI-LOGO-REPLACE: shared logo for overlay
 import AppRoutes from "./routes/AppRoutes";
 import { useVerifyUsersUrlOnce } from "./hooks/useVerifyUsersUrlOnce";
+import { installDevDiagnostics } from "./utils/devDiagnostics";
 
 /**
  * Internal hook: detect if current viewport width is below the desktop breakpoint (1024px).
@@ -75,6 +76,12 @@ export default function App() {
       useVerifyUsersUrlOnce();
     } catch {
       // ignore if hooks linting or other constraints in test builds
+    }
+    try {
+      // Non-invasive diagnostics to help manual verification capture errors/network issues.
+      installDevDiagnostics({ enabled: true });
+    } catch {
+      // ignore
     }
   }
   /**
