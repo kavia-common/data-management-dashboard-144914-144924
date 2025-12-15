@@ -9,6 +9,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { useSessionsPerDay } from '../../hooks/useSessionsPerDay';
+// Note: useSessionsPerDay -> api/sessionsPerDay adapter now calls /projects/summary under the hood
 import Card from '../ui/Card';
 import { getChartTheme } from './chartTheme';
 

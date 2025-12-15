@@ -1,23 +1,44 @@
 import { getApiClient } from './baseClient';
+import { withTenantHeaders } from './util';
 
 /**
  * PUBLIC_INTERFACE
- * Fetches sessions per day analytics from the backend.
- * Supports optional filters: tenant_id, project_id, status, start, end.
- * Returns: { items: Array<{ date: 'YYYY-MM-DD', count: number }>, meta?: object } or a raw array fallback.
+ * Fetches sessions-per-day style series by reusing the supported overview endpoint.
+ * NOTE: The old path /api/analytics/sessions-per-day is not present; this adapter calls
+ * GET /api/projects/summary and shapes the buckets into { date, count } items.
+ *
+ * Supported params (mapped):
+ * - organizationId | tenant_id | organization_id — provided via withTenantHeaders or base client rules
+ * - range: 'daily' | 'weekly' | 'monthly' | 'custom'
+ * - start_date, end_date (YYYY-MM-DD) when range='custom'
+ *
+ * Returns: { items: Array<{ date: 'YYYY-MM-DD', count: number }>, meta?: object }
  */
 export async function getSessionsPerDay(params = {}) {
   const client = getApiClient();
-  const { data } = await client.get('/api/analytics/sessions-per-day', { params });
 
-  // Normalize: backend may return { items: [...] } or direct array.
-  if (Array.isArray(data)) {
-    return { items: data };
+  const {
+    organizationId,
+    range = 'daily',
+    start_date,
+    end_date,
+    ...rest
+  } = params || {};
+
+  const query = { range, ...rest };
+  if (range === 'custom' && start_date && end_date) {
+    query.start_date = start_date;
+    query.end_date = end_date;
   }
-  if (data && Array.isArray(data.items)) {
-    return data;
-  }
-  // If backend returns an unexpected shape, try to infer items
-  const items = Array.isArray(data?.data) ? data.data : [];
-  return { items, meta: data?.meta || undefined };
+
+  const headers = withTenantHeaders(organizationId);
+  const { data } = await client.get('/projects/summary', { params: query, headers });
+
+  const buckets = Array.isArray(data?.buckets) ? data.buckets : [];
+  const items = buckets.map(b => ({
+    date: b.label || b.key || '',
+    count: Number(b.count || 0),
+  }));
+
+  return { items, meta: { range: data?.range, start_date: data?.start_date, end_date: data?.end_date } };
 }
