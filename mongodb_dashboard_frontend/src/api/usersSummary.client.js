@@ -44,7 +44,7 @@ export async function fetchUsersSummary({
   // eslint-disable-next-line no-console
   console.debug('[fetchUsersSummary] GET /api/users/summary', { params });
 
-  const response = await client.get('/api/users/summary', {
+  const response = await client.get('/users/summary', {
     params,
     headers,
   });

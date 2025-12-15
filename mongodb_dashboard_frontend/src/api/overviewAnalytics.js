@@ -22,7 +22,7 @@ export async function getOverviewProjectsSummary({ organizationId, params = {} }
   // We still provide header for x-organization-id; baseClient will handle organization_id in query
   const headers = withTenantHeaders(organizationId);
 
-  const { data } = await client.get('/api/projects/summary', {
+  const { data } = await client.get('/projects/summary', {
     params: query,
     headers,
   });

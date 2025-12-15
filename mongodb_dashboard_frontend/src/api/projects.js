@@ -33,7 +33,7 @@ export async function getProjectsSummary(params = {}) {
 
   // Use shared base client which injects Authorization and merges scoped params
   const client = getApiClient();
-  const res = await client.get('/api/projects/summary', {
+  const res = await client.get('/projects/summary', {
     params: query,
     headers: orgId ? { 'x-organization-id': String(orgId) } : undefined,
   });
