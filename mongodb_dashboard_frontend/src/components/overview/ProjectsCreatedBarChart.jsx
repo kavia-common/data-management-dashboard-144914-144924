@@ -42,6 +42,8 @@ export default function ProjectsCreatedBarChart() {
   const debounceRef = useRef(null);
   const hasMountedRef = useRef(false);
 
+  const isSuperOrg = organizationId === 'T0000';
+
   const fetchSummary = useCallback(async () => {
     if (!organizationId) return;
 
@@ -52,6 +54,11 @@ export default function ProjectsCreatedBarChart() {
     if (range === 'custom' && appliedStart && appliedEnd) {
       params.start_date = appliedStart;
       params.end_date = appliedEnd;
+    }
+
+    // When super org, request tenant grouping
+    if (isSuperOrg) {
+      params.group_by = 'tenant';
     }
 
     try {
@@ -69,7 +76,7 @@ export default function ProjectsCreatedBarChart() {
       setError(e?.message || 'Failed to load projects summary.');
       setStatus('error');
     }
-  }, [organizationId, range, appliedStart, appliedEnd]);
+  }, [organizationId, range, appliedStart, appliedEnd, isSuperOrg]);
 
   // Centralized debounced effect controlling all fetches
   useEffect(() => {
@@ -83,17 +90,12 @@ export default function ProjectsCreatedBarChart() {
     // Reset custom when changing away from custom
     if (range !== 'custom') {
       if (appliedStart || appliedEnd) {
-        // Avoid extra double fetch caused by state change; just clear and rely on current fetch firing
-        // via the range dependency change below
-        // Clear applied bounds synchronously
-        // Note: These setStates will trigger this effect again; debounce will coalesce into one fetch.
         setAppliedStart('');
         setAppliedEnd('');
       }
     } else {
       // For custom, only fetch when both applied dates are set
       if (!(appliedStart && appliedEnd)) {
-        // Nothing to fetch yet
         return;
       }
     }
@@ -121,6 +123,21 @@ export default function ProjectsCreatedBarChart() {
     }
   };
 
+  // For super org, shape into { name: tenant_id, value: count }
+  const tenantData = useMemo(() => {
+    if (!isSuperOrg) return [];
+    const items = Array.isArray(buckets) ? buckets : [];
+    // Expect backend to return buckets like { key: tenant_id, label?: tenant_id or name, count }
+    const shaped = items.map((b) => ({
+      name: b.label || b.key || 'Unknown',
+      value: Number(b.count || 0),
+      tenant_id: b.key || b.label || 'unknown',
+    }));
+    // Sort descending for readability
+    shaped.sort((a, b) => b.value - a.value);
+    return shaped;
+  }, [buckets, isSuperOrg]);
+
   const chartData = useMemo(
     () =>
       (buckets || []).map((b) => ({
@@ -136,22 +153,26 @@ export default function ProjectsCreatedBarChart() {
       <div className="overview-users-summary__header project summary" style={{ marginBottom: 8 }}>
         <h3 className="overview-users-summary__title">Projects Created</h3>
         <div className="overview-users-summary__controls">
-          <label htmlFor="projects-range" className="overview-users-summary__label">
-            Range
-          </label>
-          <select
-            id="projects-range"
-            className="overview-users-summary__select"
-            value={range}
-            onChange={(e) => setRange(e.target.value)}
-          >
-            <option value="daily">Daily</option>
-            <option value="weekly">Weekly</option>
-            <option value="monthly">Monthly</option>
-            <option value="custom">Custom</option>
-          </select>
+          {!isSuperOrg && (
+            <>
+              <label htmlFor="projects-range" className="overview-users-summary__label">
+                Range
+              </label>
+              <select
+                id="projects-range"
+                className="overview-users-summary__select"
+                value={range}
+                onChange={(e) => setRange(e.target.value)}
+              >
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="custom">Custom</option>
+              </select>
+            </>
+          )}
 
-          {range === 'custom' && (
+          {!isSuperOrg && range === 'custom' && (
             <>
               <label htmlFor="projects-start" className="overview-users-summary__label">
                 Start
@@ -203,31 +224,60 @@ export default function ProjectsCreatedBarChart() {
       )}
 
       {status === 'success' && !isEmpty && (
-        <div style={{ width: '100%', height: 280 }}>
+        <div style={{ width: '100%', height: isSuperOrg ? 360 : 280 }}>
           <ResponsiveContainer>
-            <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
-              <XAxis
-                dataKey="label"
-                tick={{ fontSize: 12, fill: theme.primary }}
-                axisLine={{ stroke: theme.axisTick }}
-                tickLine={{ stroke: theme.axisTick }}
-                interval="preserveEnd"
-              />
-              <YAxis
-                allowDecimals={false}
-                tick={{ fontSize: 12, fill: theme.axisTick }}
-                axisLine={{ stroke: theme.axisTick }}
-                tickLine={{ stroke: theme.axisTick }}
-              />
-              <Tooltip
-                formatter={(value) => [value, 'Projects']}
-                labelFormatter={(label) => `Date: ${label}`}
-                fill={theme.primary}
-                contentStyle={{ background: 'transparent', borderRadius: 8, borderColor: '#e5e7eb' }}
-              />
-              <Bar dataKey="count" name="Projects" fill={theme.primary} radius={[4, 4, 0, 0]} />
-            </BarChart>
+            {isSuperOrg ? (
+              <BarChart
+                data={tenantData}
+                layout="vertical"
+                margin={{ top: 8, right: 24, left: 80, bottom: 8 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
+                <XAxis
+                  type="number"
+                  tick={{ fontSize: 12, fill: theme.axisTick }}
+                  allowDecimals={false}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  tick={{ fontSize: 12, fill: theme.axisTick }}
+                  width={80}
+                />
+                <Tooltip
+                  formatter={(value) => [value, 'Projects']}
+                  labelFormatter={(label) => `Tenant: ${label}`}
+                  fill={theme.primary}
+                  contentStyle={{ background: 'transparent', borderRadius: 8, borderColor: '#e5e7eb' }}
+                  cursor={{ fill: 'transparent' }}
+                />
+                <Bar dataKey="value" name="Projects" fill={theme.primary} radius={[4, 4, 4, 4]} />
+              </BarChart>
+            ) : (
+              <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 12, fill: theme.primary }}
+                  axisLine={{ stroke: theme.axisTick }}
+                  tickLine={{ stroke: theme.axisTick }}
+                  interval="preserveEnd"
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fontSize: 12, fill: theme.axisTick }}
+                  axisLine={{ stroke: theme.axisTick }}
+                  tickLine={{ stroke: theme.axisTick }}
+                />
+                <Tooltip
+                  formatter={(value) => [value, 'Projects']}
+                  labelFormatter={(label) => `Date: ${label}`}
+                  fill={theme.primary}
+                  contentStyle={{ background: 'transparent', borderRadius: 8, borderColor: '#e5e7eb' }}
+                />
+                <Bar dataKey="count" name="Projects" fill={theme.primary} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            )}
           </ResponsiveContainer>
         </div>
       )}
