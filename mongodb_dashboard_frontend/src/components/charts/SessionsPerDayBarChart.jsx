@@ -20,7 +20,7 @@ import { getChartTheme } from './chartTheme';
  *  - title?: string
  *  - filters?: { tenant_id?, project_id?, status?, start?, end? }
  */
-export default function SessionsPerDayBarChart({ title = 'Sessions Per Day', filters = {} }) {
+export default function SessionsPerDayBarChart({ title = 'Sessions by servive type', filters = {} }) {
   const { data, loading, error } = useSessionsPerDay(filters);
 
   const theme = getChartTheme();
