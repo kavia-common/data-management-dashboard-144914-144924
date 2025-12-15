@@ -3,6 +3,7 @@ import OverviewTimeControls from './OverviewTimeControls';
 import OverviewKpiCards from './OverviewKpiCards';
 import OverviewUsersSummarySection from './OverviewUsersSummarySection';
 import ProjectsCreatedBarChart from './ProjectsCreatedBarChart';
+import ServiceTypesCreatedBarChart from './ServiceTypesCreatedBarChart';
 import './overview.css';
 
 /**
@@ -18,6 +19,9 @@ export default function OverviewContainer() {
       <OverviewUsersSummarySection />
       <div style={{ marginTop: 16 }}>
         <ProjectsCreatedBarChart />
+      </div>
+      <div style={{ marginTop: 16 }}>
+        <ServiceTypesCreatedBarChart />
       </div>
     </div>
   );

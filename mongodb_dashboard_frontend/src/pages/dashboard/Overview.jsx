@@ -4,7 +4,6 @@ import Skeleton from "../../components/ui/Skeleton.jsx";
 import { listUsers, listSessions, listDeployments, health } from "../../api";
 import { OverviewUsersSummarySection } from "../../components/overview";
 import SessionsPerDayBarChart from "../../components/charts/SessionsPerDayBarChart.jsx";
-import ServiceTypesCreatedBarChart from "../../components/overview/ServiceTypesCreatedBarChart.jsx";
 
 /**
  * PUBLIC_INTERFACE
@@ -122,12 +121,7 @@ export default function Overview() {
         </Card>
       </div>
 
-      {/* New Service Types Created chart - immediately after Sessions Created */}
-      <div className="block-full" style={{ alignSelf: "stretch" }}>
-        <Card title="Service Types Created">
-          <ServiceTypesCreatedBarChart />
-        </Card>
-      </div>
+
 
       {/* Existing Users Summary section */}
       <div className="block-full" style={{ alignSelf: "stretch" }}>
