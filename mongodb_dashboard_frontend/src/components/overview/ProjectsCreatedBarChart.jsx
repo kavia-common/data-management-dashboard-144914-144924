@@ -70,11 +70,28 @@ export default function ProjectsCreatedBarChart() {
       const res = await getOverviewProjectsSummary(req);
       // Backend parity: orgBuckets present only for all-tenant (T0000) mode.
       // Maintain backward compat by falling back to buckets when orgBuckets not provided.
-      const list = Array.isArray(res?.orgBuckets) && res.orgBuckets.length > 0
-        ? res.orgBuckets
-        : Array.isArray(res?.buckets)
-        ? res.buckets
-        : [];
+      // Always prefer orgBuckets for T0000; otherwise use buckets.
+      // Normalize keys to prevent downstream mapping issues.
+      let list = [];
+      if (Array.isArray(res?.orgBuckets) && res.orgBuckets.length > 0) {
+        list = res.orgBuckets.map((o) => ({
+          organization_id: o.organization_id || o.tenant_id || o.org || o.key || 'unknown',
+          total: Number(o.total ?? 0),
+          buckets: Array.isArray(o.buckets)
+            ? o.buckets.map((b) => ({
+                label: b.label || b.key || '',
+                count: Number(b.count || 0),
+              }))
+            : [],
+        }));
+      } else if (Array.isArray(res?.buckets)) {
+        list = res.buckets.map((b) => ({
+          label: b.label || b.key || '',
+          count: Number(b.count || 0),
+        }));
+      } else {
+        list = [];
+      }
       if (list.length === 0) {
         setBuckets([]);
         setStatus('empty');
@@ -137,12 +154,13 @@ export default function ProjectsCreatedBarChart() {
   const tenantData = useMemo(() => {
     if (!isSuperOrg) return [];
     const items = Array.isArray(buckets) ? buckets : [];
-    // Backend orgBuckets shape: { organization_id, total, buckets:[{label,count}] }
-    const shaped = items.map((b) => ({
-      name: b.tenant_name || b.organization_id || b.tenant_id || 'Unknown',
-      value: Number(b.total ?? b.count ?? 0),
-      tenant_id: b.organization_id || b.tenant_id || b.key || 'unknown',
-    }));
+    // orgBuckets normalized upstream; if buckets are daily series (non-T0000), this memo won't be used.
+    const shaped = items.map((b) => {
+      const orgId = b.organization_id || b.tenant_id || b.org || b.key || 'unknown';
+      const name = b.tenant_name || orgId || 'Unknown';
+      const value = typeof b.total === 'number' ? b.total : Number(b.count ?? 0);
+      return { name, value, tenant_id: orgId };
+    });
     shaped.sort((a, b) => b.value - a.value);
     return shaped;
   }, [buckets, isSuperOrg]);

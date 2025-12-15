@@ -33,7 +33,21 @@ export function useProjectsSummary({ organizationId, range, start_date, end_date
     try {
       const req = buildOverviewFilterParams({ organizationId, params });
       const data = await getOverviewProjectsSummary(req);
-      const list = Array.isArray(data?.buckets) ? data.buckets : [];
+      // Prefer orgBuckets when present (T0000 mode); otherwise use buckets
+      let list = [];
+      if (Array.isArray(data?.orgBuckets) && data.orgBuckets.length > 0) {
+        list = data.orgBuckets.map((o) => ({
+          organization_id: o.organization_id || o.tenant_id || o.org || o.key || 'unknown',
+          total: Number(o.total ?? 0),
+          buckets: Array.isArray(o.buckets)
+            ? o.buckets.map((b) => ({ label: b.label || b.key || '', count: Number(b.count || 0) }))
+            : [],
+        }));
+      } else if (Array.isArray(data?.buckets)) {
+        list = data.buckets;
+      } else {
+        list = [];
+      }
       if (list.length === 0) {
         setBuckets([]);
         setStatus('empty');
