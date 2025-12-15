@@ -1,39 +1,56 @@
-import qs from 'query-string';
-import { apiGet } from '../utils/api';
+import { getApiBase } from './config';
+import clientDefault from './client';
 
 /**
  * PUBLIC_INTERFACE
  * fetchUsersSummary
- * Fetches /api/users/summary with range and optional custom date window.
- * Params: { organization_id?, tenant_id?, range='daily'|'weekly'|'monthly'|'custom', start_date?, end_date? }
+ * Fetches /api/users/summary with range and optional custom date window using the shared axios client.
+ * Params: { organization_id?, tenant_id?, range='daily'|'weekly'|'monthly'|'custom', start_date?, end_date?, headers? }
  * Returns: { buckets: [{ label, key?, start?, end?, count }], range, start_date, end_date }
+ *
+ * Note:
+ * - Preserves existing API shape and compatibility with hooks/components.
+ * - Sends tenant header x-organization-id when organization_id is provided.
  */
-export async function fetchUsersSummary({ organization_id, tenant_id, range = 'daily', start_date, end_date } = {}) {
-  const params = { range };
+export async function fetchUsersSummary({
+  organization_id,
+  tenant_id,
+  range = 'daily',
+  start_date,
+  end_date,
+  headers: extraHeaders = {},
+} = {}) {
+  // Use the shared axios client. clientDefault is pre-configured with baseURL from getApiBase()
+  // but we still call getApiBase() to ensure the module is initialized (and future-proof).
+  const baseUrl = getApiBase(); // eslint-disable-line no-unused-vars
+  const client = clientDefault;
 
-  // Ensure tenant scoping is present (prefer organization_id)
-  if (organization_id) {
-    params.organization_id = organization_id;
-  } else if (tenant_id) {
-    params.tenant_id = tenant_id;
-  }
+  const params = {
+    range,
+    ...(organization_id ? { organization_id } : {}),
+    // Respect alias for tenant
+    ...(!organization_id && tenant_id ? { tenant_id } : {}),
+    ...(range === 'custom' && start_date ? { start_date } : {}),
+    ...(range === 'custom' && end_date ? { end_date } : {}),
+  };
 
-  // Include custom window only when applicable
-  if (range === 'custom') {
-    if (start_date) params.start_date = start_date;
-    if (end_date) params.end_date = end_date;
-  }
+  // Maintain current behavior: include x-organization-id header when provided
+  const headers = {
+    ...(organization_id ? { 'x-organization-id': organization_id } : {}),
+    ...extraHeaders,
+    'content-type': 'application/json',
+  };
 
-  const path = `/api/users/summary?${qs.stringify(params)}`;
-
-  // Centralized apiGet handles base URL and header propagation; include explicit org hint
   // eslint-disable-next-line no-console
-  console.debug('[fetchUsersSummary] GET', path);
-  const data = await apiGet(path, {
-    headers: { 'content-type': 'application/json' },
-    organization_id: organization_id || tenant_id,
+  console.debug('[fetchUsersSummary] GET /api/users/summary', { params });
+
+  const response = await client.get('/api/users/summary', {
+    params,
+    headers,
   });
+
   // eslint-disable-next-line no-console
-  console.debug('[fetchUsersSummary] response keys', data && Object.keys(data || {}));
-  return data; // { buckets: [{ label, start, end, count }], range, start_date, end_date }
+  console.debug('[fetchUsersSummary] response keys', response?.data && Object.keys(response.data || {}));
+
+  return response.data;
 }
