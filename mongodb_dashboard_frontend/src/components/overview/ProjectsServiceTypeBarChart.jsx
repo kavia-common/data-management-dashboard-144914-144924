@@ -298,7 +298,7 @@ export default function ProjectsServiceTypeBarChart({
       <div className="overview-users-summary__header service-type summary" style={{ marginBottom: 8 }}>
         <h3 className="overview-users-summary__title">
           {isAllTenants
-            ? 'Sessions by Service Type (Tenants on Y-axis)'
+            ? 'Sessions by Service Type (Tenants on X-axis)'
             : 'Sessions by Service Type'}
         </h3>
         <div className="overview-users-summary__controls">
@@ -374,28 +374,29 @@ export default function ProjectsServiceTypeBarChart({
         <div style={{ width: '100%', height: 320 }}>
           <ResponsiveContainer>
             {isAllTenants ? (
-              // Horizontal stacked: service types on Y-axis, tenant stacks on X (counts)
+              // Horizontal stacked with tenants as X-axis categories and service types stacked per tenant
               <BarChart
                 data={stackedData}
-                layout="vertical"
+                layout="horizontal"
                 margin={{ top: 8, right: 12, left: 8, bottom: 4 }}
-                aria-label="Sessions by service type (stacked by tenant)"
+                aria-label="Sessions by tenant (stacked by service type)"
               >
                 <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
                 <XAxis
-                  type="number"
-                  allowDecimals={false}
-                  tick={{ fontSize: 12, fill: theme.label }}
-                  axisLine={{ stroke: theme.axisTick }}
-                  tickLine={{ stroke: theme.axisTick }}
-                />
-                <YAxis
                   type="category"
                   dataKey="label"
                   tick={{ fontSize: 12, fill: theme.label }}
                   axisLine={{ stroke: theme.axisTick }}
                   tickLine={{ stroke: theme.axisTick }}
-                  width={120}
+                  interval="preserveEnd"
+                />
+                <YAxis
+                  type="number"
+                  allowDecimals={false}
+                  tick={{ fontSize: 12, fill: theme.label }}
+                  axisLine={{ stroke: theme.axisTick }}
+                  tickLine={{ stroke: theme.axisTick }}
+                  width={40}
                 />
                 <Tooltip
                   cursor={{ fill: 'transparent' }}
@@ -407,7 +408,7 @@ export default function ProjectsServiceTypeBarChart({
                   }}
                   wrapperStyle={{ zIndex: 9999 }}
                   formatter={(value, name) => [value, name]}
-                  labelFormatter={(lab) => `Service: ${lab}`}
+                  labelFormatter={(lab) => `Tenant: ${lab}`}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 {series.map((s, i) => {
@@ -419,8 +420,8 @@ export default function ProjectsServiceTypeBarChart({
                       name={seriesName}
                       fill={colorFor(seriesName)}
                       stackId="total"
-                      barSize={18}
-                      radius={[0, 4, 4, 0]}
+                      maxBarSize={48}
+                      radius={[4, 4, 0, 0]}
                       label={false}
                     />
                   );
