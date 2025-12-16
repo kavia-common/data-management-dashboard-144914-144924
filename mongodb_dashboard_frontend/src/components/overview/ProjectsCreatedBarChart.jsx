@@ -85,7 +85,7 @@ export default function ProjectsCreatedBarChart() {
           .slice()
           .sort((a, b) => Number(b?.count || 0) - Number(a?.count || 0));
 
-        // For non-T0000 tenants, filter out zero-count entries for Projects Created chart (barData)
+        // For non-T0000 tenants, filter out zero-count entries for Sessions Created chart (barData)
         // Keep T0000 behavior unchanged (use barData as-is with tooltip and white text)
         const isT0000Local = String(organizationId) === 'T0000';
         if (!isT0000Local) {
@@ -172,7 +172,7 @@ export default function ProjectsCreatedBarChart() {
   return (
     <Card style={{ marginTop: 16, overflow: 'visible' }}>
       <div className="overview-users-summary__header project summary" style={{ marginBottom: 8 }}>
-        <h3 className="overview-users-summary__title">Projects Created</h3>
+        <h3 className="overview-users-summary__title">Sessions Created</h3>
         <div className="overview-users-summary__controls">
           <label htmlFor="projects-range" className="overview-users-summary__label">
             Range
@@ -243,7 +243,7 @@ export default function ProjectsCreatedBarChart() {
       {status === 'success' && !isEmpty && (
         <>
           {shouldShowT0000Horizontal ? (
-            <div style={{ width: '100%', height: 320, overflow: 'visible' }} aria-label="Projects created by tenant">
+            <div style={{ width: '100%', height: 320, overflow: 'visible' }} aria-label="Sessions created by tenant">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={t0000Data}
