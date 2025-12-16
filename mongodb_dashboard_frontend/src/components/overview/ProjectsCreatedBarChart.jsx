@@ -79,9 +79,19 @@ export default function ProjectsCreatedBarChart() {
         setStatus('empty');
       } else {
         setBuckets(list);
-        const sorted = incomingBar
+
+        // Preserve existing sort order (descending by count)
+        let sorted = incomingBar
           .slice()
           .sort((a, b) => Number(b?.count || 0) - Number(a?.count || 0));
+
+        // For non-T0000 tenants, filter out zero-count entries for Projects Created chart (barData)
+        // Keep T0000 behavior unchanged (use barData as-is with tooltip and white text)
+        const isT0000Local = String(organizationId) === 'T0000';
+        if (!isT0000Local) {
+          sorted = sorted.filter((item) => Number(item?.count || 0) > 0);
+        }
+
         setBarData(sorted);
         setStatus('success');
       }
