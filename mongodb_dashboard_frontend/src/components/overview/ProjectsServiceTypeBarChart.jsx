@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import PropTypes from 'prop-types';
 import {
   ResponsiveContainer,
   BarChart,
@@ -10,23 +11,22 @@ import {
   Legend,
   LabelList,
 } from 'recharts';
+import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import Card from '../common/Card';
 import './overview.css';
 import '../overview/overviewUsersSummary.css';
-import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import { getChartTheme } from '../charts/chartTheme';
 
-// PUBLIC_INTERFACE
 /**
+ * PUBLIC_INTERFACE
  * ProjectsServiceTypeBarChart
- * - Fetches /api/service-type/summary with daily|weekly|monthly|custom filters.
- * - For custom, shows start/end date inputs and Apply button.
- * - Default filter is daily.
- * - Renders vertical bar chart of counts by service_type; also shows small timeline buckets chart below for context.
+ * Renders a bar chart of Session counts grouped by service_type with range filtering:
+ * - range options: daily | weekly | monthly | custom (default: daily)
+ * - when custom, show start/end date inputs and apply only on "Apply"
+ * Frontend-only component fetching from backend /api/service-type/summary.
  */
 export default function ProjectsServiceTypeBarChart() {
   const organizationId = useCurrentOrgId();
-
   const [range, setRange] = useState('daily');
   const [pendingStart, setPendingStart] = useState('');
   const [pendingEnd, setPendingEnd] = useState('');
@@ -47,84 +47,78 @@ export default function ProjectsServiceTypeBarChart() {
     palette: ['#2563EB', '#F59E0B', '#10B981', '#EC4899', '#8B5CF6', '#F43F5E', '#0EA5E9'],
   };
 
+  // Stable debounced fetch using a ref-held timeout
   const debounceRef = useRef(null);
   const hasMountedRef = useRef(false);
 
-  const buildUrl = useCallback(() => {
-    const base = '/api/service-type/summary';
+  const fetchSummary = useCallback(async () => {
+    if (!organizationId) return;
+    setStatus('loading');
+    setError(null);
+
     const params = new URLSearchParams();
-    if (organizationId) params.set('organization_id', organizationId);
-    params.set('range', range);
+    params.set('range', range || 'daily');
     if (range === 'custom' && appliedStart && appliedEnd) {
       params.set('start_date', appliedStart);
       params.set('end_date', appliedEnd);
     }
-    return `${base}?${params.toString()}`;
-  }, [organizationId, range, appliedStart, appliedEnd]);
-
-  const fetchData = useCallback(async () => {
-    if (!organizationId) return;
-
-    setStatus('loading');
-    setError(null);
+    // organization_id is required unless T0000/global on backend;
+    // always send it to match existing charts' pattern
+    params.set('organization_id', organizationId);
 
     try {
-      const url = buildUrl();
-      const resp = await fetch(url, {
+      const res = await fetch(`/api/service-type/summary?${params.toString()}`, {
         headers: {
-          'Content-Type': 'application/json',
-          // backend also accepts x-organization-id header
-          'x-organization-id': organizationId,
+          'Accept': 'application/json',
         },
       });
-      if (!resp.ok) {
-        const t = await resp.text();
-        throw new Error(`Failed (${resp.status}): ${t || 'Unknown error'}`);
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `Request failed with ${res.status}`);
       }
-      const data = await resp.json();
-      const arr = Array.isArray(data?.items) ? data.items : [];
-      const bucketsArr = Array.isArray(data?.buckets) ? data.buckets : [];
-      if (arr.length === 0 && bucketsArr.length === 0) {
-        setItems([]);
-        setBuckets([]);
-        setStatus('empty');
-      } else {
-        // Sort by count desc
-        const sorted = arr.slice().sort((a, b) => Number(b?.count || 0) - Number(a?.count || 0));
-        setItems(sorted);
-        setBuckets(bucketsArr);
-        setStatus('success');
-      }
+      const data = await res.json();
+      const list = Array.isArray(data?.items) ? data.items : [];
+      const bucketList = Array.isArray(data?.buckets) ? data.buckets : [];
+      const any = (list && list.length > 0) || (bucketList && bucketList.length > 0);
+      setItems(list);
+      setBuckets(bucketList);
+      setStatus(any ? 'success' : 'empty');
     } catch (e) {
       setError(e?.message || 'Failed to load service type summary.');
       setStatus('error');
     }
-  }, [organizationId, buildUrl]);
+  }, [organizationId, range, appliedStart, appliedEnd]);
 
   useEffect(() => {
+    // On initial mount, fetch once
     if (!hasMountedRef.current) {
       hasMountedRef.current = true;
-      fetchData();
+      fetchSummary();
       return;
     }
 
+    // Reset custom dates when switching away from custom
     if (range !== 'custom') {
       if (appliedStart || appliedEnd) {
         setAppliedStart('');
         setAppliedEnd('');
       }
-    } else if (!(appliedStart && appliedEnd)) {
-      // wait for both to apply before fetching
-      return;
+    } else {
+      // For custom, only fetch after Apply when both dates are set
+      if (!(appliedStart && appliedEnd)) {
+        return;
+      }
     }
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fetchData(), 150);
+    debounceRef.current = setTimeout(() => {
+      fetchSummary();
+    }, 150);
 
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [range, appliedStart, appliedEnd, fetchData]);
+  }, [range, appliedStart, appliedEnd, fetchSummary]);
 
   const onApplyCustom = () => {
     if (pendingStart && pendingEnd) {
@@ -133,31 +127,34 @@ export default function ProjectsServiceTypeBarChart() {
     }
   };
 
-  const chartData = useMemo(
-    () =>
-      (items || []).map((d, i) => ({
-        label: d.service_type || `Type ${i + 1}`,
-        count: Number(d.count || 0),
-      })),
-    [items]
-  );
+  // Data for service type distribution chart
+  const serviceChartData = useMemo(() => {
+    return (items || []).map((d) => ({
+      service: String(d.service_type ?? 'Unknown'),
+      count: Number(d.count || 0),
+    }));
+  }, [items]);
 
-  const timelineData = useMemo(
-    () =>
-      (buckets || [])
-        .map((b) => ({ label: b.label || b.key, count: Number(b.count || 0) }))
-        .filter((d) => d.count > 0),
-    [buckets]
-  );
+  // Data for time series buckets (if needed or for future expansion)
+  const timeSeriesData = useMemo(() => {
+    return (buckets || []).map((b) => ({
+      label: b.label || b.key,
+      count: Number(b.count || 0),
+    })).filter((d) => d.count > 0);
+  }, [buckets]);
+
+  const isEmpty = status === 'empty';
 
   return (
     <Card style={{ marginTop: 16, overflow: 'visible' }}>
-      <div className="overview-users-summary__header project summary" style={{ marginBottom: 8 }}>
+      <div className="overview-users-summary__header service-type summary" style={{ marginBottom: 8 }}>
         <h3 className="overview-users-summary__title">Sessions by Service Type</h3>
         <div className="overview-users-summary__controls">
-          <label htmlFor="svc-range" className="overview-users-summary__label">Range</label>
+          <label htmlFor="service-type-range" className="overview-users-summary__label">
+            Range
+          </label>
           <select
-            id="svc-range"
+            id="service-type-range"
             className="overview-users-summary__select"
             value={range}
             onChange={(e) => setRange(e.target.value)}
@@ -170,17 +167,21 @@ export default function ProjectsServiceTypeBarChart() {
 
           {range === 'custom' && (
             <>
-              <label htmlFor="svc-start" className="overview-users-summary__label">Start</label>
+              <label htmlFor="service-type-start" className="overview-users-summary__label">
+                Start
+              </label>
               <input
-                id="svc-start"
+                id="service-type-start"
                 type="date"
                 className="overview-users-summary__date-input"
                 value={pendingStart}
                 onChange={(e) => setPendingStart(e.target.value)}
               />
-              <label htmlFor="svc-end" className="overview-users-summary__label">End</label>
+              <label htmlFor="service-type-end" className="overview-users-summary__label">
+                End
+              </label>
               <input
-                id="svc-end"
+                id="service-type-end"
                 type="date"
                 className="overview-users-summary__date-input"
                 value={pendingEnd}
@@ -205,18 +206,25 @@ export default function ProjectsServiceTypeBarChart() {
         </div>
       </div>
 
-      {status === 'loading' && <div style={{ padding: 16, color: '#6b7280' }}>Loading…</div>}
-      {status === 'error' && <div role="alert" style={{ padding: 16, color: '#EF4444' }}>{error}</div>}
-      {status === 'empty' && <div style={{ padding: 16, color: '#6b7280' }}>No data for the selected range.</div>}
+      {status === 'loading' && (
+        <div style={{ padding: 16, color: '#6b7280' }}>Loading…</div>
+      )}
+      {status === 'error' && (
+        <div role="alert" style={{ padding: 16, color: '#EF4444' }}>{error}</div>
+      )}
+      {isEmpty && (
+        <div style={{ padding: 16, color: '#6b7280' }}>No sessions found for the selected range.</div>
+      )}
 
-      {status === 'success' && (
+      {status === 'success' && !isEmpty && (
         <>
+          {/* Primary: distribution by service type */}
           <div style={{ width: '100%', height: 280 }}>
             <ResponsiveContainer>
-              <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+              <BarChart data={serviceChartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
                 <XAxis
-                  dataKey="label"
+                  dataKey="service"
                   tick={{ fontSize: 12, fill: theme.primary }}
                   axisLine={{ stroke: theme.axisTick }}
                   tickLine={{ stroke: theme.axisTick }}
@@ -238,32 +246,32 @@ export default function ProjectsServiceTypeBarChart() {
                   }}
                   wrapperStyle={{ zIndex: 9999 }}
                   formatter={(value) => [value, 'Sessions']}
-                  labelFormatter={(label) => `${label}`}
+                  labelFormatter={(label) => `Service: ${label}`}
                 />
                 <Legend />
                 <Bar dataKey="count" name="Sessions" fill={theme.primary} radius={[4, 4, 0, 0]}>
-                  <LabelList dataKey="count" position="top" fill={theme.label} fontSize={11} />
+                  <LabelList dataKey="count" position="top" fill={theme.primary} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
 
-          {/* Optional small time-bucket trend for context */}
-          {timelineData.length > 0 && (
-            <div style={{ width: '100%', height: 160, marginTop: 16 }}>
+          {/* Optional secondary small chart for time series buckets (kept concise) */}
+          {timeSeriesData.length > 0 && (
+            <div style={{ width: '100%', height: 200, marginTop: 16 }}>
               <ResponsiveContainer>
-                <BarChart data={timelineData} margin={{ top: 4, right: 8, left: 8, bottom: 0 }}>
+                <BarChart data={timeSeriesData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
                   <XAxis
                     dataKey="label"
-                    tick={{ fontSize: 10, fill: theme.axisTick }}
+                    tick={{ fontSize: 11, fill: theme.axisTick }}
                     axisLine={{ stroke: theme.axisTick }}
                     tickLine={{ stroke: theme.axisTick }}
                     interval="preserveEnd"
                   />
                   <YAxis
                     allowDecimals={false}
-                    tick={{ fontSize: 10, fill: theme.axisTick }}
+                    tick={{ fontSize: 11, fill: theme.axisTick }}
                     axisLine={{ stroke: theme.axisTick }}
                     tickLine={{ stroke: theme.axisTick }}
                   />
@@ -279,7 +287,7 @@ export default function ProjectsServiceTypeBarChart() {
                     formatter={(value) => [value, 'Sessions']}
                     labelFormatter={(label) => `Date: ${label}`}
                   />
-                  <Bar dataKey="count" name="Total" fill="#94a3b8" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" name="Sessions" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -289,3 +297,7 @@ export default function ProjectsServiceTypeBarChart() {
     </Card>
   );
 }
+
+ProjectsServiceTypeBarChart.propTypes = {
+  // No external props currently; defined for forward compatibility
+};
