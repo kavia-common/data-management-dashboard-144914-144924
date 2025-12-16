@@ -25,11 +25,10 @@ import { getCategoryColorMap } from '../../theme/oceanTheme';
  * Behavior:
  * - Fetches GET /api/service-type/summary with tenant/organization id, range, and optional start/end (custom).
  * - If tenant_id !== 'T0000': render vertical stacked chart with labels as dates and stacks per service type.
- * - If tenant_id === 'T0000': parse API to produce labels = tenant_ids and series = one series per service_type
- *   where each series.data aligns to tenant_ids (horizontal stacked: tenants on Y-axis; service types stacked).
- * - Keep legend, tooltips, loading/empty/error states, and date pickers; no value labels on bars.
- * - Preserve zero-date filtering logic ONLY for non-T0000 flow; for T0000 rely on backend-provided zeros.
- * - Chart is included just after element with class="session_created_chart" by its parent section (already in OverviewUsersSummarySection).
+ * - If tenant_id === 'T0000': render horizontal stacked chart with tenants on Y-axis and service type stacks.
+ * - Parse API for T0000: labels = tenant_ids; series = one per service_type, data aligned to labels order.
+ * - Keep legend and tooltips; do not show numeric labels on bars. Preserve non-T0000 flow unchanged.
+ * - Ensure responsive sizing; this component is placed after element with class='session_created_chart' by parent.
  */
 export default function ProjectsServiceTypeBarChart({
   organizationId: organizationIdProp,
@@ -48,10 +47,10 @@ export default function ProjectsServiceTypeBarChart({
   const [status, setStatus] = useState('idle'); // idle | loading | success | empty | error
   const [error, setError] = useState(null);
 
-  // Primary shape from API
-  // Non-T0000: labels = dates, series = [{name: service_type, data: counts per date}]
-  // T0000:     labels = tenant_ids, series = [{name: service_type, data: counts per tenant in labels order}]
-  const [labels, setLabels] = useState([]); // display labels
+  // Data model:
+  // Non-T0000: labels = date labels, series = [{ name: service_type, data: per-date counts }]
+  // T0000: labels = tenant_ids, series = [{ name: service_type, data: per-tenant counts aligned to labels }]
+  const [labels, setLabels] = useState([]);
   const [series, setSeries] = useState([]); // [{ name, data: number[] }]
 
   const theme = getChartTheme
@@ -78,7 +77,6 @@ export default function ProjectsServiceTypeBarChart({
       params.set('start_date', appliedStart);
       params.set('end_date', appliedEnd);
     }
-    // include both aliases; backend will enforce effective tenant and is tolerant of aliases
     params.set('tenant_id', organizationId);
     params.set('organization_id', organizationId);
 
@@ -90,98 +88,84 @@ export default function ProjectsServiceTypeBarChart({
       let nextLabels = null;
       let nextSeries = null;
 
-      // Preferred shape (for both flows)
+      // Accept pre-shaped response if provided
       if (Array.isArray(res?.labels) && Array.isArray(res?.series)) {
-        // If server already provided the correct labels/series, accept as-is
         nextLabels = res.labels;
         nextSeries = res.series;
       } else if (isAllTenants && Array.isArray(res?.summaryByTenantAndService)) {
-        // For T0000: expected shape: [{ tenant_id, service_type, count }]
-        // Build labels = unique tenant_ids; series per service_type with counts per tenant in labels order.
+        // Expected rows: [{ tenant_id, service_type, count }]
         const rows = res.summaryByTenantAndService;
         const tenants = Array.from(new Set(rows.map((r) => String(r?.tenant_id ?? 'unknown')))).sort();
-        const types = Array.from(new Set(rows.map((r) => String(r?.service_type ?? 'Unknown')))).sort();
+        const svcTypes = Array.from(new Set(rows.map((r) => String(r?.service_type ?? 'Unknown')))).sort();
 
-        const map = new Map(); // key: `${tenant}||${type}` -> count
+        const keyMap = new Map();
         rows.forEach((r) => {
           const t = String(r?.tenant_id ?? 'unknown');
           const s = String(r?.service_type ?? 'Unknown');
           const c = Number.isFinite(Number(r?.count)) ? Number(r.count) : 0;
-          map.set(`${t}||${s}`, c);
-        });
-
-        const builtSeries = types.map((stype) => {
-          const data = tenants.map((tenant) => map.get(`${tenant}||${stype}`) ?? 0);
-          return { name: stype, data };
+          keyMap.set(`${t}||${s}`, c);
         });
 
         nextLabels = tenants;
-        nextSeries = builtSeries;
+        nextSeries = svcTypes.map((stype) => ({
+          name: stype,
+          data: tenants.map((t) => keyMap.get(`${t}||${stype}`) ?? 0),
+        }));
       } else if (isAllTenants && Array.isArray(res?.items)) {
-        // Alternative T0000 fallback: items may be documents with { tenant_id, service_type, count }
+        // Fallback T0000 shape
         const rows = res.items;
         const tenants = Array.from(new Set(rows.map((r) => String(r?.tenant_id ?? 'unknown')))).sort();
-        const types = Array.from(new Set(rows.map((r) => String(r?.service_type ?? 'Unknown')))).sort();
+        const svcTypes = Array.from(new Set(rows.map((r) => String(r?.service_type ?? 'Unknown')))).sort();
 
-        const map = new Map();
+        const keyMap = new Map();
         rows.forEach((r) => {
           const t = String(r?.tenant_id ?? 'unknown');
           const s = String(r?.service_type ?? 'Unknown');
           const c = Number.isFinite(Number(r?.count)) ? Number(r.count) : 0;
-          map.set(`${t}||${s}`, c);
+          keyMap.set(`${t}||${s}`, c);
         });
-
-        const builtSeries = types.map((stype) => ({
-          name: stype,
-          data: tenants.map((tenant) => map.get(`${tenant}||${stype}`) ?? 0),
-        }));
 
         nextLabels = tenants;
-        nextSeries = builtSeries;
-      } else if (!isAllTenants && Array.isArray(res?.summaryByServiceType)) {
-        // Non-T0000 fallback: build date labels and service type series
-        const byType = res.summaryByServiceType;
-        const allLabelsSet = new Set();
-        byType.forEach((it) => {
-          if (Array.isArray(it?.buckets)) {
-            it.buckets.forEach((b) => {
-              if (b?.label != null) allLabelsSet.add(String(b.label));
-            });
-          }
-        });
-        const labelArr = Array.from(allLabelsSet).sort();
-
-        const builtSeries = byType.map((it) => {
-          const dataPoints = labelArr.map((lab) => {
-            const match = (it.buckets || []).find((b) => String(b.label) === lab);
-            return Number(match?.count || 0);
-          });
-          return { name: String(it.service_type ?? 'Unknown'), data: dataPoints };
-        });
-
-        if (labelArr.length && builtSeries.length) {
-          nextLabels = labelArr;
-          nextSeries = builtSeries;
-        }
-      } else if (!isAllTenants && Array.isArray(res?.items)) {
-        // Minimal fallback (non-T0000): single "Total" bucket for each service type
-        const labelArr = ['Total'];
-        const builtSeries = res.items.map((it) => ({
-          name: String(it.service_type ?? 'Unknown'),
-          data: [Number(it.count || 0)],
+        nextSeries = svcTypes.map((stype) => ({
+          name: stype,
+          data: tenants.map((t) => keyMap.get(`${t}||${stype}`) ?? 0),
         }));
-        nextLabels = labelArr;
+      } else if (!isAllTenants && Array.isArray(res?.summaryByServiceType)) {
+        // Non-T0000: build date labels and series
+        const byType = res.summaryByServiceType;
+        const labelsSet = new Set();
+        byType.forEach((it) => {
+          (it?.buckets || []).forEach((b) => {
+            if (b?.label != null) labelsSet.add(String(b.label));
+          });
+        });
+        const dateLabels = Array.from(labelsSet).sort();
+        const builtSeries = byType.map((it) => ({
+          name: String(it?.service_type ?? 'Unknown'),
+          data: dateLabels.map((lab) => {
+            const m = (it?.buckets || []).find((b) => String(b.label) === lab);
+            return Number.isFinite(Number(m?.count)) ? Number(m.count) : 0;
+          }),
+        }));
+        nextLabels = dateLabels;
         nextSeries = builtSeries;
+      } else if (!isAllTenants && Array.isArray(res?.items)) {
+        // Minimal non-T0000 fallback
+        nextLabels = ['Total'];
+        nextSeries = res.items.map((it) => ({
+          name: String(it?.service_type ?? 'Unknown'),
+          data: [Number.isFinite(Number(it?.count)) ? Number(it.count) : 0],
+        }));
       }
 
-      // Presence validation
+      // Validate presence
       let hasData =
         Array.isArray(nextLabels) &&
         nextLabels.length > 0 &&
         Array.isArray(nextSeries) &&
         nextSeries.length > 0;
 
-      // For non-T0000: filter out zero total labels (date buckets). For T0000 rely on backend alignment and zeros.
+      // Non-T0000: drop all-zero date buckets
       if (hasData && !isAllTenants) {
         const totals = nextLabels.map((_, idx) =>
           nextSeries.reduce((sum, s) => {
@@ -192,9 +176,13 @@ export default function ProjectsServiceTypeBarChart({
             return sum + v;
           }, 0)
         );
-        const keepIdx = totals.map((t, i) => (t > 0 ? i : -1)).filter((i) => i >= 0);
-
-        if (keepIdx.length > 0 && keepIdx.length !== nextLabels.length) {
+        const keepIdx = totals.reduce((acc, t, i) => {
+          if (t > 0) acc.push(i);
+          return acc;
+        }, []);
+        if (keepIdx.length === 0) {
+          hasData = false;
+        } else if (keepIdx.length !== nextLabels.length) {
           nextLabels = keepIdx.map((i) => nextLabels[i]);
           nextSeries = nextSeries.map((s) => ({
             name: String(s?.name ?? 'Unknown'),
@@ -204,8 +192,6 @@ export default function ProjectsServiceTypeBarChart({
                 : 0
             ),
           }));
-        } else if (keepIdx.length === 0) {
-          hasData = false;
         }
       }
 
@@ -230,10 +216,8 @@ export default function ProjectsServiceTypeBarChart({
         setAppliedStart('');
         setAppliedEnd('');
       }
-    } else {
-      if (!(appliedStart && appliedEnd)) {
-        return;
-      }
+    } else if (!(appliedStart && appliedEnd)) {
+      return;
     }
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -253,8 +237,7 @@ export default function ProjectsServiceTypeBarChart({
     }
   };
 
-  // Shape data for stacked bar chart: each label -> object with label + one key per series.name
-  // Works for both orientations; for T0000 labels are service types (y-axis in horizontal layout)
+  // Build recharts dataset: each row has label and keys for each series.name
   const stackedData = useMemo(() => {
     if (!Array.isArray(labels) || !Array.isArray(series)) return [];
     return labels.map((lab, idx) => {
@@ -271,7 +254,7 @@ export default function ProjectsServiceTypeBarChart({
     });
   }, [labels, series]);
 
-  // Stable color map per series.name (service_type for non-T0000; tenant_id for T0000)
+  // Stable colors per service_type
   const seriesNames = useMemo(
     () => (Array.isArray(series) ? series.map((s) => String(s?.name ?? 'Unknown')) : []),
     [series]
@@ -289,7 +272,7 @@ export default function ProjectsServiceTypeBarChart({
     [colorMap, theme]
   );
 
-  // Value labels are intentionally disabled for clarity in stacked bars
+  // Data labels hidden as requested
   const showValueLabels = false;
   void showValueLabels;
 
@@ -297,9 +280,7 @@ export default function ProjectsServiceTypeBarChart({
     <Card style={{ marginTop: 16, overflow: 'visible' }}>
       <div className="overview-users-summary__header service-type summary" style={{ marginBottom: 8 }}>
         <h3 className="overview-users-summary__title">
-          {isAllTenants
-            ? 'Sessions by Service Type (Tenants on X-axis)'
-            : 'Sessions by Service Type'}
+          {isAllTenants ? 'Sessions by Service Type (Tenants on Y-axis)' : 'Sessions by Service Type'}
         </h3>
         <div className="overview-users-summary__controls">
           <label htmlFor="service-type-range" className="overview-users-summary__label">
@@ -374,29 +355,28 @@ export default function ProjectsServiceTypeBarChart({
         <div style={{ width: '100%', height: 320 }}>
           <ResponsiveContainer>
             {isAllTenants ? (
-              // Horizontal stacked with tenants as X-axis categories and service types stacked per tenant
+              // Horizontal stacked: tenants on Y-axis (category) and counts on X-axis (number)
               <BarChart
                 data={stackedData}
-                layout="horizontal"
+                layout="vertical"
                 margin={{ top: 8, right: 12, left: 8, bottom: 4 }}
                 aria-label="Sessions by tenant (stacked by service type)"
               >
                 <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
                 <XAxis
-                  type="category"
-                  dataKey="label"
-                  tick={{ fontSize: 12, fill: theme.label }}
-                  axisLine={{ stroke: theme.axisTick }}
-                  tickLine={{ stroke: theme.axisTick }}
-                  interval="preserveEnd"
-                />
-                <YAxis
                   type="number"
                   allowDecimals={false}
                   tick={{ fontSize: 12, fill: theme.label }}
                   axisLine={{ stroke: theme.axisTick }}
                   tickLine={{ stroke: theme.axisTick }}
-                  width={40}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="label"
+                  tick={{ fontSize: 12, fill: theme.label }}
+                  axisLine={{ stroke: theme.axisTick }}
+                  tickLine={{ stroke: theme.axisTick }}
+                  width={120}
                 />
                 <Tooltip
                   cursor={{ fill: 'transparent' }}
@@ -420,15 +400,15 @@ export default function ProjectsServiceTypeBarChart({
                       name={seriesName}
                       fill={colorFor(seriesName)}
                       stackId="total"
-                      maxBarSize={48}
-                      radius={[4, 4, 0, 0]}
+                      maxBarSize={36}
+                      radius={[0, 4, 4, 0]}
                       label={false}
                     />
                   );
                 })}
               </BarChart>
             ) : (
-              // Existing vertical stacked: dates on X-axis, service types stacked
+              // Non-T0000: vertical stacked (dates on X-axis)
               <BarChart
                 data={stackedData}
                 margin={{ top: 8, right: 12, left: 8, bottom: 4 }}
