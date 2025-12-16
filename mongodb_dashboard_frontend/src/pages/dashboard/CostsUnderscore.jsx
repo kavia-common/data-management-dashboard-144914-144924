@@ -1,159 +1,136 @@
-import React, { useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react'
+import { useCurrentOrgId } from '../../hooks/useCurrentOrgId'
+import { fetchLlmCosts } from '../../api/llmCosts'
+import Card from '../../components/common/Card'
+import Button from '../../components/ui/Button'
+import DataTable from '../../components/DataTable'
+import './SessionsAnalytics.css'
+import '../../styles/globals.css'
+import '../../styles/theme.css'
+import { parseCurrencyToNumber, formatAsCurrency } from '../../utils/llmCostsUtils'
 
 /**
  * PUBLIC_INTERFACE
  * CostsUnderscore Page
- * Renders a Load button to fetch GET /api/llm_costs?organization_id=<id> and displays a table with:
- * organization_id, organization_name, organization_cost, users, user_id, type, user_cost, projects
- *
- * Note: No auto-fetch on mount; users must click Load.
+ * - Fetches GET /api/llm_costs (underscore path) with organization_id and pagination.
+ * - Renders columns: organization_id, organization_name, organization_cost (string),
+ *   users (length), user_cost (sum of users[].user_cost parsed from "$" string to number),
+ *   projects (sum of lengths of users[].projects arrays).
+ * - No auto-fetch on mount. Explicit Load button triggers fetch.
+ * - Numeric columns are right-aligned.
  */
 export default function CostsUnderscore() {
-  const [organizationId, setOrganizationId] = useState('');
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState('');
+  const orgIdFromHook = useCurrentOrgId?.()
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState(20)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [rows, setRows] = useState([])
+  const [total, setTotal] = useState(0)
 
-  // PUBLIC_INTERFACE
-  async function loadData() {
-    setErr('');
-    setRows([]);
-    const org = organizationId.trim();
-    if (!org) {
-      setErr('Please enter an organization_id to load data.');
-      return;
+  const organizationId = orgIdFromHook || ''
+
+  // Map raw doc to display row
+  const toRow = useCallback((doc) => {
+    const usersArr = Array.isArray(doc?.users) ? doc.users : []
+    const usersCount = usersArr.length
+
+    const userCostSum = usersArr.reduce((sum, u) => sum + parseCurrencyToNumber(u?.user_cost), 0)
+
+    const projectsCount = usersArr.reduce((sum, u) => {
+      const pCount = Array.isArray(u?.projects) ? u.projects.length : 0
+      return sum + pCount
+    }, 0)
+
+    return {
+      organization_id: doc?.organization_id ?? '',
+      organization_name: doc?.organization_name ?? '',
+      organization_cost: doc?.organization_cost ?? '',
+      users: usersCount,
+      user_cost: userCostSum,
+      projects: projectsCount,
     }
-    setLoading(true);
+  }, [])
+
+  const onLoad = useCallback(async () => {
+    setLoading(true)
+    setError(null)
     try {
-      const base =
-        process.env.REACT_APP_BACKEND_URL ||
-        process.env.REACT_APP_API_BASE_URL ||
-        '';
-      const urlBase = base ? base.replace(/\/$/, '') : '';
-      const url = `${urlBase}/api/llm_costs?organization_id=${encodeURIComponent(org)}`;
-      const resp = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      const data = await resp.json();
-      if (!resp.ok) {
-        throw new Error(data?.message || `Request failed with ${resp.status}`);
-      }
-      setRows(Array.isArray(data?.data) ? data.data : []);
+      const res = await fetchLlmCosts({
+        organizationId,
+        page,
+        limit,
+      })
+      const data = Array.isArray(res?.data) ? res.data : []
+      const mapped = data.map(toRow)
+      setRows(mapped)
+      const metaTotal = res?.meta?.total
+      setTotal(Number.isFinite(metaTotal) ? metaTotal : data.length)
     } catch (e) {
-      setErr(e?.message || 'Failed to load costs');
+      setError(e?.message || 'Failed to load costs')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  }
+  }, [organizationId, page, limit, toRow])
+
+  const columns = useMemo(() => {
+    const rightAlign = { textAlign: 'right' }
+    return [
+      { key: 'organization_id', label: 'Organization ID' },
+      { key: 'organization_name', label: 'Organization Name' },
+      { key: 'organization_cost', label: 'Organization Cost', render: (v) => v ?? '', style: rightAlign },
+      { key: 'users', label: 'Users', render: (v) => (Number.isFinite(v) ? v : 0), style: rightAlign },
+      { key: 'user_cost', label: 'User Cost (Sum)', render: (v) => formatAsCurrency(v || 0), style: rightAlign },
+      { key: 'projects', label: 'Projects', render: (v) => (Number.isFinite(v) ? v : 0), style: rightAlign },
+    ]
+  }, [])
+
+  const handleNext = useCallback(() => {
+    if (rows.length < limit) return
+    setPage((p) => p + 1)
+  }, [rows.length, limit])
+
+  const handlePrev = useCallback(() => {
+    setPage((p) => Math.max(1, p - 1))
+  }, [])
+
+  const pageInfo = useMemo(() => {
+    const start = (page - 1) * limit + 1
+    const end = Math.min(page * limit, total || page * limit)
+    return `${start} - ${end} of ${total || '—'}`
+  }, [page, limit, total])
 
   return (
-    <div style={{ padding: 16 }}>
-      <h2 style={{ marginBottom: 12 }}>LLM Costs (underscore API)</h2>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <input
-          type="text"
-          placeholder="organization_id"
-          value={organizationId}
-          onChange={(e) => setOrganizationId(e.target.value)}
-          style={{ padding: 8, minWidth: 260 }}
+    <div className="container" style={{ padding: 16 }}>
+      <Card title="LLM Costs (underscore)">
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+          <Button onClick={onLoad} disabled={loading || !organizationId}>
+            {loading ? 'Loading...' : 'Load'}
+          </Button>
+          {!organizationId && (
+            <span style={{ color: 'var(--color-error, #EF4444)' }}>
+              Select an organization to enable loading.
+            </span>
+          )}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+            <Button variant="secondary" onClick={handlePrev} disabled={page === 1 || loading}>Prev</Button>
+            <span style={{ minWidth: 120, textAlign: 'center' }}>{pageInfo}</span>
+            <Button variant="secondary" onClick={handleNext} disabled={loading || rows.length < limit}>Next</Button>
+          </div>
+        </div>
+
+        {error && (
+          <div style={{ color: 'var(--color-error, #EF4444)', marginBottom: 8 }}>
+            {String(error)}
+          </div>
+        )}
+
+        <DataTable
+          columns={columns}
+          data={rows}
+          keyField="organization_id"
         />
-        <button
-          onClick={loadData}
-          disabled={loading}
-          style={{
-            padding: '8px 12px',
-            background: '#2563EB',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 6,
-            cursor: loading ? 'default' : 'pointer',
-          }}
-        >
-          {loading ? 'Loading...' : 'Load'}
-        </button>
-      </div>
-      {err && (
-        <div style={{ color: '#EF4444', marginBottom: 12 }}>
-          Error: {err}
-        </div>
-      )}
-      {!loading && rows.length === 0 && !err && (
-        <div style={{ color: '#6b7280' }}>
-          No data. Enter an organization_id and click Load.
-        </div>
-      )}
-      {rows.length > 0 && (
-        <div style={{ overflowX: 'auto' }}>
-          <table
-            style={{
-              borderCollapse: 'collapse',
-              width: '100%',
-              background: '#ffffff',
-              boxShadow: '0 1px 3px rgba(0,0,0,0.05)',
-              borderRadius: 8,
-            }}
-          >
-            <thead>
-              <tr style={{ background: '#f3f4f6' }}>
-                <th style={th}>organization_id</th>
-                <th style={th}>organization_name</th>
-                <th style={th}>organization_cost</th>
-                <th style={th}>users</th>
-                <th style={th}>user_id</th>
-                <th style={th}>type</th>
-                <th style={th}>user_cost</th>
-                <th style={th}>projects</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, idx) => (
-                <tr key={idx} style={{ borderTop: '1px solid #e5e7eb' }}>
-                  <td style={td}>{r.organization_id ?? ''}</td>
-                  <td style={td}>{r.organization_name ?? ''}</td>
-                  <td style={td}>{formatCurrencyUSD(r.organization_cost)}</td>
-                  <td style={{ ...td, textAlign: 'right' }}>{formatInt(r.users)}</td>
-                  <td style={td}>{r.user_id ?? ''}</td>
-                  <td style={td}>{r.type ?? ''}</td>
-                  <td style={td}>{formatCurrencyUSD(r.user_cost)}</td>
-                  <td style={{ ...td, textAlign: 'right' }}>{formatInt(r.projects)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      </Card>
     </div>
-  );
-}
-
-const th = {
-  textAlign: 'left',
-  padding: '10px 12px',
-  fontWeight: 600,
-  fontSize: 14,
-  color: '#111827',
-  borderBottom: '1px solid #e5e7eb',
-};
-
-const td = {
-  padding: '10px 12px',
-  fontSize: 14,
-  color: '#111827',
-};
-
-function formatCurrencyUSD(n) {
-  const num = typeof n === 'number' ? n : Number(n || 0);
-  if (!isFinite(num)) return '$0.00';
-  try {
-    return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 6 }).format(num);
-  } catch {
-    return `$${num.toFixed(2)}`;
-  }
-}
-function formatInt(n) {
-  const num = typeof n === 'number' ? n : Number.parseInt(n || 0, 10);
-  return Number.isFinite(num) ? num.toLocaleString() : '0';
+  )
 }
