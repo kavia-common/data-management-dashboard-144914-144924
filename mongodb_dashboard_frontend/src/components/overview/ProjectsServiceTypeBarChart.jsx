@@ -9,7 +9,6 @@ import {
   Tooltip,
   CartesianGrid,
   Legend,
-  LabelList,
 } from 'recharts';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import Card from '../common/Card';
@@ -233,8 +232,8 @@ export default function ProjectsServiceTypeBarChart({
     [colorMap, theme]
   );
 
-  // Optional value labels toggle (could be configurable later)
-  const showValueLabels = true;
+  // Value/data labels are disabled to show only colored segments on stacked bars
+  const showValueLabels = false;
 
   return (
     <Card style={{ marginTop: 16, overflow: 'visible' }}>
@@ -356,16 +355,7 @@ export default function ProjectsServiceTypeBarChart({
                     radius={[4, 4, 0, 0]}
                     stackId="total"
                     maxBarSize={48}
-                  >
-                    {showValueLabels && (
-                      <LabelList
-                        dataKey={seriesName}
-                        position="insideTop"
-                        style={{ fill: '#ffffff', fontSize: 11 }}
-                        formatter={(val) => (val > 0 ? val : '')}
-                      />
-                    )}
-                  </Bar>
+                  />
                 );
               })}
             </BarChart>
