@@ -113,12 +113,12 @@ export default function CostsUnderscore() {
                 <tr key={idx} style={{ borderTop: '1px solid #e5e7eb' }}>
                   <td style={td}>{r.organization_id ?? ''}</td>
                   <td style={td}>{r.organization_name ?? ''}</td>
-                  <td style={td}>{formatNumber(r.organization_cost)}</td>
-                  <td style={td}>{r.users ?? 0}</td>
+                  <td style={td}>{formatCurrencyUSD(r.organization_cost)}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{formatInt(r.users)}</td>
                   <td style={td}>{r.user_id ?? ''}</td>
                   <td style={td}>{r.type ?? ''}</td>
-                  <td style={td}>{formatNumber(r.user_cost)}</td>
-                  <td style={td}>{r.projects ?? 0}</td>
+                  <td style={td}>{formatCurrencyUSD(r.user_cost)}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{formatInt(r.projects)}</td>
                 </tr>
               ))}
             </tbody>
@@ -144,7 +144,16 @@ const td = {
   color: '#111827',
 };
 
-function formatNumber(n) {
+function formatCurrencyUSD(n) {
   const num = typeof n === 'number' ? n : Number(n || 0);
-  return isFinite(num) ? num.toFixed(6) : '0.000000';
+  if (!isFinite(num)) return '$0.00';
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 6 }).format(num);
+  } catch {
+    return `$${num.toFixed(2)}`;
+  }
+}
+function formatInt(n) {
+  const num = typeof n === 'number' ? n : Number.parseInt(n || 0, 10);
+  return Number.isFinite(num) ? num.toLocaleString() : '0';
 }

@@ -1,6 +1,8 @@
 /**
  * PUBLIC_INTERFACE
  * useLlmCostsSummary
+ * Note: This hook targets a summary path and is not used by the tabular Costs page.
+ * The Costs table fetches from /api/llm_costs (underscore) directly via listLlmCostsUnderscore.
  * Fetches /api/llm-costs/summary and returns { user_cost, project_cost, currency } with loading and error state.
  */
 import { useEffect, useState } from 'react';

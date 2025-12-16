@@ -444,7 +444,7 @@ export default function DataTable({
                   {columns.map((c) => {
                     const value = getValue(row, c.key);
                     const content = c.render ? c.render(value, row) : value ?? "";
-                    const isNumber = typeof value === "number";
+                    const isNumber = typeof value === "number" || (typeof content === "string" && /^\$?-?\d/.test(content));
                     const priorityClass = c.priority ? `col-priority-${c.priority}` : "";
                     const baseStyle = autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined;
                     return (

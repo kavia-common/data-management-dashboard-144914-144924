@@ -1,18 +1,34 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
-import TreeView from "../../components/TreeView.jsx";
 import { listLlmCostsUnderscore } from "../../api";
 
-import { renderCreditsWithUsd } from "../../utils/currency";
+// PUBLIC_INTERFACE
+function formatCurrencyUSD(n) {
+  /** Formats numbers as USD currency with comma separators; falls back to 0 when invalid. */
+  const num = typeof n === "number" ? n : Number(n || 0);
+  if (!Number.isFinite(num)) return "$0.00";
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 6 }).format(num);
+  } catch {
+    return `$${num.toFixed(2)}`;
+  }
+}
+
+// PUBLIC_INTERFACE
+function formatInt(n) {
+  /** Formats integer with locale commas; falls back to 0 when invalid. */
+  const num = typeof n === "number" ? n : Number.parseInt(n || 0, 10);
+  return Number.isFinite(num) ? num.toLocaleString() : "0";
+}
 
 /**
  * PUBLIC_INTERFACE
  * Costs page (underscore endpoint)
- * - Fetches from GET /api/llm_costs with explicit user action or pagination controls.
- * - Renders a tabular view for fields:
- *   organization_id, organization_name, organization_cost, users (count), user_id, type, user_cost, projects (count)
+ * - Fetches from GET /api/llm_costs with optional organization_id and pagination.
+ * - Renders a tabular view with exact keys:
+ *   organization_id, organization_name, organization_cost, users, user_id, type, user_cost, projects
  */
 export default function Costs() {
   const [organizationId, setOrganizationId] = useState("");
@@ -23,7 +39,7 @@ export default function Costs() {
   const [limit, setLimit] = useState(10);
   const [total, setTotal] = useState(0);
 
-  // Inspector modal state
+  // Modal inspector for raw view
   const [inspectOpen, setInspectOpen] = useState(false);
   const [inspectTitle, setInspectTitle] = useState("Details");
   const [inspectPayload, setInspectPayload] = useState(null);
@@ -41,51 +57,39 @@ export default function Costs() {
 
   const columns = useMemo(() => {
     return [
-      { key: "organization_id", label: "Organization Id" },
-      { key: "organization_name", label: "Organization Name" },
+      { key: "organization_id", label: "organization_id" },
+      { key: "organization_name", label: "organization_name" },
       {
         key: "organization_cost",
-        label: "Organization Cost",
-        render: (v) => {
-          const num = typeof v === "number" ? v : Number(v || 0);
-          return <span className="amount-positive">{renderCreditsWithUsd(isFinite(num) ? num : 0)}</span>;
-        },
+        label: "organization_cost",
+        render: (v) => <span className="amount-positive">{formatCurrencyUSD(v)}</span>,
         className: "num",
         priority: 1,
       },
       {
         key: "users",
-        label: "Users",
-        render: (v) => {
-          const num = typeof v === "number" ? v : Number.parseInt(v || 0, 10);
-          return <span title={String(num)}>{Number.isFinite(num) ? num.toLocaleString() : "0"}</span>;
-        },
+        label: "users",
+        render: (v) => <span title={String(v ?? 0)}>{formatInt(v)}</span>,
         className: "num",
       },
-      { key: "user_id", label: "User Id" },
-      { key: "type", label: "Type" },
+      { key: "user_id", label: "user_id" },
+      { key: "type", label: "type" },
       {
         key: "user_cost",
-        label: "User Cost",
-        render: (v) => {
-          const num = typeof v === "number" ? v : Number(v || 0);
-          return <span className="amount-positive">{renderCreditsWithUsd(isFinite(num) ? num : 0)}</span>;
-        },
+        label: "user_cost",
+        render: (v) => <span className="amount-positive">{formatCurrencyUSD(v)}</span>,
         className: "num",
       },
       {
         key: "projects",
-        label: "Projects",
-        render: (v) => {
-          const num = typeof v === "number" ? v : Number.parseInt(v || 0, 10);
-          return <span title={String(num)}>{Number.isFinite(num) ? num.toLocaleString() : "0"}</span>;
-        },
+        label: "projects",
+        render: (v) => <span title={String(v ?? 0)}>{formatInt(v)}</span>,
         className: "num",
       },
     ];
   }, []);
 
-  // Fetcher for underscore endpoint
+  // Fetcher for underscore endpoint with optional organization_id
   async function doFetch(nextPage = page, nextLimit = limit) {
     setLoading(true);
     setError("");
@@ -108,7 +112,7 @@ export default function Costs() {
     }
   }
 
-  // Hook pagination controls to server load
+  // Server pagination handler
   const fetchPage = async (p, l) => {
     await doFetch(p, l);
   };
@@ -117,13 +121,13 @@ export default function Costs() {
     <div>
       <Card
         title="Costs"
-        subtitle="LLM usage cost records — underscore API"
+        subtitle="LLM usage cost records (underscore API)"
         className="mt-4"
       >
         <div className="toolbar" aria-label="Costs toolbar" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <input
             className="input"
-            placeholder="organization_id"
+            placeholder="organization_id (optional)"
             aria-label="Organization ID"
             value={organizationId}
             onChange={(e) => setOrganizationId(e.target.value)}
@@ -139,7 +143,7 @@ export default function Costs() {
           >
             {loading ? "Loading..." : "Load"}
           </button>
-          {error ? <div className="error" role="alert" style={{ marginLeft: 8 }}>{error}</div> : null}
+          {error ? <div className="error" role="alert" style={{ marginLeft: 8, color: '#EF4444' }}>{error}</div> : null}
           <div style={{ flex: 1 }} />
           <label className="muted" htmlFor="costs-pagesize" style={{ fontSize: 12 }}>Page size</label>
           <select
@@ -155,7 +159,17 @@ export default function Costs() {
               <option key={n} value={n}>{n}</option>
             ))}
           </select>
+          <button
+            className="btn btn-secondary"
+            type="button"
+            onClick={() => openInspector("Rows JSON", items)}
+            title="View raw rows JSON"
+            disabled={items.length === 0}
+          >
+            View rows
+          </button>
         </div>
+
         <DataTable
           columns={columns}
           data={items}
@@ -165,6 +179,7 @@ export default function Costs() {
           serverTotal={total}
           fetchPage={fetchPage}
           paginationTitle="Costs pages"
+          forceHorizontalScroll
         />
       </Card>
 
@@ -179,15 +194,11 @@ export default function Costs() {
           <button className="btn btn-ghost" onClick={closeInspector} aria-label="Close details">Close</button>
         }
       >
-        <div style={{ padding: 12 }}>
-          <button
-            className="btn btn-secondary"
-            onClick={() => openInspector("Raw Rows", items)}
-            title="View raw rows JSON"
-          >
-            View raw rows
-          </button>
-        </div>
+        <pre style={{ margin: 0, padding: 12, maxHeight: '60vh', overflow: 'auto', background: '#0b1020', color: '#e6edf3', borderRadius: 8 }}>
+{typeof inspectPayload === 'string'
+  ? inspectPayload
+  : JSON.stringify(inspectPayload, null, 2)}
+        </pre>
       </Modal>
     </div>
   );

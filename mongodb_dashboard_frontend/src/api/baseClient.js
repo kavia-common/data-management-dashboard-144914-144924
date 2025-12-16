@@ -334,7 +334,7 @@ export async function listDeployments(params = {}) {
 /**
  * PUBLIC_INTERFACE
  * listLlmCosts
- * Legacy hyphen route kept for backward-compat in charts. Prefer listLlmCostsUnderscore for new code.
+ * Legacy hyphen route kept for backward-compat in charts. Prefer listLlmCostsUnderscore (/api/llm_costs) for new code.
  */
 export async function listLlmCosts(params = {}) {
   /** Lists LLM cost records normalized to { items, total, meta }. */
