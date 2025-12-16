@@ -331,11 +331,28 @@ export async function listDeployments(params = {}) {
   return normalizeListPayload(res.data);
 }
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * listLlmCosts
+ * Legacy hyphen route kept for backward-compat in charts. Prefer listLlmCostsUnderscore for new code.
+ */
 export async function listLlmCosts(params = {}) {
   /** Lists LLM cost records normalized to { items, total, meta }. */
   const res = await httpGet("/api/llm-costs", { params });
   return normalizeListPayload(res.data);
+}
+
+// PUBLIC_INTERFACE
+export async function listLlmCostsUnderscore(params = {}) {
+  /** Lists aggregated/tabular LLM costs from /api/llm_costs with support for organization_id, page, limit. Returns normalized { items, total, meta } when envelope-like structure is present, else raw array under items. */
+  const res = await httpGet("/api/llm_costs", { params });
+  const payload = res.data;
+  if (payload && typeof payload === "object" && Array.isArray(payload.data)) {
+    // Envelope shape from backend controller
+    return { items: payload.data, total: payload.meta?.total ?? payload.data.length, meta: payload.meta || null };
+  }
+  // Fallback: array response
+  return { items: Array.isArray(payload) ? payload : [], total: Array.isArray(payload) ? payload.length : 0, meta: null };
 }
 
 /**
