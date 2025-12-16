@@ -127,7 +127,7 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
       </div>
 
       {/* New: Projects Created chart positioned below Users summary */}
-      <div style={{ marginTop: 24 }}>
+      <div class="session_created_chart" style={{ marginTop: 24 }}>
         <ProjectsCreatedBarChart />
       </div>
     </section>
