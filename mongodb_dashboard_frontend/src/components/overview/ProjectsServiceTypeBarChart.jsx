@@ -81,8 +81,13 @@ export default function ProjectsServiceTypeBarChart({
     params.set('organization_id', organizationId);
 
     try {
-      // Use explicit '/api' prefix to align with other charts and ensure consistent dynamic base URL resolution.
-      const res = await apiGet(`/api/service-type/summary?${params.toString()}`, {
+      // Build dynamic URL inline to mirror other charts' behavior: base from window.location.origin + '/api/service-type/summary'
+      const base = typeof window !== 'undefined' && window.location && window.location.origin
+        ? window.location.origin
+        : '';
+      const url = `${base}/api/service-type/summary?${params.toString()}`;
+
+      const res = await apiGet(url, {
         // Provide org id so utils/api can inject if missing and set proper auth headers.
         organization_id: organizationId,
       });
