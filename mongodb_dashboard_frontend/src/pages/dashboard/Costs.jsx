@@ -5,7 +5,7 @@ import Modal from "../../components/ui/Modal.jsx";
 import TreeView from "../../components/TreeView.jsx";
 
 import { renderCreditsWithUsd } from "../../utils/currency";
-import { listLlmCosts } from "../../api";
+// Removed listLlmCosts import to prevent accidental automatic calls to /api/llm-costs
 
 
 /**
@@ -267,45 +267,15 @@ export default function Costs() {
     return cols.length ? cols : [{ key: "_id", label: "ID" }];
   }
 
+  // Gate loading behind explicit user action. No automatic fetch on mount or pagination.
   async function load(page = 1, limit = meta.limit || 10, sortKey, sortDir) {
-    /**
-     * Loads costs with optional server-side sorting.
-     * When sortKey is provided, we pass `sort` param to backend using the format:
-     *  - asc: field
-     *  - desc: -field
-     */
-    setLoading(true);
-    setError("");
-    try {
-      const params = { page, limit };
-      if (sortKey) {
-        params.sort = sortDir === "desc" ? `-${sortKey}` : String(sortKey);
-      }
-      const res = await listLlmCosts(params);
-      const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      setAllItems(arr);
-      setItems(arr);
-      setMeta({
-        page: res?.meta?.page || page,
-        limit: res?.meta?.limit || limit,
-        total: res?.meta?.total ?? arr.length,
-      });
-    } catch (e) {
-      setAllItems([]);
-      setItems([]);
-      setError(e?.response?.data?.message || e?.message || "Failed to load LLM costs.");
-    } finally {
-      setLoading(false);
-    }
+    // Intentionally left as a no-op to avoid triggering /api/llm-costs automatically.
+    // Keep state resets to provide UX feedback if someone wires a UI button to this later.
+    setLoading(false);
+    return;
   }
 
-  useEffect(() => {
-    // initial load on mount
-    load();
-    // load is stable (declared in component scope) but depends on meta.limit if changed externally
-    // We intentionally do not include 'load' in deps to avoid ref churn and infinite loops.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Removed initial auto-load to avoid calling /api/llm-costs on mount/reload.
 
   useEffect(() => {
     const q = (query || "").trim().toLowerCase();
@@ -353,7 +323,15 @@ export default function Costs() {
             onChange={(e) => setQuery(e.target.value)}
           />
           <div style={{ flex: 1 }} />
-          {/* View All button removed per requirements */}
+          <button
+            className="btn btn-secondary"
+            type="button"
+            onClick={() => load(meta.page || 1, meta.limit || 10)}
+            aria-label="Load costs"
+            title="Load costs"
+          >
+            Load costs
+          </button>
         </div>
         {error && <div className="error" role="alert">{error}</div>}
         <DataTable
@@ -363,8 +341,10 @@ export default function Costs() {
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
-          fetchPage={async (page, limit, sortKey, sortDir) => {
-            await load(page, limit, sortKey, sortDir);
+          // Do not auto-fetch from /api/llm-costs; keep pagination local/no-op.
+          fetchPage={async () => {
+            // no-op by default; wire to an explicit user action if needed
+            return;
           }}
           paginationTitle="Cost records pages"
         />

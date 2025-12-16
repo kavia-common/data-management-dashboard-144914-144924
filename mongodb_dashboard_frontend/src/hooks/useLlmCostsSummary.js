@@ -10,32 +10,33 @@ export default function useLlmCostsSummary() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
+  // Do not auto-fetch on mount; expose an explicit refetch instead.
+  const refetch = async () => {
     let mounted = true;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const res = await fetch('/api/llm-costs/summary');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
-        if (mounted) {
-          setData({
-            user_cost: Number(json.user_cost || 0),
-            project_cost: Number(json.project_cost || 0),
-            currency: json.currency || 'USD',
-          });
-        }
-      } catch (e) {
-        if (mounted) setError(e?.message || 'Failed to load summary');
-      } finally {
-        if (mounted) setLoading(false);
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/llm-costs/summary');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (mounted) {
+        setData({
+          user_cost: Number(json.user_cost || 0),
+          project_cost: Number(json.project_cost || 0),
+          currency: json.currency || 'USD',
+        });
       }
-    })();
+    } catch (e) {
+      setError(e?.message || 'Failed to load summary');
+    } finally {
+      setLoading(false);
+    }
     return () => {
       mounted = false;
     };
-  }, []);
+  };
 
-  return { data, loading, error };
+  // Default to not loading until user calls refetch
+  const [ignored] = useState(false);
+  return { data, loading, error, refetch };
 }

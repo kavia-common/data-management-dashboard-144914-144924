@@ -5,6 +5,7 @@ export function useLlmCostsHierarchy({ filter } = {}) {
   /** PUBLIC_INTERFACE
    * Fetch hierarchical LLM costs from backend.
    * Returns: { data, loading, error, refetch }
+   * Note: This hook does NOT auto-fetch; call refetch() from a user action.
    */
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -39,10 +40,7 @@ export function useLlmCostsHierarchy({ filter } = {}) {
     }
   };
 
-  useEffect(() => {
-    fetchData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(filter)]);
+  // Do not automatically fetch on mount or filter change; call refetch explicitly from UI when needed.
 
   return { data, loading, error, refetch: fetchData };
 }

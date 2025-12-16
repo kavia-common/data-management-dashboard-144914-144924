@@ -3,6 +3,7 @@ import { getApiClient } from './baseClient';
 /**
  * PUBLIC_INTERFACE
  * getLlmCostsOverTime
+ * Note: This function performs a fetch from /api/llm-costs only when explicitly called.
  * Stable implementation: derive costs over time using the supported list endpoint (/api/llm-costs)
  * and aggregate client-side by day/week/month. Returns:
  * { labels: string[], datasets: [{ label, data:number[] }], meta }
