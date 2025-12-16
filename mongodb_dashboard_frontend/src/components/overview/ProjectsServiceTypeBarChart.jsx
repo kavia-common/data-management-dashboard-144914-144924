@@ -355,6 +355,8 @@ export default function ProjectsServiceTypeBarChart({
                     radius={[4, 4, 0, 0]}
                     stackId="total"
                     maxBarSize={48}
+                    // Ensure no built-in data labels are rendered for this series
+                    label={false}
                   />
                 );
               })}
