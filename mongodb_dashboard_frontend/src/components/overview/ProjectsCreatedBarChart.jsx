@@ -144,15 +144,16 @@ export default function ProjectsCreatedBarChart() {
     }
   };
 
-  // Time-bucketed chart shape (existing)
-  const chartData = useMemo(
-    () =>
-      (buckets || []).map((b) => ({
-        label: b.label || b.key,
-        count: Number(b.count || 0),
-      })),
-    [buckets]
-  );
+  // Time-bucketed chart shape
+  // For non-T0000 tenants, filter out zero-count buckets so axis/ticks adjust to actual non-zero dates.
+  const chartData = useMemo(() => {
+    const isT0000Local = String(organizationId) === 'T0000';
+    const shaped = (buckets || []).map((b) => ({
+      label: b.label || b.key,
+      count: Number(b.count || 0),
+    }));
+    return isT0000Local ? shaped : shaped.filter((d) => d.count > 0);
+  }, [buckets, organizationId]);
 
   // Horizontal bar chart data for T0000 + barData (map to { label, total } like UsersSummaryStackedBar totals)
   const t0000Data = useMemo(
