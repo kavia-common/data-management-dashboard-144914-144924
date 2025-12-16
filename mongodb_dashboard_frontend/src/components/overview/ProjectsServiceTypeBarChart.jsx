@@ -359,7 +359,7 @@ export default function ProjectsServiceTypeBarChart({
               <BarChart
                 data={stackedData}
                 layout="vertical"
-                margin={{ top: 8, right: 12, left: 8, bottom: 4 }}
+                margin={{ top: 8, right: 12, left: 8, bottom: 24 }}
                 aria-label="Sessions by tenant (stacked by service type)"
               >
                 <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
@@ -390,7 +390,7 @@ export default function ProjectsServiceTypeBarChart({
                   formatter={(value, name) => [value, name]}
                   labelFormatter={(lab) => `Tenant: ${lab}`}
                 />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 12, bottom: 0 }} verticalAlign="bottom" align="center" />
                 {series.map((s, i) => {
                   const seriesName = String(s.name || `Series ${i + 1}`);
                   return (
@@ -411,7 +411,7 @@ export default function ProjectsServiceTypeBarChart({
               // Non-T0000: vertical stacked (dates on X-axis)
               <BarChart
                 data={stackedData}
-                margin={{ top: 8, right: 12, left: 8, bottom: 4 }}
+                margin={{ top: 8, right: 12, left: 8, bottom: 24 }}
                 aria-label="Sessions by service type (stacked)"
               >
                 <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
@@ -441,7 +441,7 @@ export default function ProjectsServiceTypeBarChart({
                   formatter={(value, name) => [value, name]}
                   labelFormatter={(lab) => `Date: ${lab}`}
                 />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 12, bottom: 0 }} verticalAlign="bottom" align="center" />
                 {series.map((s, i) => {
                   const seriesName = String(s.name || `Series ${i + 1}`);
                   return (
