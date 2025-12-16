@@ -25,8 +25,8 @@ import { getCategoryColorMap } from '../../theme/oceanTheme';
  * Behavior:
  * - Fetches GET /api/service-type/summary with tenant/organization id, range, and optional start/end (custom).
  * - If tenant_id !== 'T0000': render vertical stacked chart with labels as dates and stacks per service type.
- * - If tenant_id === 'T0000': consume API shape where labels = service types and series = [{ name: tenant_id, data: counts }]
- *   and render a horizontal stacked chart (layout="vertical") with service types on Y-axis and tenant_id stacks.
+ * - If tenant_id === 'T0000': parse API to produce labels = tenant_ids and series = one series per service_type
+ *   where each series.data aligns to tenant_ids (horizontal stacked: tenants on Y-axis; service types stacked).
  * - Keep legend, tooltips, loading/empty/error states, and date pickers; no value labels on bars.
  * - Preserve zero-date filtering logic ONLY for non-T0000 flow; for T0000 rely on backend-provided zeros.
  * - Chart is included just after element with class="session_created_chart" by its parent section (already in OverviewUsersSummarySection).
