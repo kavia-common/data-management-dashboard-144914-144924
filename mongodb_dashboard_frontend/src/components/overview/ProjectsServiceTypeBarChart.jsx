@@ -17,6 +17,7 @@ import '../overview/overviewUsersSummary.css';
 import { getChartTheme } from '../charts/chartTheme';
 import { apiGet } from '../../utils/api';
 import { getCategoryColorMap } from '../../theme/oceanTheme';
+import { apiBase } from '../../api/config';
 
 /**
  * PUBLIC_INTERFACE
@@ -81,11 +82,8 @@ export default function ProjectsServiceTypeBarChart({
     params.set('organization_id', organizationId);
 
     try {
-      // Build dynamic URL inline to mirror other charts' behavior: base from window.location.origin + '/api/service-type/summary'
-      const base = typeof window !== 'undefined' && window.location && window.location.origin
-        ? window.location.origin
-        : '';
-      const url = `${base}/api/service-type/summary?${params.toString()}`;
+      // Build URL using centralized API base (matches Users Created / Sessions Created charts behavior)
+      const url = `${apiBase}/service-type/summary?${params.toString()}`;
 
       const res = await apiGet(url, {
         // Provide org id so utils/api can inject if missing and set proper auth headers.
