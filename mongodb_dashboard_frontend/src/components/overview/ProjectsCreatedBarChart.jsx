@@ -286,6 +286,8 @@ export default function ProjectsCreatedBarChart() {
                       }}
                     >
                       <div
+                        tabIndex={0}
+                        aria-describedby={`tooltip-${item.key}`}
                         style={{
                           width: `${pct}%`,
                           maxWidth: '100%',
@@ -294,8 +296,56 @@ export default function ProjectsCreatedBarChart() {
                           borderRadius: 999,
                           boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
                           transition: 'width 200ms ease',
+                          position: 'relative',
                         }}
                       />
+                      <div
+                        id={`tooltip-${item.key}`}
+                        role="tooltip"
+                        style={{
+                          position: 'absolute',
+                          left: `${Math.min(pct, 95)}%`,
+                          top: -42,
+                          transform: 'translateX(-50%)',
+                          background: '#2b2723',
+                          color: '#ffffff',
+                          padding: '6px 8px',
+                          borderRadius: 8,
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
+                          whiteSpace: 'nowrap',
+                          fontSize: 12,
+                          lineHeight: 1.2,
+                          pointerEvents: 'none',
+                          opacity: 0,
+                          transition: 'opacity 150ms ease, transform 150ms ease',
+                        }}
+                        className="t0000-tooltip"
+                      >
+                        <span style={{ fontWeight: 600 }}>{item.name}</span>
+                        <span style={{ opacity: 0.85 }}> — {item.count}</span>
+                        <span
+                          aria-hidden="true"
+                          style={{
+                            position: 'absolute',
+                            bottom: -6,
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            width: 0,
+                            height: 0,
+                            borderLeft: '6px solid transparent',
+                            borderRight: '6px solid transparent',
+                            borderTop: '6px solid #2b2723',
+                          }}
+                        />
+                      </div>
+                      <style>{`
+                        /* Show tooltip on hover or keyboard focus of the foreground bar */
+                        [aria-describedby="tooltip-${item.key}"]:hover ~ #tooltip-${item.key},
+                        [aria-describedby="tooltip-${item.key}"]:focus ~ #tooltip-${item.key} {
+                          opacity: 1;
+                          transform: translateX(-50%) translateY(-2px);
+                        }
+                      `}</style>
                     </div>
                     <div
                       style={{
