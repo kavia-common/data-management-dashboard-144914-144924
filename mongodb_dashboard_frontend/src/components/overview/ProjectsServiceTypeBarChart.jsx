@@ -21,10 +21,15 @@ import { getCategoryColorMap } from '../../theme/oceanTheme';
 /**
  * PUBLIC_INTERFACE
  * ProjectsServiceTypeBarChart
- * Renders a stacked bar chart of sessions grouped by service type across labels (time buckets),
- * calling GET /api/service-type/summary with organizationId, range, and optional start/end when range=custom.
- * Accepts optional organizationId prop, otherwise derives from app context.
- * Handles API responses with { labels, series } primarily, and falls back to summaryByServiceType when needed.
+ * Renders a stacked bar chart of sessions grouped by service type across labels (time buckets).
+ * Behavior:
+ * - Fetches GET /api/service-type/summary with tenant/organization id, range, and optional start/end (custom).
+ * - If tenant_id !== 'T0000': render vertical stacked chart with labels as dates and stacks per service type.
+ * - If tenant_id === 'T0000': consume API shape where labels = service types and series = [{ name: tenant_id, data: counts }]
+ *   and render a horizontal stacked chart (layout="vertical") with service types on Y-axis and tenant_id stacks.
+ * - Keep legend, tooltips, loading/empty/error states, and date pickers; no value labels on bars.
+ * - Preserve zero-date filtering logic ONLY for non-T0000 flow; for T0000 rely on backend-provided zeros.
+ * - Chart is included just after element with class="session_created_chart" by its parent section (already in OverviewUsersSummarySection).
  */
 export default function ProjectsServiceTypeBarChart({
   organizationId: organizationIdProp,
@@ -32,6 +37,7 @@ export default function ProjectsServiceTypeBarChart({
 }) {
   const derivedOrgId = useCurrentOrgId();
   const organizationId = organizationIdProp || derivedOrgId;
+  const isAllTenants = String(organizationId || '').toUpperCase() === 'T0000';
 
   const [range, setRange] = useState(defaultRange || 'daily');
   const [pendingStart, setPendingStart] = useState('');
@@ -43,8 +49,10 @@ export default function ProjectsServiceTypeBarChart({
   const [error, setError] = useState(null);
 
   // Primary shape from API
-  const [labels, setLabels] = useState([]); // ['2025-01-01', ...] or display labels
-  const [series, setSeries] = useState([]); // [{ name: 'chat', data: [1,2,3] }, ...]
+  // Non-T0000: labels = dates, series = [{name: service_type, data: counts per date}]
+  // T0000:     labels = service types, series = [{name: tenant_id, data: counts per service type}]
+  const [labels, setLabels] = useState([]); // display labels
+  const [series, setSeries] = useState([]); // [{ name, data: number[] }]
 
   const theme = getChartTheme
     ? getChartTheme()
@@ -70,6 +78,8 @@ export default function ProjectsServiceTypeBarChart({
       params.set('start_date', appliedStart);
       params.set('end_date', appliedEnd);
     }
+    // include both aliases; backend will enforce effective tenant and is tolerant of aliases
+    params.set('tenant_id', organizationId);
     params.set('organization_id', organizationId);
 
     try {
@@ -77,12 +87,15 @@ export default function ProjectsServiceTypeBarChart({
         organization_id: organizationId,
       });
 
-      // Preferred: { labels: [...], series: [{ name, data: [...] }] }
-      let nextLabels = Array.isArray(res?.labels) ? res.labels : null;
-      let nextSeries = Array.isArray(res?.series) ? res.series : null;
+      let nextLabels = null;
+      let nextSeries = null;
 
-      // Fallback: summaryByServiceType [{ service_type, buckets:[{label,count}]}]
-      if ((!nextLabels || !nextSeries) && Array.isArray(res?.summaryByServiceType)) {
+      // Preferred shape (for both flows)
+      if (Array.isArray(res?.labels) && Array.isArray(res?.series)) {
+        nextLabels = res.labels;
+        nextSeries = res.series;
+      } else if (!isAllTenants && Array.isArray(res?.summaryByServiceType)) {
+        // Non-T0000 fallback: build date labels and service type series
         const byType = res.summaryByServiceType;
         const allLabelsSet = new Set();
         byType.forEach((it) => {
@@ -106,10 +119,8 @@ export default function ProjectsServiceTypeBarChart({
           nextLabels = labelArr;
           nextSeries = builtSeries;
         }
-      }
-
-      // Minimal fallback: { items:[{service_type,count}] } => single "Total" bucket
-      if ((!nextLabels || !nextSeries) && Array.isArray(res?.items)) {
+      } else if (!isAllTenants && Array.isArray(res?.items)) {
+        // Minimal fallback (non-T0000): single "Total" bucket for each service type
         const labelArr = ['Total'];
         const builtSeries = res.items.map((it) => ({
           name: String(it.service_type ?? 'Unknown'),
@@ -119,14 +130,15 @@ export default function ProjectsServiceTypeBarChart({
         nextSeries = builtSeries;
       }
 
-      // Validate and filter zero-total buckets (labels) and realign data
+      // Presence validation
       let hasData =
         Array.isArray(nextLabels) &&
         nextLabels.length > 0 &&
         Array.isArray(nextSeries) &&
         nextSeries.length > 0;
 
-      if (hasData) {
+      // For non-T0000: filter out zero total labels (date buckets). For T0000 rely on backend alignment and zeros.
+      if (hasData && !isAllTenants) {
         const totals = nextLabels.map((_, idx) =>
           nextSeries.reduce((sum, s) => {
             const v =
@@ -160,7 +172,7 @@ export default function ProjectsServiceTypeBarChart({
       setError(e?.message || 'Failed to load service type summary.');
       setStatus('error');
     }
-  }, [organizationId, range, appliedStart, appliedEnd]);
+  }, [organizationId, range, appliedStart, appliedEnd, isAllTenants]);
 
   useEffect(() => {
     if (!mountedRef.current) {
@@ -198,6 +210,7 @@ export default function ProjectsServiceTypeBarChart({
   };
 
   // Shape data for stacked bar chart: each label -> object with label + one key per series.name
+  // Works for both orientations; for T0000 labels are service types (y-axis in horizontal layout)
   const stackedData = useMemo(() => {
     if (!Array.isArray(labels) || !Array.isArray(series)) return [];
     return labels.map((lab, idx) => {
@@ -214,7 +227,7 @@ export default function ProjectsServiceTypeBarChart({
     });
   }, [labels, series]);
 
-  // Stable color map per service type
+  // Stable color map per series.name (service_type for non-T0000; tenant_id for T0000)
   const seriesNames = useMemo(
     () => (Array.isArray(series) ? series.map((s) => String(s?.name ?? 'Unknown')) : []),
     [series]
@@ -232,13 +245,16 @@ export default function ProjectsServiceTypeBarChart({
     [colorMap, theme]
   );
 
-  // Value/data labels are disabled to show only colored segments on stacked bars
+  // Value labels are intentionally disabled for clarity in stacked bars
   const showValueLabels = false;
+  void showValueLabels;
 
   return (
     <Card style={{ marginTop: 16, overflow: 'visible' }}>
       <div className="overview-users-summary__header service-type summary" style={{ marginBottom: 8 }}>
-        <h3 className="overview-users-summary__title">Sessions by Service Type</h3>
+        <h3 className="overview-users-summary__title">
+          {isAllTenants ? 'Sessions by Service Type (by Tenant)' : 'Sessions by Service Type'}
+        </h3>
         <div className="overview-users-summary__controls">
           <label htmlFor="service-type-range" className="overview-users-summary__label">
             Range
@@ -311,56 +327,111 @@ export default function ProjectsServiceTypeBarChart({
       {status === 'success' && stackedData.length > 0 && (
         <div style={{ width: '100%', height: 320 }}>
           <ResponsiveContainer>
-            <BarChart
-              data={stackedData}
-              margin={{ top: 8, right: 12, left: 8, bottom: 4 }}
-              aria-label="Sessions by service type (stacked)"
-            >
-              <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
-              <XAxis
-                dataKey="label"
-                tick={{ fontSize: 12, fill: theme.label }}
-                axisLine={{ stroke: theme.axisTick }}
-                tickLine={{ stroke: theme.axisTick }}
-                interval="preserveEnd"
-              />
-              <YAxis
-                allowDecimals={false}
-                tick={{ fontSize: 12, fill: theme.label }}
-                axisLine={{ stroke: theme.axisTick }}
-                tickLine={{ stroke: theme.axisTick }}
-                width={40}
-              />
-              <Tooltip
-                cursor={{ fill: 'transparent' }}
-                contentStyle={{
-                  background: '#1F2937',
-                  border: 'none',
-                  borderRadius: 8,
-                  color: '#F9FAFB',
-                }}
-                wrapperStyle={{ zIndex: 9999 }}
-                formatter={(value, name) => [value, name]}
-                labelFormatter={(lab) => `Date: ${lab}`}
-              />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              {series.map((s, i) => {
-                const seriesName = String(s.name || `Series ${i + 1}`);
-                return (
-                  <Bar
-                    key={seriesName}
-                    dataKey={seriesName}
-                    name={seriesName}
-                    fill={colorFor(seriesName)}
-                    radius={[4, 4, 0, 0]}
-                    stackId="total"
-                    maxBarSize={48}
-                    // Ensure no built-in data labels are rendered for this series
-                    label={false}
-                  />
-                );
-              })}
-            </BarChart>
+            {isAllTenants ? (
+              // Horizontal stacked: service types on Y-axis, tenant stacks on X (counts)
+              <BarChart
+                data={stackedData}
+                layout="vertical"
+                margin={{ top: 8, right: 12, left: 8, bottom: 4 }}
+                aria-label="Sessions by service type (stacked by tenant)"
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
+                <XAxis
+                  type="number"
+                  allowDecimals={false}
+                  tick={{ fontSize: 12, fill: theme.label }}
+                  axisLine={{ stroke: theme.axisTick }}
+                  tickLine={{ stroke: theme.axisTick }}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="label"
+                  tick={{ fontSize: 12, fill: theme.label }}
+                  axisLine={{ stroke: theme.axisTick }}
+                  tickLine={{ stroke: theme.axisTick }}
+                  width={120}
+                />
+                <Tooltip
+                  cursor={{ fill: 'transparent' }}
+                  contentStyle={{
+                    background: '#1F2937',
+                    border: 'none',
+                    borderRadius: 8,
+                    color: '#F9FAFB',
+                  }}
+                  wrapperStyle={{ zIndex: 9999 }}
+                  formatter={(value, name) => [value, name]}
+                  labelFormatter={(lab) => `Service: ${lab}`}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                {series.map((s, i) => {
+                  const seriesName = String(s.name || `Series ${i + 1}`);
+                  return (
+                    <Bar
+                      key={seriesName}
+                      dataKey={seriesName}
+                      name={seriesName}
+                      fill={colorFor(seriesName)}
+                      stackId="total"
+                      barSize={18}
+                      radius={[0, 4, 4, 0]}
+                      label={false}
+                    />
+                  );
+                })}
+              </BarChart>
+            ) : (
+              // Existing vertical stacked: dates on X-axis, service types stacked
+              <BarChart
+                data={stackedData}
+                margin={{ top: 8, right: 12, left: 8, bottom: 4 }}
+                aria-label="Sessions by service type (stacked)"
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 12, fill: theme.label }}
+                  axisLine={{ stroke: theme.axisTick }}
+                  tickLine={{ stroke: theme.axisTick }}
+                  interval="preserveEnd"
+                />
+                <YAxis
+                  allowDecimals={false}
+                  tick={{ fontSize: 12, fill: theme.label }}
+                  axisLine={{ stroke: theme.axisTick }}
+                  tickLine={{ stroke: theme.axisTick }}
+                  width={40}
+                />
+                <Tooltip
+                  cursor={{ fill: 'transparent' }}
+                  contentStyle={{
+                    background: '#1F2937',
+                    border: 'none',
+                    borderRadius: 8,
+                    color: '#F9FAFB',
+                  }}
+                  wrapperStyle={{ zIndex: 9999 }}
+                  formatter={(value, name) => [value, name]}
+                  labelFormatter={(lab) => `Date: ${lab}`}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                {series.map((s, i) => {
+                  const seriesName = String(s.name || `Series ${i + 1}`);
+                  return (
+                    <Bar
+                      key={seriesName}
+                      dataKey={seriesName}
+                      name={seriesName}
+                      fill={colorFor(seriesName)}
+                      radius={[4, 4, 0, 0]}
+                      stackId="total"
+                      maxBarSize={48}
+                      label={false}
+                    />
+                  );
+                })}
+              </BarChart>
+            )}
           </ResponsiveContainer>
         </div>
       )}
