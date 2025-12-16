@@ -273,6 +273,26 @@ html[data-theme="dark"] .card:focus-within {
   align-items: center;
 }
 
+/* Light input style aligned with Ocean theme */
+.input, .ui-input, select.input {
+  appearance: none;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle, #E5E7EB);
+  border-radius: 10px;
+  background: var(--bg-surface, #fff);
+  color: var(--text-primary, #111827);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.input:focus, .ui-input:focus, select.input:focus {
+  outline: none;
+  border-color: color-mix(in oklab, var(--brand-primary, #2563EB) 40%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-primary, #2563EB) 15%, transparent);
+}
+.amount-positive {
+  font-weight: 700;
+  color: var(--brand-secondary, #F59E0B);
+}
+
 .toolbar .spacer {
   flex: 1;
 }
