@@ -16,6 +16,7 @@ import './overview.css';
 import '../overview/overviewUsersSummary.css';
 import { getChartTheme } from '../charts/chartTheme';
 import { apiGet } from '../../utils/api';
+import { getCategoryColorMap } from '../../theme/oceanTheme';
 
 /**
  * PUBLIC_INTERFACE
@@ -123,11 +124,45 @@ export default function ProjectsServiceTypeBarChart({
       }
 
       // If still missing, consider empty
-      const hasData =
+      let hasData =
         Array.isArray(nextLabels) &&
         nextLabels.length > 0 &&
         Array.isArray(nextSeries) &&
         nextSeries.length > 0;
+
+      // Apply zero-total label filtering only after labels/series are constructed
+      if (hasData) {
+        // Compute totals per label index
+        const totals = nextLabels.map((_, idx) =>
+          nextSeries.reduce((sum, s) => {
+            const v =
+              Array.isArray(s?.data) && Number.isFinite(Number(s.data[idx]))
+                ? Number(s.data[idx])
+                : 0;
+            return sum + v;
+          }, 0)
+        );
+        // Determine indices to keep (those with total > 0)
+        const keepIdx = totals
+          .map((t, i) => (t > 0 ? i : -1))
+          .filter((i) => i >= 0);
+
+        // If at least one index to keep, filter labels and realign series data
+        if (keepIdx.length > 0 && keepIdx.length !== nextLabels.length) {
+          nextLabels = keepIdx.map((i) => nextLabels[i]);
+          nextSeries = nextSeries.map((s) => ({
+            name: String(s?.name ?? 'Unknown'),
+            data: keepIdx.map((i) =>
+              Array.isArray(s?.data) && Number.isFinite(Number(s.data[i]))
+                ? Number(s.data[i])
+                : 0
+            ),
+          }));
+        } else if (keepIdx.length === 0) {
+          // All totals are zero; treat as empty
+          hasData = false;
+        }
+      }
 
       setLabels(hasData ? nextLabels : []);
       setSeries(hasData ? nextSeries : []);
@@ -192,12 +227,23 @@ export default function ProjectsServiceTypeBarChart({
     });
   }, [labels, series]);
 
+  // Build a stable color map per series (service type) name using Ocean palette
+  const seriesNames = useMemo(
+    () => (Array.isArray(series) ? series.map((s) => String(s?.name ?? 'Unknown')) : []),
+    [series]
+  );
+  const colorMap = useMemo(() => getCategoryColorMap(seriesNames), [seriesNames]);
+
   const colorFor = useCallback(
-    (i) => {
+    (nameOrIndex) => {
+      if (typeof nameOrIndex === 'string') {
+        return colorMap[nameOrIndex] || theme.primary || '#2563EB';
+      }
+      // Fallback by index for safety
       const palette = Array.isArray(theme.palette) ? theme.palette : [theme.primary || '#2563EB'];
-      return palette[i % palette.length];
+      return palette[(Number(nameOrIndex) || 0) % palette.length];
     },
-    [theme]
+    [colorMap, theme]
   );
 
   return (
@@ -304,15 +350,18 @@ export default function ProjectsServiceTypeBarChart({
                 labelFormatter={(lab) => `Date: ${lab}`}
               />
               <Legend />
-              {series.map((s, i) => (
-                <Bar
-                  key={s.name || `series-${i}`}
-                  dataKey={String(s.name || `series-${i}`)}
-                  name={String(s.name || `Series ${i + 1}`)}
-                  fill={colorFor(i)}
-                  radius={[4, 4, 0, 0]}
-                />
-              ))}
+              {series.map((s, i) => {
+                const seriesName = String(s.name || `Series ${i + 1}`);
+                return (
+                  <Bar
+                    key={seriesName}
+                    dataKey={seriesName}
+                    name={seriesName}
+                    fill={colorFor(seriesName)}
+                    radius={[4, 4, 0, 0]}
+                  />
+                );
+              })}
             </BarChart>
           </ResponsiveContainer>
         </div>
