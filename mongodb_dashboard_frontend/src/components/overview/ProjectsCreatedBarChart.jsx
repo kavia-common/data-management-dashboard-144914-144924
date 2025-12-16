@@ -23,6 +23,7 @@ import { getOverviewProjectsSummary } from '../../api/overviewAnalytics';
  * - Always send range; include start/end only for custom.
  * - Debounce user-triggered fetches by 150ms.
  * - Guard initial mount to avoid StrictMode double fetch.
+ * - When organization_id is "T0000" and response.barData exists, render a horizontal bar chart by tenant.
  */
 export default function ProjectsCreatedBarChart() {
   const organizationId = useCurrentOrgId();
@@ -35,6 +36,7 @@ export default function ProjectsCreatedBarChart() {
   const [status, setStatus] = useState('idle'); // idle | loading | success | empty | error
   const [error, setError] = useState(null);
   const [buckets, setBuckets] = useState([]);
+  const [barData, setBarData] = useState([]); // super-admin horizontal data
 
   const theme = getChartTheme();
 
@@ -57,12 +59,26 @@ export default function ProjectsCreatedBarChart() {
     try {
       const req = buildOverviewFilterParams({ organizationId, params });
       const res = await getOverviewProjectsSummary(req);
+      // Preserve original buckets rendering for non-T0000 cases
       const list = Array.isArray(res?.buckets) ? res.buckets : [];
-      if (list.length === 0) {
+      // For T0000 responses, we may receive barData: [{ organization_id, name, count }, ...]
+      const incomingBar = Array.isArray(res?.barData) ? res.barData : [];
+
+      // Determine emptiness across both shapes
+      const hasAny =
+        (list && list.length > 0) || (incomingBar && incomingBar.length > 0);
+
+      if (!hasAny) {
         setBuckets([]);
+        setBarData([]);
         setStatus('empty');
       } else {
         setBuckets(list);
+        // Sort horizontal bars descending by count for readability
+        const sorted = incomingBar
+          .slice()
+          .sort((a, b) => Number(b?.count || 0) - Number(a?.count || 0));
+        setBarData(sorted);
         setStatus('success');
       }
     } catch (e) {
@@ -83,17 +99,12 @@ export default function ProjectsCreatedBarChart() {
     // Reset custom when changing away from custom
     if (range !== 'custom') {
       if (appliedStart || appliedEnd) {
-        // Avoid extra double fetch caused by state change; just clear and rely on current fetch firing
-        // via the range dependency change below
-        // Clear applied bounds synchronously
-        // Note: These setStates will trigger this effect again; debounce will coalesce into one fetch.
         setAppliedStart('');
         setAppliedEnd('');
       }
     } else {
       // For custom, only fetch when both applied dates are set
       if (!(appliedStart && appliedEnd)) {
-        // Nothing to fetch yet
         return;
       }
     }
@@ -121,6 +132,7 @@ export default function ProjectsCreatedBarChart() {
     }
   };
 
+  // Time-bucketed chart shape (existing)
   const chartData = useMemo(
     () =>
       (buckets || []).map((b) => ({
@@ -129,7 +141,29 @@ export default function ProjectsCreatedBarChart() {
       })),
     [buckets]
   );
+
+  // Horizontal bar list data for T0000 + barData
+  const horizontalData = useMemo(
+    () =>
+      (barData || []).map((d) => ({
+        key: d.organization_id || d.name || '',
+        name: d.name || d.organization_id || '',
+        count: Number(d.count || 0),
+      })),
+    [barData]
+  );
+
   const isEmpty = status === 'empty';
+
+  // Render a simple CSS-based horizontal bar list when org is T0000 and barData is present
+  const shouldShowHorizontal =
+    String(organizationId) === 'T0000' && Array.isArray(barData) && barData.length > 0;
+
+  // Compute scale for widths
+  const maxValue = useMemo(() => {
+    if (!shouldShowHorizontal) return 0;
+    return horizontalData.reduce((m, it) => Math.max(m, it.count || 0), 0);
+  }, [shouldShowHorizontal, horizontalData]);
 
   return (
     <Card style={{ marginTop: 16 }}>
@@ -203,33 +237,111 @@ export default function ProjectsCreatedBarChart() {
       )}
 
       {status === 'success' && !isEmpty && (
-        <div style={{ width: '100%', height: 280 }}>
-          <ResponsiveContainer>
-            <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
-              <XAxis
-                dataKey="label"
-                tick={{ fontSize: 12, fill: theme.primary }}
-                axisLine={{ stroke: theme.axisTick }}
-                tickLine={{ stroke: theme.axisTick }}
-                interval="preserveEnd"
-              />
-              <YAxis
-                allowDecimals={false}
-                tick={{ fontSize: 12, fill: theme.axisTick }}
-                axisLine={{ stroke: theme.axisTick }}
-                tickLine={{ stroke: theme.axisTick }}
-              />
-              <Tooltip
-                formatter={(value) => [value, 'Projects']}
-                labelFormatter={(label) => `Date: ${label}`}
-                fill={theme.primary}
-                contentStyle={{ background: 'transparent', borderRadius: 8, borderColor: '#e5e7eb' }}
-              />
-              <Bar dataKey="count" name="Projects" fill={theme.primary} radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <>
+          {shouldShowHorizontal ? (
+            <div
+              style={{
+                width: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                padding: 8,
+              }}
+              aria-label="Projects created by tenant"
+            >
+              {horizontalData.map((item) => {
+                const pct = maxValue > 0 ? Math.max(2, Math.round((item.count / maxValue) * 100)) : 0;
+                return (
+                  <div
+                    key={`${item.key}-${item.name}`}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 4fr auto',
+                      alignItems: 'center',
+                      gap: 12,
+                    }}
+                  >
+                    <div
+                      title={item.name}
+                      style={{
+                        color: '#111827',
+                        fontSize: 13,
+                        whiteSpace: 'nowrap',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                      }}
+                    >
+                      {item.name}
+                    </div>
+                    <div
+                      role="img"
+                      aria-label={`${item.name}: ${item.count}`}
+                      style={{
+                        width: '100%',
+                        background: 'linear-gradient(90deg, rgba(37,99,235,0.10), rgba(37,99,235,0.04))',
+                        borderRadius: 999,
+                        height: 12,
+                        position: 'relative',
+                        boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.04)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${pct}%`,
+                          maxWidth: '100%',
+                          height: '100%',
+                          background: theme.primary,
+                          borderRadius: 999,
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                          transition: 'width 200ms ease',
+                        }}
+                      />
+                    </div>
+                    <div
+                      style={{
+                        minWidth: 40,
+                        textAlign: 'right',
+                        fontVariantNumeric: 'tabular-nums',
+                        color: '#111827',
+                        fontSize: 12,
+                      }}
+                    >
+                      {item.count}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{ width: '100%', height: 280 }}>
+              <ResponsiveContainer>
+                <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 12, fill: theme.primary }}
+                    axisLine={{ stroke: theme.axisTick }}
+                    tickLine={{ stroke: theme.axisTick }}
+                    interval="preserveEnd"
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fontSize: 12, fill: theme.axisTick }}
+                    axisLine={{ stroke: theme.axisTick }}
+                    tickLine={{ stroke: theme.axisTick }}
+                  />
+                  <Tooltip
+                    formatter={(value) => [value, 'Projects']}
+                    labelFormatter={(label) => `Date: ${label}`}
+                    fill={theme.primary}
+                    contentStyle={{ background: 'transparent', borderRadius: 8, borderColor: '#e5e7eb' }}
+                  />
+                  <Bar dataKey="count" name="Projects" fill={theme.primary} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </>
       )}
     </Card>
   );
