@@ -1,12 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import PropTypes from 'prop-types';
 import {
   ResponsiveContainer,
   BarChart,
-  CartesianGrid,
+  Bar,
   XAxis,
   YAxis,
   Tooltip,
-  Bar,
+  CartesianGrid,
+  Legend,
+  LabelList,
 } from 'recharts';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import Card from '../common/Card';
@@ -23,7 +26,7 @@ import { getOverviewProjectsSummary } from '../../api/overviewAnalytics';
  * - Always send range; include start/end only for custom.
  * - Debounce user-triggered fetches by 150ms.
  * - Guard initial mount to avoid StrictMode double fetch.
- * - When organization_id is "T0000" and response.barData exists, render a horizontal bar chart by tenant.
+ * - For organization_id === "T0000" and response.barData, render a horizontal Recharts BarChart mirroring UsersSummaryStackedBar totals styling.
  */
 export default function ProjectsCreatedBarChart() {
   const organizationId = useCurrentOrgId();
@@ -38,15 +41,18 @@ export default function ProjectsCreatedBarChart() {
   const [buckets, setBuckets] = useState([]);
   const [barData, setBarData] = useState([]); // super-admin horizontal data
 
-  const theme = getChartTheme();
+  const theme = getChartTheme ? getChartTheme() : {
+    primary: '#2563EB',
+    grid: '#e5e7eb',
+    label: '#374151',
+    axisTick: '#9ca3af',
+    tooltip: { bg: '#2b2723', border: '#2b2723', text: '#ffffff' },
+    palette: ['#2563EB', '#F59E0B', '#10B981', '#EC4899', '#8B5CF6', '#F43F5E', '#0EA5E9'],
+  };
 
   // Stable debounced fetch using a ref-held timeout
   const debounceRef = useRef(null);
   const hasMountedRef = useRef(false);
-
-  // Tooltip state for custom horizontal bars (T0000)
-  const [hovered, setHovered] = useState(null); // { key, x, y }
-  const tooltipRef = useRef(null);
 
   const fetchSummary = useCallback(async () => {
     if (!organizationId) return;
@@ -63,14 +69,9 @@ export default function ProjectsCreatedBarChart() {
     try {
       const req = buildOverviewFilterParams({ organizationId, params });
       const res = await getOverviewProjectsSummary(req);
-      // Preserve original buckets rendering for non-T0000 cases
       const list = Array.isArray(res?.buckets) ? res.buckets : [];
-      // For T0000 responses, we may receive barData: [{ organization_id, name, count }, ...]
       const incomingBar = Array.isArray(res?.barData) ? res.barData : [];
-
-      // Determine emptiness across both shapes
-      const hasAny =
-        (list && list.length > 0) || (incomingBar && incomingBar.length > 0);
+      const hasAny = (list && list.length > 0) || (incomingBar && incomingBar.length > 0);
 
       if (!hasAny) {
         setBuckets([]);
@@ -78,7 +79,6 @@ export default function ProjectsCreatedBarChart() {
         setStatus('empty');
       } else {
         setBuckets(list);
-        // Sort horizontal bars descending by count for readability
         const sorted = incomingBar
           .slice()
           .sort((a, b) => Number(b?.count || 0) - Number(a?.count || 0));
@@ -113,7 +113,6 @@ export default function ProjectsCreatedBarChart() {
       }
     }
 
-    // Debounce subsequent fetches to avoid double calls from fast state transitions
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
@@ -130,7 +129,6 @@ export default function ProjectsCreatedBarChart() {
 
   const onApplyCustom = () => {
     if (pendingStart && pendingEnd) {
-      // Setting appliedStart/appliedEnd triggers a single debounced fetch via the effect
       setAppliedStart(pendingStart);
       setAppliedEnd(pendingEnd);
     }
@@ -146,65 +144,19 @@ export default function ProjectsCreatedBarChart() {
     [buckets]
   );
 
-  // Horizontal bar list data for T0000 + barData
-  const horizontalData = useMemo(
+  // Horizontal bar chart data for T0000 + barData (map to { label, total } like UsersSummaryStackedBar totals)
+  const t0000Data = useMemo(
     () =>
-      (barData || []).map((d) => ({
-        key: d.organization_id || d.name || '',
-        name: d.name || d.organization_id || '',
-        count: Number(d.count || 0),
+      (barData || []).map((d, i) => ({
+        label: String(d.name || d.organization_id || `Tenant ${i + 1}`),
+        total: Number(d.count || 0),
       })),
     [barData]
   );
 
   const isEmpty = status === 'empty';
-
-  // Render a simple CSS-based horizontal bar list when org is T0000 and barData is present
-  const shouldShowHorizontal =
-    String(organizationId) === 'T0000' && Array.isArray(barData) && barData.length > 0;
-
-  // Compute scale for widths
-  const maxValue = useMemo(() => {
-    if (!shouldShowHorizontal) return 0;
-    return horizontalData.reduce((m, it) => Math.max(m, it.count || 0), 0);
-  }, [shouldShowHorizontal, horizontalData]);
-
-  // Handlers for custom tooltip positioning
-  const handleBarMouseEnter = (e, item) => {
-    if (!e?.currentTarget) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    setHovered({
-      key: item.key,
-      name: item.name,
-      count: item.count,
-      x: rect.left + rect.width,
-      y: rect.top,
-    });
-  };
-  const handleBarMouseMove = (e, item) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    setHovered((prev) =>
-      prev && prev.key === item.key
-        ? { ...prev, x: rect.left + rect.width, y: rect.top }
-        : prev
-    );
-  };
-  const handleBarMouseLeave = () => setHovered(null);
-
-  const tooltipPortalStyle = {
-    position: 'fixed',
-    zIndex: 9999,
-    pointerEvents: 'none',
-    background: '#2b2723',
-    color: '#ffffff',
-    padding: '6px 8px',
-    borderRadius: 8,
-    boxShadow: '0 8px 16px rgba(0,0,0,0.25)',
-    fontSize: 12,
-    lineHeight: 1.2,
-    transform: 'translate(-8px, -42px)',
-    whiteSpace: 'nowrap',
-  };
+  const isT0000 = String(organizationId) === 'T0000';
+  const shouldShowT0000Horizontal = isT0000 && Array.isArray(t0000Data) && t0000Data.length > 0;
 
   return (
     <Card style={{ marginTop: 16, overflow: 'visible' }}>
@@ -279,151 +231,48 @@ export default function ProjectsCreatedBarChart() {
 
       {status === 'success' && !isEmpty && (
         <>
-          {shouldShowHorizontal ? (
-            <div
-              style={{
-                width: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 10,
-                padding: 8,
-                overflow: 'visible',
-              }}
-              aria-label="Projects created by tenant"
-            >
-              {horizontalData.map((item) => {
-                const pct = maxValue > 0 ? Math.max(2, Math.round((item.count / maxValue) * 100)) : 0;
-                return (
-                  <div
-                    key={`${item.key}-${item.name}`}
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 4fr auto',
-                      alignItems: 'center',
-                      gap: 12,
-                    }}
-                  >
-                    <div
-                      title={item.name}
-                      style={{
-                        color: '#ffffff',
-                        fontSize: 13,
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                      }}
-                    >
-                      {item.name}
-                    </div>
-                    <div
-                      role="img"
-                      aria-label={`${item.name}: ${item.count}`}
-                      style={{
-                        width: '100%',
-                        background: 'linear-gradient(90deg, rgba(255,255,255,0.15), rgba(255,255,255,0.06))',
-                        borderRadius: 999,
-                        height: 14,
-                        position: 'relative',
-                        boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12)',
-                        overflow: 'visible',
-                      }}
-                    >
-                      <div
-                        tabIndex={0}
-                        aria-describedby={`tooltip-${item.key}`}
-                        aria-label={`${item.name} projects bar`}
-                        onMouseEnter={(e) => handleBarMouseEnter(e, item)}
-                        onMouseMove={(e) => handleBarMouseMove(e, item)}
-                        onMouseLeave={handleBarMouseLeave}
-                        style={{
-                          width: `${pct}%`,
-                          maxWidth: '100%',
-                          height: '100%',
-                          background: '#ffffff',
-                          borderRadius: 999,
-                          boxShadow: '0 1px 2px rgba(0,0,0,0.18)',
-                          transition: 'width 200ms ease',
-                          position: 'relative',
-                        }}
-                      />
-                      {/* Fallback CSS sibling tooltip for hover/focus if fixed portal fails */}
-                      <div
-                        id={`tooltip-${item.key}`}
-                        role="tooltip"
-                        style={{
-                          position: 'absolute',
-                          left: `${Math.min(pct, 95)}%`,
-                          top: -42,
-                          transform: 'translateX(-50%)',
-                          background: '#2b2723',
-                          color: '#ffffff',
-                          padding: '6px 8px',
-                          borderRadius: 8,
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.28)',
-                          whiteSpace: 'nowrap',
-                          fontSize: 12,
-                          lineHeight: 1.2,
-                          pointerEvents: 'none',
-                          opacity: 0,
-                          transition: 'opacity 150ms ease, transform 150ms ease',
-                          zIndex: 999,
-                        }}
-                        className="t0000-tooltip"
-                      >
-                        <span style={{ fontWeight: 700 }}>{item.name}</span>
-                        <span style={{ opacity: 0.95 }}> — {item.count}</span>
-                        <span
-                          aria-hidden="true"
-                          style={{
-                            position: 'absolute',
-                            bottom: -6,
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            width: 0,
-                            height: 0,
-                            borderLeft: '6px solid transparent',
-                            borderRight: '6px solid transparent',
-                            borderTop: '6px solid #2b2723',
-                          }}
-                        />
-                      </div>
-                      <style>{`
-                        /* Show tooltip on hover or keyboard focus of the foreground bar */
-                        [aria-describedby="tooltip-${item.key}"]:hover ~ #tooltip-${item.key},
-                        [aria-describedby="tooltip-${item.key}"]:focus ~ #tooltip-${item.key} {
-                          opacity: 1;
-                          transform: translateX(-50%) translateY(-2px);
-                        }
-                      `}</style>
-                    </div>
-                    <div
-                      style={{
-                        minWidth: 40,
-                        textAlign: 'right',
-                        fontVariantNumeric: 'tabular-nums',
-                        color: '#ffffff',
-                        fontSize: 12,
-                      }}
-                    >
-                      {item.count}
-                    </div>
-                  </div>
-                );
-              })}
-              {/* Absolute/fixed positioned tooltip to avoid clipping and ensure pointer events don't block */}
-              {hovered && (
-                <div
-                  ref={tooltipRef}
-                  style={{
-                    ...tooltipPortalStyle,
-                    left: hovered.x,
-                    top: hovered.y,
-                  }}
+          {shouldShowT0000Horizontal ? (
+            <div style={{ width: '100%', height: 320, overflow: 'visible' }} aria-label="Projects created by tenant">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={t0000Data}
+                  layout="vertical"
+                  margin={{ top: 12, right: 16, left: 12, bottom: 18 }}
                 >
-                  <span style={{ fontWeight: 700 }}>{hovered.name}</span>
-                  <span style={{ opacity: 0.95 }}> — {hovered.count}</span>
-                </div>
-              )}
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
+                  <YAxis
+                    type="category"
+                    dataKey="label"
+                    tick={{ fill: '#ffffff', fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={{ stroke: '#ffffff' }}
+                    width={140}
+                  />
+                  <XAxis
+                    type="number"
+                    tick={{ fill: '#ffffff', fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={{ stroke: '#ffffff' }}
+                    allowDecimals={false}
+                    domain={[0, 'dataMax']}
+                  />
+                  <Tooltip
+                    cursor={{ fill: 'transparent' }}
+                    contentStyle={{
+                      background: '#2b2723',
+                      border: 'none',
+                      borderRadius: 8,
+                      color: '#ffffff',
+                    }}
+                    wrapperStyle={{ zIndex: 9999 }}
+                    formatter={(value) => [value, 'Projects']}
+                    labelFormatter={(label) => `${label}`}
+                  />
+                  <Bar dataKey="total" name="Projects" fill="#FF6600" radius={[0, 4, 4, 0]}>
+                    <LabelList dataKey="total" position="right" fill="#ffffff" fontSize={11} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           ) : (
             <div style={{ width: '100%', height: 280 }}>
@@ -432,26 +281,31 @@ export default function ProjectsCreatedBarChart() {
                   <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
                   <XAxis
                     dataKey="label"
-                    tick={{ fontSize: 12, fill: String(organizationId) === 'T0000' ? '#ffffff' : theme.primary }}
-                    axisLine={{ stroke: String(organizationId) === 'T0000' ? '#ffffff' : theme.axisTick }}
-                    tickLine={{ stroke: String(organizationId) === 'T0000' ? '#ffffff' : theme.axisTick }}
+                    tick={{ fontSize: 12, fill: isT0000 ? '#ffffff' : theme.primary }}
+                    axisLine={{ stroke: isT0000 ? '#ffffff' : theme.axisTick }}
+                    tickLine={{ stroke: isT0000 ? '#ffffff' : theme.axisTick }}
                     interval="preserveEnd"
                   />
                   <YAxis
                     allowDecimals={false}
-                    tick={{ fontSize: 12, fill: String(organizationId) === 'T0000' ? '#ffffff' : theme.axisTick }}
-                    axisLine={{ stroke: String(organizationId) === 'T0000' ? '#ffffff' : theme.axisTick }}
-                    tickLine={{ stroke: String(organizationId) === 'T0000' ? '#ffffff' : theme.axisTick }}
+                    tick={{ fontSize: 12, fill: isT0000 ? '#ffffff' : theme.axisTick }}
+                    axisLine={{ stroke: isT0000 ? '#ffffff' : theme.axisTick }}
+                    tickLine={{ stroke: isT0000 ? '#ffffff' : theme.axisTick }}
                   />
                   <Tooltip
+                    cursor={{ fill: 'transparent' }}
+                    contentStyle={{
+                      background: '#2b2723',
+                      border: 'none',
+                      borderRadius: 8,
+                      color: '#ffffff',
+                    }}
+                    wrapperStyle={{ zIndex: 9999 }}
                     formatter={(value) => [value, 'Projects']}
                     labelFormatter={(label) => `Date: ${label}`}
-                    wrapperStyle={{ zIndex: 9999, pointerEvents: 'auto' }}
-                    contentStyle={{ background: '#2b2723', border: 'none', borderRadius: 8 }}
-                    itemStyle={{ color: '#ffffff' }}
-                    labelStyle={{ color: '#ffffff' }}
                   />
-                  <Bar dataKey="count" name="Projects" fill={String(organizationId) === 'T0000' ? '#ffffff' : theme.primary} radius={[4, 4, 0, 0]} />
+                  <Legend />
+                  <Bar dataKey="count" name="Projects" fill={isT0000 ? '#ffffff' : theme.primary} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -461,3 +315,7 @@ export default function ProjectsCreatedBarChart() {
     </Card>
   );
 }
+
+ProjectsCreatedBarChart.propTypes = {
+  // No external props currently; defined for forward compatibility
+};
