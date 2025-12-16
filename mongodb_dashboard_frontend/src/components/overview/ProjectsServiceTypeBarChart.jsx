@@ -9,6 +9,7 @@ import {
   Tooltip,
   CartesianGrid,
   Legend,
+  LabelList,
 } from 'recharts';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import Card from '../common/Card';
@@ -21,7 +22,7 @@ import { getCategoryColorMap } from '../../theme/oceanTheme';
 /**
  * PUBLIC_INTERFACE
  * ProjectsServiceTypeBarChart
- * Renders a grouped bar chart of sessions grouped by service type across labels (time buckets),
+ * Renders a stacked bar chart of sessions grouped by service type across labels (time buckets),
  * calling GET /api/service-type/summary with organizationId, range, and optional start/end when range=custom.
  * Accepts optional organizationId prop, otherwise derives from app context.
  * Handles API responses with { labels, series } primarily, and falls back to summaryByServiceType when needed.
@@ -73,19 +74,17 @@ export default function ProjectsServiceTypeBarChart({
     params.set('organization_id', organizationId);
 
     try {
-      // Use centralized apiGet to add auth headers and base url handling
       const res = await apiGet(`/service-type/summary?${params.toString()}`, {
         organization_id: organizationId,
       });
 
-      // Expect shape: { labels: [...], series: [{ name, data: [...] }], ... }
+      // Preferred: { labels: [...], series: [{ name, data: [...] }] }
       let nextLabels = Array.isArray(res?.labels) ? res.labels : null;
       let nextSeries = Array.isArray(res?.series) ? res.series : null;
 
-      // Robust fallback: when labels/series missing, try to build from summaryByServiceType
+      // Fallback: summaryByServiceType [{ service_type, buckets:[{label,count}]}]
       if ((!nextLabels || !nextSeries) && Array.isArray(res?.summaryByServiceType)) {
         const byType = res.summaryByServiceType;
-        // Collect unique labels across items (if item.buckets present)
         const allLabelsSet = new Set();
         byType.forEach((it) => {
           if (Array.isArray(it?.buckets)) {
@@ -94,8 +93,7 @@ export default function ProjectsServiceTypeBarChart({
             });
           }
         });
-        const labelArr = Array.from(allLabelsSet);
-        labelArr.sort();
+        const labelArr = Array.from(allLabelsSet).sort();
 
         const builtSeries = byType.map((it) => {
           const dataPoints = labelArr.map((lab) => {
@@ -111,8 +109,7 @@ export default function ProjectsServiceTypeBarChart({
         }
       }
 
-      // Additional minimal fallback: if API returned {items:[{service_type,count}]} only,
-      // build a single bucket "Total" with one data point
+      // Minimal fallback: { items:[{service_type,count}] } => single "Total" bucket
       if ((!nextLabels || !nextSeries) && Array.isArray(res?.items)) {
         const labelArr = ['Total'];
         const builtSeries = res.items.map((it) => ({
@@ -123,16 +120,14 @@ export default function ProjectsServiceTypeBarChart({
         nextSeries = builtSeries;
       }
 
-      // If still missing, consider empty
+      // Validate and filter zero-total buckets (labels) and realign data
       let hasData =
         Array.isArray(nextLabels) &&
         nextLabels.length > 0 &&
         Array.isArray(nextSeries) &&
         nextSeries.length > 0;
 
-      // Apply zero-total label filtering only after labels/series are constructed
       if (hasData) {
-        // Compute totals per label index
         const totals = nextLabels.map((_, idx) =>
           nextSeries.reduce((sum, s) => {
             const v =
@@ -142,12 +137,8 @@ export default function ProjectsServiceTypeBarChart({
             return sum + v;
           }, 0)
         );
-        // Determine indices to keep (those with total > 0)
-        const keepIdx = totals
-          .map((t, i) => (t > 0 ? i : -1))
-          .filter((i) => i >= 0);
+        const keepIdx = totals.map((t, i) => (t > 0 ? i : -1)).filter((i) => i >= 0);
 
-        // If at least one index to keep, filter labels and realign series data
         if (keepIdx.length > 0 && keepIdx.length !== nextLabels.length) {
           nextLabels = keepIdx.map((i) => nextLabels[i]);
           nextSeries = nextSeries.map((s) => ({
@@ -159,7 +150,6 @@ export default function ProjectsServiceTypeBarChart({
             ),
           }));
         } else if (keepIdx.length === 0) {
-          // All totals are zero; treat as empty
           hasData = false;
         }
       }
@@ -180,14 +170,12 @@ export default function ProjectsServiceTypeBarChart({
       return;
     }
 
-    // For non-custom, clear applied dates
     if (range !== 'custom') {
       if (appliedStart || appliedEnd) {
         setAppliedStart('');
         setAppliedEnd('');
       }
     } else {
-      // Wait for Apply when custom
       if (!(appliedStart && appliedEnd)) {
         return;
       }
@@ -210,8 +198,8 @@ export default function ProjectsServiceTypeBarChart({
     }
   };
 
-  // Shape data for grouped bar chart: each label -> object with label + one key per series.name
-  const groupedData = useMemo(() => {
+  // Shape data for stacked bar chart: each label -> object with label + one key per series.name
+  const stackedData = useMemo(() => {
     if (!Array.isArray(labels) || !Array.isArray(series)) return [];
     return labels.map((lab, idx) => {
       const row = { label: String(lab) };
@@ -227,7 +215,7 @@ export default function ProjectsServiceTypeBarChart({
     });
   }, [labels, series]);
 
-  // Build a stable color map per series (service type) name using Ocean palette
+  // Stable color map per service type
   const seriesNames = useMemo(
     () => (Array.isArray(series) ? series.map((s) => String(s?.name ?? 'Unknown')) : []),
     [series]
@@ -239,12 +227,14 @@ export default function ProjectsServiceTypeBarChart({
       if (typeof nameOrIndex === 'string') {
         return colorMap[nameOrIndex] || theme.primary || '#2563EB';
       }
-      // Fallback by index for safety
       const palette = Array.isArray(theme.palette) ? theme.palette : [theme.primary || '#2563EB'];
       return palette[(Number(nameOrIndex) || 0) % palette.length];
     },
     [colorMap, theme]
   );
+
+  // Optional value labels toggle (could be configurable later)
+  const showValueLabels = true;
 
   return (
     <Card style={{ marginTop: 16, overflow: 'visible' }}>
@@ -319,10 +309,14 @@ export default function ProjectsServiceTypeBarChart({
         </div>
       )}
 
-      {status === 'success' && groupedData.length > 0 && (
+      {status === 'success' && stackedData.length > 0 && (
         <div style={{ width: '100%', height: 320 }}>
           <ResponsiveContainer>
-            <BarChart data={groupedData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+            <BarChart
+              data={stackedData}
+              margin={{ top: 8, right: 12, left: 8, bottom: 4 }}
+              aria-label="Sessions by service type (stacked)"
+            >
               <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
               <XAxis
                 dataKey="label"
@@ -336,6 +330,7 @@ export default function ProjectsServiceTypeBarChart({
                 tick={{ fontSize: 12, fill: theme.label }}
                 axisLine={{ stroke: theme.axisTick }}
                 tickLine={{ stroke: theme.axisTick }}
+                width={40}
               />
               <Tooltip
                 cursor={{ fill: 'transparent' }}
@@ -349,7 +344,7 @@ export default function ProjectsServiceTypeBarChart({
                 formatter={(value, name) => [value, name]}
                 labelFormatter={(lab) => `Date: ${lab}`}
               />
-              <Legend />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
               {series.map((s, i) => {
                 const seriesName = String(s.name || `Series ${i + 1}`);
                 return (
@@ -359,7 +354,18 @@ export default function ProjectsServiceTypeBarChart({
                     name={seriesName}
                     fill={colorFor(seriesName)}
                     radius={[4, 4, 0, 0]}
-                  />
+                    stackId="total"
+                    maxBarSize={48}
+                  >
+                    {showValueLabels && (
+                      <LabelList
+                        dataKey={seriesName}
+                        position="insideTop"
+                        style={{ fill: '#ffffff', fontSize: 11 }}
+                        formatter={(val) => (val > 0 ? val : '')}
+                      />
+                    )}
+                  </Bar>
                 );
               })}
             </BarChart>
