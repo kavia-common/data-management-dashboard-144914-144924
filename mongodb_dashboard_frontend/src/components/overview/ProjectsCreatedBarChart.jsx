@@ -44,6 +44,10 @@ export default function ProjectsCreatedBarChart() {
   const debounceRef = useRef(null);
   const hasMountedRef = useRef(false);
 
+  // Tooltip state for custom horizontal bars (T0000)
+  const [hovered, setHovered] = useState(null); // { key, x, y }
+  const tooltipRef = useRef(null);
+
   const fetchSummary = useCallback(async () => {
     if (!organizationId) return;
 
@@ -165,8 +169,45 @@ export default function ProjectsCreatedBarChart() {
     return horizontalData.reduce((m, it) => Math.max(m, it.count || 0), 0);
   }, [shouldShowHorizontal, horizontalData]);
 
+  // Handlers for custom tooltip positioning
+  const handleBarMouseEnter = (e, item) => {
+    if (!e?.currentTarget) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    setHovered({
+      key: item.key,
+      name: item.name,
+      count: item.count,
+      x: rect.left + rect.width,
+      y: rect.top,
+    });
+  };
+  const handleBarMouseMove = (e, item) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setHovered((prev) =>
+      prev && prev.key === item.key
+        ? { ...prev, x: rect.left + rect.width, y: rect.top }
+        : prev
+    );
+  };
+  const handleBarMouseLeave = () => setHovered(null);
+
+  const tooltipPortalStyle = {
+    position: 'fixed',
+    zIndex: 9999,
+    pointerEvents: 'none',
+    background: '#2b2723',
+    color: '#ffffff',
+    padding: '6px 8px',
+    borderRadius: 8,
+    boxShadow: '0 8px 16px rgba(0,0,0,0.25)',
+    fontSize: 12,
+    lineHeight: 1.2,
+    transform: 'translate(-8px, -42px)',
+    whiteSpace: 'nowrap',
+  };
+
   return (
-    <Card style={{ marginTop: 16 }}>
+    <Card style={{ marginTop: 16, overflow: 'visible' }}>
       <div className="overview-users-summary__header project summary" style={{ marginBottom: 8 }}>
         <h3 className="overview-users-summary__title">Projects Created</h3>
         <div className="overview-users-summary__controls">
@@ -246,6 +287,7 @@ export default function ProjectsCreatedBarChart() {
                 flexDirection: 'column',
                 gap: 10,
                 padding: 8,
+                overflow: 'visible',
               }}
               aria-label="Projects created by tenant"
             >
@@ -264,7 +306,7 @@ export default function ProjectsCreatedBarChart() {
                     <div
                       title={item.name}
                       style={{
-                        color: '#111827',
+                        color: '#ffffff',
                         fontSize: 13,
                         whiteSpace: 'nowrap',
                         overflow: 'hidden',
@@ -278,27 +320,33 @@ export default function ProjectsCreatedBarChart() {
                       aria-label={`${item.name}: ${item.count}`}
                       style={{
                         width: '100%',
-                        background: 'linear-gradient(90deg, rgba(37,99,235,0.10), rgba(37,99,235,0.04))',
+                        background: 'linear-gradient(90deg, rgba(255,255,255,0.15), rgba(255,255,255,0.06))',
                         borderRadius: 999,
-                        height: 12,
+                        height: 14,
                         position: 'relative',
-                        boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.04)',
+                        boxShadow: 'inset 0 0 0 1px rgba(255,255,255,0.12)',
+                        overflow: 'visible',
                       }}
                     >
                       <div
                         tabIndex={0}
                         aria-describedby={`tooltip-${item.key}`}
+                        aria-label={`${item.name} projects bar`}
+                        onMouseEnter={(e) => handleBarMouseEnter(e, item)}
+                        onMouseMove={(e) => handleBarMouseMove(e, item)}
+                        onMouseLeave={handleBarMouseLeave}
                         style={{
                           width: `${pct}%`,
                           maxWidth: '100%',
                           height: '100%',
-                          background: theme.primary,
+                          background: '#ffffff',
                           borderRadius: 999,
-                          boxShadow: '0 1px 2px rgba(0,0,0,0.08)',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.18)',
                           transition: 'width 200ms ease',
                           position: 'relative',
                         }}
                       />
+                      {/* Fallback CSS sibling tooltip for hover/focus if fixed portal fails */}
                       <div
                         id={`tooltip-${item.key}`}
                         role="tooltip"
@@ -311,18 +359,19 @@ export default function ProjectsCreatedBarChart() {
                           color: '#ffffff',
                           padding: '6px 8px',
                           borderRadius: 8,
-                          boxShadow: '0 4px 12px rgba(0,0,0,0.18)',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.28)',
                           whiteSpace: 'nowrap',
                           fontSize: 12,
                           lineHeight: 1.2,
                           pointerEvents: 'none',
                           opacity: 0,
                           transition: 'opacity 150ms ease, transform 150ms ease',
+                          zIndex: 999,
                         }}
                         className="t0000-tooltip"
                       >
-                        <span style={{ fontWeight: 600 }}>{item.name}</span>
-                        <span style={{ opacity: 0.85 }}> — {item.count}</span>
+                        <span style={{ fontWeight: 700 }}>{item.name}</span>
+                        <span style={{ opacity: 0.95 }}> — {item.count}</span>
                         <span
                           aria-hidden="true"
                           style={{
@@ -352,7 +401,7 @@ export default function ProjectsCreatedBarChart() {
                         minWidth: 40,
                         textAlign: 'right',
                         fontVariantNumeric: 'tabular-nums',
-                        color: '#111827',
+                        color: '#ffffff',
                         fontSize: 12,
                       }}
                     >
@@ -361,6 +410,20 @@ export default function ProjectsCreatedBarChart() {
                   </div>
                 );
               })}
+              {/* Absolute/fixed positioned tooltip to avoid clipping and ensure pointer events don't block */}
+              {hovered && (
+                <div
+                  ref={tooltipRef}
+                  style={{
+                    ...tooltipPortalStyle,
+                    left: hovered.x,
+                    top: hovered.y,
+                  }}
+                >
+                  <span style={{ fontWeight: 700 }}>{hovered.name}</span>
+                  <span style={{ opacity: 0.95 }}> — {hovered.count}</span>
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ width: '100%', height: 280 }}>
@@ -369,24 +432,26 @@ export default function ProjectsCreatedBarChart() {
                   <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
                   <XAxis
                     dataKey="label"
-                    tick={{ fontSize: 12, fill: theme.primary }}
-                    axisLine={{ stroke: theme.axisTick }}
-                    tickLine={{ stroke: theme.axisTick }}
+                    tick={{ fontSize: 12, fill: String(organizationId) === 'T0000' ? '#ffffff' : theme.primary }}
+                    axisLine={{ stroke: String(organizationId) === 'T0000' ? '#ffffff' : theme.axisTick }}
+                    tickLine={{ stroke: String(organizationId) === 'T0000' ? '#ffffff' : theme.axisTick }}
                     interval="preserveEnd"
                   />
                   <YAxis
                     allowDecimals={false}
-                    tick={{ fontSize: 12, fill: theme.axisTick }}
-                    axisLine={{ stroke: theme.axisTick }}
-                    tickLine={{ stroke: theme.axisTick }}
+                    tick={{ fontSize: 12, fill: String(organizationId) === 'T0000' ? '#ffffff' : theme.axisTick }}
+                    axisLine={{ stroke: String(organizationId) === 'T0000' ? '#ffffff' : theme.axisTick }}
+                    tickLine={{ stroke: String(organizationId) === 'T0000' ? '#ffffff' : theme.axisTick }}
                   />
                   <Tooltip
                     formatter={(value) => [value, 'Projects']}
                     labelFormatter={(label) => `Date: ${label}`}
-                    fill={theme.primary}
-                    contentStyle={{ background: 'transparent', borderRadius: 8, borderColor: '#e5e7eb' }}
+                    wrapperStyle={{ zIndex: 9999, pointerEvents: 'auto' }}
+                    contentStyle={{ background: '#2b2723', border: 'none', borderRadius: 8 }}
+                    itemStyle={{ color: '#ffffff' }}
+                    labelStyle={{ color: '#ffffff' }}
                   />
-                  <Bar dataKey="count" name="Projects" fill={theme.primary} radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="count" name="Projects" fill={String(organizationId) === 'T0000' ? '#ffffff' : theme.primary} radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
