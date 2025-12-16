@@ -50,7 +50,7 @@ export default function ProjectsServiceTypeBarChart({
 
   // Primary shape from API
   // Non-T0000: labels = dates, series = [{name: service_type, data: counts per date}]
-  // T0000:     labels = service types, series = [{name: tenant_id, data: counts per service type}]
+  // T0000:     labels = tenant_ids, series = [{name: service_type, data: counts per tenant in labels order}]
   const [labels, setLabels] = useState([]); // display labels
   const [series, setSeries] = useState([]); // [{ name, data: number[] }]
 
@@ -92,8 +92,52 @@ export default function ProjectsServiceTypeBarChart({
 
       // Preferred shape (for both flows)
       if (Array.isArray(res?.labels) && Array.isArray(res?.series)) {
+        // If server already provided the correct labels/series, accept as-is
         nextLabels = res.labels;
         nextSeries = res.series;
+      } else if (isAllTenants && Array.isArray(res?.summaryByTenantAndService)) {
+        // For T0000: expected shape: [{ tenant_id, service_type, count }]
+        // Build labels = unique tenant_ids; series per service_type with counts per tenant in labels order.
+        const rows = res.summaryByTenantAndService;
+        const tenants = Array.from(new Set(rows.map((r) => String(r?.tenant_id ?? 'unknown')))).sort();
+        const types = Array.from(new Set(rows.map((r) => String(r?.service_type ?? 'Unknown')))).sort();
+
+        const map = new Map(); // key: `${tenant}||${type}` -> count
+        rows.forEach((r) => {
+          const t = String(r?.tenant_id ?? 'unknown');
+          const s = String(r?.service_type ?? 'Unknown');
+          const c = Number.isFinite(Number(r?.count)) ? Number(r.count) : 0;
+          map.set(`${t}||${s}`, c);
+        });
+
+        const builtSeries = types.map((stype) => {
+          const data = tenants.map((tenant) => map.get(`${tenant}||${stype}`) ?? 0);
+          return { name: stype, data };
+        });
+
+        nextLabels = tenants;
+        nextSeries = builtSeries;
+      } else if (isAllTenants && Array.isArray(res?.items)) {
+        // Alternative T0000 fallback: items may be documents with { tenant_id, service_type, count }
+        const rows = res.items;
+        const tenants = Array.from(new Set(rows.map((r) => String(r?.tenant_id ?? 'unknown')))).sort();
+        const types = Array.from(new Set(rows.map((r) => String(r?.service_type ?? 'Unknown')))).sort();
+
+        const map = new Map();
+        rows.forEach((r) => {
+          const t = String(r?.tenant_id ?? 'unknown');
+          const s = String(r?.service_type ?? 'Unknown');
+          const c = Number.isFinite(Number(r?.count)) ? Number(r.count) : 0;
+          map.set(`${t}||${s}`, c);
+        });
+
+        const builtSeries = types.map((stype) => ({
+          name: stype,
+          data: tenants.map((tenant) => map.get(`${tenant}||${stype}`) ?? 0),
+        }));
+
+        nextLabels = tenants;
+        nextSeries = builtSeries;
       } else if (!isAllTenants && Array.isArray(res?.summaryByServiceType)) {
         // Non-T0000 fallback: build date labels and service type series
         const byType = res.summaryByServiceType;
@@ -253,7 +297,9 @@ export default function ProjectsServiceTypeBarChart({
     <Card style={{ marginTop: 16, overflow: 'visible' }}>
       <div className="overview-users-summary__header service-type summary" style={{ marginBottom: 8 }}>
         <h3 className="overview-users-summary__title">
-          {isAllTenants ? 'Sessions by Service Type (by Tenant)' : 'Sessions by Service Type'}
+          {isAllTenants
+            ? 'Sessions by Service Type (Tenants on Y-axis)'
+            : 'Sessions by Service Type'}
         </h3>
         <div className="overview-users-summary__controls">
           <label htmlFor="service-type-range" className="overview-users-summary__label">
