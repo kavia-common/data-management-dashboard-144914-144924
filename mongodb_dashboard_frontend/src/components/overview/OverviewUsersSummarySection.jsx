@@ -7,7 +7,7 @@ import './overviewUsersSummary.css';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import useUsersSummary from '../../hooks/useUsersSummary';
 import { format, parseISO } from 'date-fns';
-import ProjectsCreatedBarChart from './ProjectsCreatedBarChart';
+import SessionCreatedBarChart from './sessionCreatedBarChart';
 import ProjectsServiceTypeBarChart from './ProjectsServiceTypeBarChart';
 
 /**
@@ -129,10 +129,10 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
 
       {/* New: Projects Created chart positioned below Users summary */}
       <div className="session_created_chart" style={{ marginTop: 24 }}>
-        <ProjectsCreatedBarChart />
+        <SessionCreatedBarChart />
       </div>
       {/* Insert the new Service Type chart immediately after the existing session_created_chart block */}
-      <div style={{ marginTop: 16 }}>
+      <div className="service_type_created_chart"  style={{ marginTop: 16 }}>
         <ProjectsServiceTypeBarChart />
       </div>
     </section>

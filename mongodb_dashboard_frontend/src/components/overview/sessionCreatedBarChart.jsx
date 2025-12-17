@@ -21,14 +21,14 @@ import { getOverviewProjectsSummary } from '../../api/overviewAnalytics';
 
 /**
  * PUBLIC_INTERFACE
- * ProjectsCreatedBarChart
+ * SessionCreatedBarChart
  * Ensures single, debounced API call per filter change.
  * - Always send range; include start/end only for custom.
  * - Debounce user-triggered fetches by 150ms.
  * - Guard initial mount to avoid StrictMode double fetch.
  * - For organization_id === "T0000" and response.barData, render a horizontal Recharts BarChart mirroring UsersSummaryStackedBar totals styling.
  */
-export default function ProjectsCreatedBarChart() {
+export default function SessionCreatedBarChart() {
   const organizationId = useCurrentOrgId();
   const [range, setRange] = useState('daily');
   const [pendingStart, setPendingStart] = useState('');
@@ -327,6 +327,6 @@ export default function ProjectsCreatedBarChart() {
   );
 }
 
-ProjectsCreatedBarChart.propTypes = {
+SessionCreatedBarChart.propTypes = {
   // No external props currently; defined for forward compatibility
 };
