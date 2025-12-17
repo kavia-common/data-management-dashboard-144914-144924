@@ -74,7 +74,7 @@ export default function ProjectsCreatedBarChart() {
       setError(null);
       try {
         // Corrected endpoint per request: /api/project-create/summary
-        const resp = await apiClient.get('/api/project-create/summary', {
+        const resp = await apiClient.get('/project-create/summary', {
           params: queryParams,
           // Also pass header for demo mode when JWT not present; harmless when JWT is present.
           headers: organizationId ? { 'x-organization-id': organizationId } : undefined,
