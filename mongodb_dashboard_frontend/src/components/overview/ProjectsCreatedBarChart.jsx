@@ -17,7 +17,7 @@ import apiClient from '../../api/client';
 /**
  * PUBLIC_INTERFACE
  * ProjectsCreatedBarChart
- * Fetches project create summary from GET /api/projects/summary scoped by organizationId
+ * Fetches project create summary from GET /api/project-create/summary scoped by organizationId
  * and optional range/start_date/end_date. Renders the response buckets as a bar chart.
  *
  * Response shape (per backend OpenAPI):
@@ -73,16 +73,16 @@ export default function ProjectsCreatedBarChart() {
       setStatus('loading');
       setError(null);
       try {
-        // Correct endpoint per OpenAPI: /api/projects/summary
-        const resp = await apiClient.get('/api/projects/summary', {
+        // Corrected endpoint per request: /api/project-create/summary
+        const resp = await apiClient.get('/api/project-create/summary', {
           params: queryParams,
           // Also pass header for demo mode when JWT not present; harmless when JWT is present.
           headers: organizationId ? { 'x-organization-id': organizationId } : undefined,
         });
         if (cancelled) return;
 
-        const incoming = Array.isArray(resp?.data?.buckets) ? resp.data.buckets : [];
-        const shaped = incoming.map((b) => ({
+        const bucketsResp = Array.isArray(resp?.data?.buckets) ? resp.data.buckets : (Array.isArray(resp?.data?.items) ? resp.data.items : []);
+        const shaped = bucketsResp.map((b) => ({
           key: b?.key,
           label: b?.label || b?.key || '',
           count: typeof b?.count === 'number' ? b.count : Number(b?.count || 0),
