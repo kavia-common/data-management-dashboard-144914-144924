@@ -6,19 +6,15 @@ import { listLlmCostsUnderscore } from "../../api";
 
 // PUBLIC_INTERFACE
 function formatCurrencyUSD(n) {
-  if (typeof n === "string") {
-    n = n.replace(/[^0-9.-]/g, "");
-  }
-  const num = Number(n || 0);
+  /** Formats numbers as USD currency with comma separators; falls back to 0 when invalid. */
+  const num = typeof n === "number" ? n : Number(n || 0);
   if (!Number.isFinite(num)) return "$0.00";
-
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 6,
-  }).format(num);
+  try {
+    return new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 6 }).format(num);
+  } catch {
+    return `$${num.toFixed(2)}`;
+  }
 }
-
 
 // PUBLIC_INTERFACE
 function formatInt(n) {
@@ -32,7 +28,7 @@ function formatInt(n) {
  * Costs page (underscore endpoint)
  * - Fetches from GET /api/llm_costs with optional organization_id and pagination.
  * - Renders a tabular view with exact keys:
- *   organization_id, organization_name, organization_cost, user_id, user_cost, projects
+ *   organization_id, organization_name, organization_cost, users, user_id, type, user_cost, projects
  */
 export default function Costs() {
   const [organizationId, setOrganizationId] = useState("");
@@ -70,7 +66,14 @@ export default function Costs() {
         className: "num",
         priority: 1,
       },
+      {
+        key: "users",
+        label: "users",
+        render: (v) => <span title={String(v ?? 0)}>{formatInt(v)}</span>,
+        className: "num",
+      },
       { key: "user_id", label: "user_id" },
+      { key: "type", label: "type" },
       {
         key: "user_cost",
         label: "user_cost",
