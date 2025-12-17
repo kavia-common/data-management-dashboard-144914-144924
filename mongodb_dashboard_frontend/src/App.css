@@ -420,7 +420,6 @@
 .th, .td {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border-subtle);
-  text-align: left;
   vertical-align: middle;
   white-space: nowrap; /* prevent labels from breaking awkwardly */
   height: var(--table-row-h, 56px); /* stabilize row heights to prevent lurches */
@@ -532,7 +531,6 @@ html[data-theme="dark"] .table .tr:not(.tr--filler):not(.active):not(.is-selecte
 }
 .table-empty { padding: 16px; color: var(--text-tertiary); text-align: center; }
 .td.actions { display: flex; gap: 8px; align-items: center; justify-content: flex-start; flex-wrap: wrap; }
-.td.num { text-align: right; }
 .amount-positive { color: var(--success); font-weight: 600; }
 
 /* Filler rows keep body height constant on short pages without drawing attention */
