@@ -1,12 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import PropTypes from 'prop-types';
 import {
   ResponsiveContainer,
   BarChart,
-  CartesianGrid,
+  Bar,
   XAxis,
   YAxis,
   Tooltip,
-  Bar,
+  CartesianGrid,
+  Legend,
+  LabelList,
 } from 'recharts';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import Card from '../common/Card';
@@ -23,6 +26,7 @@ import { getOverviewProjectsSummary } from '../../api/overviewAnalytics';
  * - Always send range; include start/end only for custom.
  * - Debounce user-triggered fetches by 150ms.
  * - Guard initial mount to avoid StrictMode double fetch.
+ * - For organization_id === "T0000" and response.barData, render a horizontal Recharts BarChart mirroring UsersSummaryStackedBar totals styling.
  */
 export default function ProjectsCreatedBarChart() {
   const organizationId = useCurrentOrgId();
@@ -35,8 +39,16 @@ export default function ProjectsCreatedBarChart() {
   const [status, setStatus] = useState('idle'); // idle | loading | success | empty | error
   const [error, setError] = useState(null);
   const [buckets, setBuckets] = useState([]);
+  const [barData, setBarData] = useState([]); // super-admin horizontal data
 
-  const theme = getChartTheme();
+  const theme = getChartTheme ? getChartTheme() : {
+    primary: '#2563EB',
+    grid: '#e5e7eb',
+    label: '#374151',
+    axisTick: '#9ca3af',
+    tooltip: { bg: '#2b2723', border: '#2b2723', text: '#ffffff' },
+    palette: ['#2563EB', '#F59E0B', '#10B981', '#EC4899', '#8B5CF6', '#F43F5E', '#0EA5E9'],
+  };
 
   // Stable debounced fetch using a ref-held timeout
   const debounceRef = useRef(null);
@@ -58,11 +70,29 @@ export default function ProjectsCreatedBarChart() {
       const req = buildOverviewFilterParams({ organizationId, params });
       const res = await getOverviewProjectsSummary(req);
       const list = Array.isArray(res?.buckets) ? res.buckets : [];
-      if (list.length === 0) {
+      const incomingBar = Array.isArray(res?.barData) ? res.barData : [];
+      const hasAny = (list && list.length > 0) || (incomingBar && incomingBar.length > 0);
+
+      if (!hasAny) {
         setBuckets([]);
+        setBarData([]);
         setStatus('empty');
       } else {
         setBuckets(list);
+
+        // Preserve existing sort order (descending by count)
+        let sorted = incomingBar
+          .slice()
+          .sort((a, b) => Number(b?.count || 0) - Number(a?.count || 0));
+
+        // For non-T0000 tenants, filter out zero-count entries for Sessions Created chart (barData)
+        // Keep T0000 behavior unchanged (use barData as-is with tooltip and white text)
+        const isT0000Local = String(organizationId) === 'T0000';
+        if (!isT0000Local) {
+          sorted = sorted.filter((item) => Number(item?.count || 0) > 0);
+        }
+
+        setBarData(sorted);
         setStatus('success');
       }
     } catch (e) {
@@ -83,22 +113,16 @@ export default function ProjectsCreatedBarChart() {
     // Reset custom when changing away from custom
     if (range !== 'custom') {
       if (appliedStart || appliedEnd) {
-        // Avoid extra double fetch caused by state change; just clear and rely on current fetch firing
-        // via the range dependency change below
-        // Clear applied bounds synchronously
-        // Note: These setStates will trigger this effect again; debounce will coalesce into one fetch.
         setAppliedStart('');
         setAppliedEnd('');
       }
     } else {
       // For custom, only fetch when both applied dates are set
       if (!(appliedStart && appliedEnd)) {
-        // Nothing to fetch yet
         return;
       }
     }
 
-    // Debounce subsequent fetches to avoid double calls from fast state transitions
     if (debounceRef.current) {
       clearTimeout(debounceRef.current);
     }
@@ -115,26 +139,40 @@ export default function ProjectsCreatedBarChart() {
 
   const onApplyCustom = () => {
     if (pendingStart && pendingEnd) {
-      // Setting appliedStart/appliedEnd triggers a single debounced fetch via the effect
       setAppliedStart(pendingStart);
       setAppliedEnd(pendingEnd);
     }
   };
 
-  const chartData = useMemo(
+  // Time-bucketed chart shape
+  // For non-T0000 tenants, filter out zero-count buckets so axis/ticks adjust to actual non-zero dates.
+  const chartData = useMemo(() => {
+    const isT0000Local = String(organizationId) === 'T0000';
+    const shaped = (buckets || []).map((b) => ({
+      label: b.label || b.key,
+      count: Number(b.count || 0),
+    }));
+    return isT0000Local ? shaped : shaped.filter((d) => d.count > 0);
+  }, [buckets, organizationId]);
+
+  // Horizontal bar chart data for T0000 + barData (map to { label, total } like UsersSummaryStackedBar totals)
+  const t0000Data = useMemo(
     () =>
-      (buckets || []).map((b) => ({
-        label: b.label || b.key,
-        count: Number(b.count || 0),
+      (barData || []).map((d, i) => ({
+        label: String(d.name || d.organization_id || `Tenant ${i + 1}`),
+        total: Number(d.count || 0),
       })),
-    [buckets]
+    [barData]
   );
+
   const isEmpty = status === 'empty';
+  const isT0000 = String(organizationId) === 'T0000';
+  const shouldShowT0000Horizontal = isT0000 && Array.isArray(t0000Data) && t0000Data.length > 0;
 
   return (
-    <Card style={{ marginTop: 16 }}>
+    <Card style={{ marginTop: 16, overflow: 'visible' }}>
       <div className="overview-users-summary__header project summary" style={{ marginBottom: 8 }}>
-        <h3 className="overview-users-summary__title">Projects Created</h3>
+        <h3 className="overview-users-summary__title">Sessions Created</h3>
         <div className="overview-users-summary__controls">
           <label htmlFor="projects-range" className="overview-users-summary__label">
             Range
@@ -203,34 +241,92 @@ export default function ProjectsCreatedBarChart() {
       )}
 
       {status === 'success' && !isEmpty && (
-        <div style={{ width: '100%', height: 280 }}>
-          <ResponsiveContainer>
-            <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
-              <XAxis
-                dataKey="label"
-                tick={{ fontSize: 12, fill: theme.primary }}
-                axisLine={{ stroke: theme.axisTick }}
-                tickLine={{ stroke: theme.axisTick }}
-                interval="preserveEnd"
-              />
-              <YAxis
-                allowDecimals={false}
-                tick={{ fontSize: 12, fill: theme.axisTick }}
-                axisLine={{ stroke: theme.axisTick }}
-                tickLine={{ stroke: theme.axisTick }}
-              />
-              <Tooltip
-                formatter={(value) => [value, 'Projects']}
-                labelFormatter={(label) => `Date: ${label}`}
-                fill={theme.primary}
-                contentStyle={{ background: 'transparent', borderRadius: 8, borderColor: '#e5e7eb' }}
-              />
-              <Bar dataKey="count" name="Projects" fill={theme.primary} radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <>
+          {shouldShowT0000Horizontal ? (
+            <div style={{ width: '100%', height: 320, overflow: 'visible' }} aria-label="Sessions created by tenant">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={t0000Data}
+                  layout="vertical"
+                  margin={{ top: 12, right: 16, left: 12, bottom: 18 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
+                  <YAxis
+                    type="category"
+                    dataKey="label"
+                    tick={{ fill: '#ffffff', fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={{ stroke: '#ffffff' }}
+                    width={140}
+                  />
+                  <XAxis
+                    type="number"
+                    tick={{ fill: '#ffffff', fontSize: 11 }}
+                    tickLine={false}
+                    axisLine={{ stroke: '#ffffff' }}
+                    allowDecimals={false}
+                    domain={[0, 'dataMax']}
+                  />
+                  <Tooltip
+                    cursor={{ fill: 'transparent' }}
+                    contentStyle={{
+                      background: '#2b2723',
+                      border: 'none',
+                      borderRadius: 8,
+                      color: '#ffffff',
+                    }}
+                    wrapperStyle={{ zIndex: 9999 }}
+                    formatter={(value) => [value, 'Projects']}
+                    labelFormatter={(label) => `${label}`}
+                  />
+                  <Bar dataKey="total" name="Projects" fill="#FF6600" radius={[0, 4, 4, 0]}>
+                    <LabelList dataKey="total" position="right" fill="#ffffff" fontSize={11} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div style={{ width: '100%', height: 280 }}>
+              <ResponsiveContainer>
+                <BarChart data={chartData} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fontSize: 12, fill: isT0000 ? '#ffffff' : theme.primary }}
+                    axisLine={{ stroke: isT0000 ? '#ffffff' : theme.axisTick }}
+                    tickLine={{ stroke: isT0000 ? '#ffffff' : theme.axisTick }}
+                    interval="preserveEnd"
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fontSize: 12, fill: isT0000 ? '#ffffff' : theme.axisTick }}
+                    axisLine={{ stroke: isT0000 ? '#ffffff' : theme.axisTick }}
+                    tickLine={{ stroke: isT0000 ? '#ffffff' : theme.axisTick }}
+                  />
+                  <Tooltip
+                    cursor={{ fill: 'transparent' }}
+                    contentStyle={{
+                      background: '#2b2723',
+                      border: 'none',
+                      borderRadius: 8,
+                      color: '#ffffff',
+                    }}
+                    wrapperStyle={{ zIndex: 9999 }}
+                    formatter={(value) => [value, 'Projects']}
+                    labelFormatter={(label) => `Date: ${label}`}
+                  />
+                  <Legend />
+                  <Bar dataKey="count" name="Projects" fill={isT0000 ? '#ffffff' : theme.primary} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </>
       )}
     </Card>
   );
 }
+
+ProjectsCreatedBarChart.propTypes = {
+  // No external props currently; defined for forward compatibility
+};
