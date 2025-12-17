@@ -35,10 +35,10 @@ export function clearClientAuthArtifacts(extraKeys = []) {
     COMMON_KEYS.forEach((k) => {
       try {
         localStorage.removeItem(k);
-      } catch {}
+      } catch { }
       try {
         sessionStorage.removeItem(k);
-      } catch {}
+      } catch { }
     });
   } catch {
     // Swallow errors to avoid blocking logout; nothing critical to do here.
@@ -68,15 +68,13 @@ export default function Sidebar() {
     auth?.user?.tenantName ||
     null;
 
-  const effectiveName =
-    (nameFromAuth && String(nameFromAuth).trim()) ||
-    (localNameHints && String(localNameHints).trim()) ||
-    (tenantId && String(tenantId).trim()) ||
-    null;
+  const effectiveName = String(auth?.user?.tenant_name || "").trim();
 
   const leftTitle = effectiveName
-    ? `${effectiveName} Tenant Dashboard`
-    : "Dashboard";
+    ? `${effectiveName}`
+    : "Tenant Dashboard";
+
+
 
   // PUBLIC_INTERFACE
   function handleLogout() {

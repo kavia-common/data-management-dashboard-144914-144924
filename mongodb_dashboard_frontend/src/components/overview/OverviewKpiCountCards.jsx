@@ -11,19 +11,23 @@ import React from 'react';
  * Renders inline placeholders without reintroducing global LoadingState/ErrorState.
  */
 export default function OverviewKpiCountCards({ data, loading = false, error = false }) {
+  const activeUsersValue = Number.isFinite(Number(data?.activeUsers))
+    ? Number(data?.activeUsers)
+    : 0;
+
   const cards = [
+    {
+      key: 'active-users',
+      label: 'Active Users',
+      value: activeUsersValue,
+      accent: '#2563EB', // primary accent
+      bg: 'linear-gradient(180deg, rgba(37,99,235,0.06) 0%, rgba(249,250,251,1) 100%)',
+    },
     {
       key: 'users',
       label: 'Users',
       value: Number(data?.totalUsers ?? 0),
-      accent: '#2563EB', // primary
-      bg: 'linear-gradient(180deg, rgba(37,99,235,0.06) 0%, rgba(249,250,251,1) 100%)',
-    },
-    {
-      key: 'sessions',
-      label: 'Sessions',
-      value: Number(data?.totalSessions ?? 0),
-      accent: '#6B7280', // neutral accent since not themed in guide; keep subtle
+      accent: '#6B7280', // neutral accent
       bg: 'linear-gradient(180deg, rgba(107,114,128,0.06) 0%, rgba(249,250,251,1) 100%)',
     },
   ];

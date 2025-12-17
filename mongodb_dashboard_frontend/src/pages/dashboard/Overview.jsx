@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
-import { listUsers, listSessions, health } from "../../api";
+import { listUsers, listSessions, health, fetchUsersMetrics } from "../../api";
 import { OverviewUsersSummarySection } from "../../components/overview";
 
 /**
@@ -11,7 +11,7 @@ import { OverviewUsersSummarySection } from "../../components/overview";
  */
 export default function Overview() {
   const [loading, setLoading] = useState(true);
-  const [metrics, setMetrics] = useState({ users: 0, sessions: 0 });
+  const [metrics, setMetrics] = useState({ users: 0, sessions: 0, activeUsers: 0 });
   const [error, setError] = useState("");
   const [, setApiStatus] = useState("checking");
 
@@ -22,14 +22,16 @@ export default function Overview() {
       setLoading(true);
       setError("");
       try {
-        const [usersRes, sessionsRes] = await Promise.all([
+        const [usersRes, sessionsRes, usersMetrics] = await Promise.all([
           listUsers({ limit: 5 }),
           listSessions({ limit: 5 }),
+          fetchUsersMetrics().catch(() => ({ totalUsers: 0, activeUsers: 0 })),
         ]);
         if (cancelled) return;
         setMetrics({
           users: usersRes?.total || usersRes?.length || usersRes?.items?.length || 0,
           sessions: sessionsRes?.total || sessionsRes?.length || sessionsRes?.items?.length || 0,
+          activeUsers: Number(usersMetrics?.activeUsers ?? 0),
         });
       } catch (e) {
         if (!cancelled) {
@@ -66,6 +68,19 @@ export default function Overview() {
 
   return (
     <div className="grid">
+      <Card title="Active Users" subtitle="Users with active status" className="kpi-card">
+        <div className="kpi">
+          <div className="kpi-value">
+            {loading ? (
+              <Skeleton width={72} height={28} aria-label="Loading active users metric" />
+            ) : (
+              (Number.isFinite(Number(metrics.activeUsers)) ? Number(metrics.activeUsers) : 0)
+            )}
+          </div>
+          <div className="kpi-label">Active Users</div>
+        </div>
+      </Card>
+
       <Card title="Users" subtitle="Total referral users" className="kpi-card">
         <div className="kpi">
           <div className="kpi-value">
