@@ -12,14 +12,25 @@ import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import Card from '../common/Card';
 import './overview.css';
 import '../overview/overviewUsersSummary.css';
-import { buildOverviewFilterParams } from '../../api/buildOverviewFilterParams';
 import apiClient from '../../api/client';
 
 /**
  * PUBLIC_INTERFACE
  * ProjectsCreatedBarChart
- * Fetches project create summary from GET /api/project-create/summary scoped by organizationId
+ * Fetches project create summary from GET /api/projects/summary scoped by organizationId
  * and optional range/start_date/end_date. Renders the response buckets as a bar chart.
+ *
+ * Response shape (per backend OpenAPI):
+ * {
+ *   range: string,
+ *   start_date: string,
+ *   end_date: string,
+ *   buckets: [{ key: "YYYY-MM-DD", label: "YYYY-MM-DD", count: number }]
+ * }
+ *
+ * Mapping to chart data:
+ * - XAxis -> label (fallback to key)
+ * - Bar value -> count
  */
 export default function ProjectsCreatedBarChart() {
   const organizationId = useCurrentOrgId();
@@ -33,51 +44,55 @@ export default function ProjectsCreatedBarChart() {
   const [error, setError] = useState(null);
   const [buckets, setBuckets] = useState([]);
 
-  // Build query params using existing utility to remain consistent with Overview filters.
+  // Build query params minimally from current selections
   const queryParams = useMemo(() => {
-    const base = buildOverviewFilterParams({
-      range,
-      startDate: appliedStart,
-      endDate: appliedEnd,
-    });
-    if (organizationId) base.organization_id = organizationId;
-    return base;
+    const params = {};
+    if (organizationId) params.organization_id = organizationId;
+    if (range) params.range = range;
+    if (range === 'custom') {
+      if (appliedStart) params.start_date = appliedStart;
+      if (appliedEnd) params.end_date = appliedEnd;
+    }
+    return params;
   }, [organizationId, range, appliedStart, appliedEnd]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function fetchData() {
+      // org required for tenant-scoped results
       if (!organizationId) {
         setBuckets([]);
         setStatus('empty');
         return;
       }
       if (range === 'custom' && (!appliedStart || !appliedEnd)) {
-        // Wait until custom dates are applied
+        // wait for both dates when in custom mode
         return;
       }
       setStatus('loading');
       setError(null);
       try {
-        const resp = await apiClient.get('/api/project-create/summary', { params: queryParams });
+        // Correct endpoint per OpenAPI: /api/projects/summary
+        const resp = await apiClient.get('/api/projects/summary', {
+          params: queryParams,
+          // Also pass header for demo mode when JWT not present; harmless when JWT is present.
+          headers: organizationId ? { 'x-organization-id': organizationId } : undefined,
+        });
         if (cancelled) return;
 
         const incoming = Array.isArray(resp?.data?.buckets) ? resp.data.buckets : [];
-        const shaped = incoming.map(b => ({
-          key: b.key,
-          label: b.label || b.key,
-          count: typeof b.count === 'number' ? b.count : 0,
+        const shaped = incoming.map((b) => ({
+          key: b?.key,
+          label: b?.label || b?.key || '',
+          count: typeof b?.count === 'number' ? b.count : Number(b?.count || 0),
         }));
-        if (shaped.length === 0) {
-          setStatus('empty');
-        } else {
-          setStatus('success');
-        }
+
         setBuckets(shaped);
+        setStatus(shaped.length ? 'success' : 'empty');
       } catch (e) {
         if (!cancelled) {
-          setError(e?.message || 'Failed to load project create summary.');
+          setError(e?.response?.data?.message || e?.message || 'Failed to load projects summary.');
           setStatus('error');
           setBuckets([]);
         }
@@ -85,7 +100,6 @@ export default function ProjectsCreatedBarChart() {
     }
 
     fetchData();
-
     return () => {
       cancelled = true;
     };
@@ -101,7 +115,7 @@ export default function ProjectsCreatedBarChart() {
   return (
     <Card style={{ marginTop: 16, overflow: 'visible' }}>
       <div className="overview-users-summary__header project_created" style={{ marginBottom: 8 }}>
-        <h3 className="overview-users-summary__title">Project Created</h3>
+        <h3 className="overview-users-summary__title">Projects Created</h3>
         <div className="overview-users-summary__controls">
           <label htmlFor="projects-range" className="overview-users-summary__label">
             Range
@@ -113,7 +127,6 @@ export default function ProjectsCreatedBarChart() {
             onChange={(e) => {
               setRange(e.target.value);
               if (e.target.value !== 'custom') {
-                // clear applied dates when leaving custom
                 setAppliedStart('');
                 setAppliedEnd('');
               }
@@ -156,7 +169,7 @@ export default function ProjectsCreatedBarChart() {
                   border: '1px solid #2563EB',
                   background: '#2563EB',
                   color: '#fff',
-                  cursor: (!pendingStart || !pendingEnd) ? 'not-allowed' : 'pointer',
+                  cursor: !pendingStart || !pendingEnd ? 'not-allowed' : 'pointer',
                 }}
               >
                 Apply
@@ -166,14 +179,16 @@ export default function ProjectsCreatedBarChart() {
         </div>
       </div>
 
-      {status === 'loading' && (
-        <div style={{ padding: 16, color: '#6b7280' }}>Loading…</div>
-      )}
+      {status === 'loading' && <div style={{ padding: 16, color: '#6b7280' }}>Loading…</div>}
       {status === 'error' && (
-        <div role="alert" style={{ padding: 16, color: '#EF4444' }}>{error}</div>
+        <div role="alert" style={{ padding: 16, color: '#EF4444' }}>
+          {error}
+        </div>
       )}
       {status === 'empty' && (
-        <div style={{ padding: 16, color: '#6b7280' }}>No projects for the selected range.</div>
+        <div style={{ padding: 16, color: '#6b7280' }}>
+          No projects for the selected range.
+        </div>
       )}
 
       {status === 'success' && (
@@ -194,7 +209,10 @@ export default function ProjectsCreatedBarChart() {
                 axisLine={{ stroke: '#9ca3af' }}
                 tickLine={{ stroke: '#9ca3af' }}
               />
-              <Tooltip />
+              <Tooltip
+                formatter={(value) => [value, 'Projects']}
+                labelFormatter={(label) => `Date: ${label}`}
+              />
               <Bar dataKey="count" name="Projects" fill="#2563EB" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
