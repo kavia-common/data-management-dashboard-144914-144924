@@ -1,1 +1,1 @@
-export { default } from './dashboard/OverviewWrapper.jsx';
+export { default } from './dashboard/Overview.jsx';
