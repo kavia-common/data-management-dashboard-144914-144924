@@ -27,20 +27,16 @@ const RANGE_OPTIONS = [
   { label: 'Custom', value: RANGE.custom },
 ];
 
-/**
- * Try to reuse a CSS theme token if present, else use Ocean Professional primary.
- */
-const PRIMARY_BAR_COLOR =
-  typeof window !== 'undefined'
-    ? (getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#2563EB')
-    : '#2563EB';
+// Style constants for bar and tooltip marker
+const BAR_COLOR = '#FF6600';
+const BAR_RADIUS = [4, 4, 0, 0];
 
 /**
  * Tooltip that matches the other chart:
  * - white background
  * - subtle gray border and soft shadow
  * - system text color
- * - marker uses the same primary color as the bars
+ * - marker uses the same color as the bars
  */
 function ProjectsTooltip({ active, payload, label }) {
   if (active && payload && payload.length) {
@@ -65,7 +61,7 @@ function ProjectsTooltip({ active, payload, label }) {
               width: 8,
               height: 8,
               borderRadius: '50%',
-              background: PRIMARY_BAR_COLOR,
+              background: BAR_COLOR,
               flex: '0 0 8px',
             }}
           />
@@ -222,7 +218,7 @@ export default function ProjectsCreatedBarChart() {
                 <YAxis allowDecimals={false} />
                 <Tooltip content={<ProjectsTooltip />} />
                 <Legend />
-                <Bar dataKey="count" name="Projects Created" fill={PRIMARY_BAR_COLOR} />
+                <Bar dataKey="count" name="Projects Created" fill={BAR_COLOR} radius={BAR_RADIUS} />
               </BarChart>
             </ResponsiveContainer>
           </div>
