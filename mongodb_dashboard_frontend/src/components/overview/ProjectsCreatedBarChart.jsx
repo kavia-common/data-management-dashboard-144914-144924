@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -13,7 +13,6 @@ import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import Card from '../common/Card';
 import './overview.css';
 import '../overview/overviewUsersSummary.css';
-import apiClient from '../../api/client';
 
 /**
  * PUBLIC_INTERFACE
@@ -21,21 +20,17 @@ import apiClient from '../../api/client';
  * Fetches project create summary from GET /api/project-create/summary scoped by organizationId
  * and optional range/start_date/end_date. Renders the response buckets as a bar chart.
  *
- * Backend response shape (OpenAPI-aligned):
+ * Response shape:
  * {
- *   range: string,
- *   start_date: string,
- *   end_date: string,
  *   buckets: [{ key: "YYYY-MM-DD", label: "YYYY-MM-DD", count: number }]
  * }
  *
- * Mapping to chart data expected by recharts:
+ * Mapping to chart data:
  * - Input buckets[] -> [{ name: label || key, value: count, color }]
  * - Bar dataKey -> "value"
  * - XAxis dataKey -> "name"
  */
 
-// Style guide primary color
 const PRIMARY_COLOR = '#2563EB';
 const DEFAULT_COLOR = PRIMARY_COLOR;
 
@@ -99,102 +94,6 @@ const CustomTooltip = ({ active, payload, label }) => {
   return null;
 };
 
-// Hook to fetch and map data
-function useProjectsCreatedData(filters) {
-  const organizationId = useCurrentOrgId();
-  const [state, setState] = useState({ status: 'idle', error: null, data: [] });
-
-  // Keep the last serialized params to avoid re-fetching when values didn't actually change
-  const lastParamsRef = useRef('');
-
-  // Build query params with only primitives and stable references
-  const stableParams = useMemo(() => {
-    const effOrg =
-      organizationId ||
-      filters?.organizationId ||
-      filters?.organization_id ||
-      filters?.tenant_id ||
-      null;
-
-    // Only primitives to keep deps stable; avoid including whole filters object
-    return {
-      organization_id: effOrg || undefined,
-      // Only pass the canonical org query - avoid passing multiple aliases to prevent backend confusion and unnecessary diffs
-      range: filters?.range || undefined,
-      start_date: filters?.start_date || undefined,
-      end_date: filters?.end_date || undefined,
-    };
-    // Depend only on primitives we used above
-  }, [organizationId, filters?.range, filters?.start_date, filters?.end_date, filters?.organizationId, filters?.organization_id, filters?.tenant_id]);
-
-  useEffect(() => {
-    // Guard: require an organization id
-    if (!stableParams.organization_id) {
-      setState({ status: 'empty', error: null, data: [] });
-      return;
-    }
-
-    // Compare with last used params to prevent unnecessary refetch loops
-    const nextSerialized = JSON.stringify(stableParams);
-    if (lastParamsRef.current === nextSerialized) {
-      return; // nothing changed effectively
-    }
-    lastParamsRef.current = nextSerialized;
-
-    const controller = new AbortController();
-
-    async function fetchData() {
-      // set loading without changing object identity too much
-      setState((s) => (s.status === 'loading' ? s : { ...s, status: 'loading', error: null }));
-
-      try {
-        const resp = await apiClient.get('/project-create/summary', {
-          params: stableParams,
-          headers: { 'x-organization-id': stableParams.organization_id },
-          signal: controller.signal,
-        });
-
-        // Expected buckets: [{ key, label, count }]
-        const buckets = Array.isArray(resp?.data?.buckets)
-          ? resp.data.buckets
-          : Array.isArray(resp?.data?.items)
-          ? resp.data.items
-          : [];
-
-        const data = buckets.map((b) => ({
-          name: b?.label || b?.key || '',
-          value: typeof b?.count === 'number' ? b.count : Number(b?.count || 0),
-          color: b?.color || DEFAULT_COLOR,
-        }));
-
-        setState({ status: data.length ? 'success' : 'empty', error: null, data });
-      } catch (e) {
-        if (e?.name === 'CanceledError') {
-          // axios abort
-          return;
-        }
-        if (e?.code === 'ERR_CANCELED') {
-          // axios cancellation code
-          return;
-        }
-        setState({
-          status: 'error',
-          error: e?.response?.data?.message || e?.message || 'Failed to load projects summary.',
-          data: [],
-        });
-      }
-    }
-
-    fetchData();
-
-    return () => {
-      controller.abort();
-    };
-  }, [stableParams]);
-
-  return state;
-}
-
 export default function ProjectsCreatedBarChart(props) {
   const {
     title = 'Projects Created',
@@ -202,9 +101,139 @@ export default function ProjectsCreatedBarChart(props) {
     filters = {}, // expected filters include range/start_date/end_date etc.
   } = props;
 
-  const { status, error, data } = useProjectsCreatedData(filters);
+  const organizationIdFromCtx = useCurrentOrgId();
 
-  // If any datum doesn't include its own color, we fallback to the style guide primary
+  // Build a stable, primitive-only query string. Avoid inline object creation in deps.
+  const queryString = useMemo(() => {
+    const effOrg =
+      organizationIdFromCtx ||
+      filters?.organizationId ||
+      filters?.organization_id ||
+      filters?.tenant_id ||
+      null;
+
+    const p = new URLSearchParams();
+    if (effOrg) p.set('organization_id', effOrg);
+    if (filters?.range) p.set('range', filters.range);
+    if (filters?.start_date) p.set('start_date', filters.start_date);
+    if (filters?.end_date) p.set('end_date', filters.end_date);
+    return p.toString();
+  }, [
+    organizationIdFromCtx,
+    filters?.organizationId,
+    filters?.organization_id,
+    filters?.tenant_id,
+    filters?.range,
+    filters?.start_date,
+    filters?.end_date,
+  ]);
+
+  // Derived effective organization id (primitive) – for header pass-through only.
+  const effectiveOrgId = useMemo(() => {
+    return (
+      organizationIdFromCtx ||
+      filters?.organizationId ||
+      filters?.organization_id ||
+      filters?.tenant_id ||
+      ''
+    );
+  }, [
+    organizationIdFromCtx,
+    filters?.organizationId,
+    filters?.organization_id,
+    filters?.tenant_id,
+  ]);
+
+  const [status, setStatus] = useState('idle'); // 'idle' | 'loading' | 'success' | 'empty' | 'error'
+  const [error, setError] = useState(null);
+  const [data, setData] = useState([]);
+
+  // Map response buckets to chart-friendly data, memoized to stable identity
+  const mapBuckets = useCallback(
+    (buckets) =>
+      (buckets || []).map((b, idx) => ({
+        name: b?.label || b?.key || `#${idx + 1}`,
+        value: Number.isFinite(b?.count) ? b.count : Number(b?.count || 0),
+        color: b?.color || DEFAULT_COLOR,
+      })),
+    []
+  );
+
+  // One AbortController per in-flight request, canceled only when a new run supersedes it
+  const abortRef = useRef(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    // If org is missing, show empty and do not fetch
+    if (!effectiveOrgId) {
+      setStatus('empty');
+      setError(null);
+      setData([]);
+      return () => {
+        mounted = false;
+        if (abortRef.current) abortRef.current.abort();
+      };
+    }
+
+    // Supersede any prior in-flight request
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const url = '/api/project-create/summary'; // strict URL
+    const fetchUrl = queryString ? `${url}?${queryString}` : url;
+
+    const run = async () => {
+      if (mounted) {
+        setStatus('loading');
+        setError(null);
+      }
+
+      try {
+        const res = await fetch(fetchUrl, {
+          headers: effectiveOrgId ? { 'x-organization-id': effectiveOrgId } : undefined,
+          signal: controller.signal,
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          if (!mounted) return;
+          setStatus('error');
+          setError(text || `Request failed with status ${res.status}`);
+          setData([]);
+          return;
+        }
+
+        const json = await res.json().catch(() => ({}));
+        if (!mounted) return;
+
+        const shaped = mapBuckets(json?.buckets ?? []);
+        setData(shaped);
+        setStatus(shaped.length ? 'success' : 'empty');
+      } catch (err) {
+        // Silently ignore aborted fetches
+        if (err?.name === 'AbortError') return;
+        if (!mounted) return;
+        setStatus('error');
+        setError(err?.message || 'Failed to fetch');
+        setData([]);
+      }
+    };
+
+    run();
+
+    return () => {
+      // Mark unmounted to prevent state updates, then abort to free resources
+      mounted = false;
+      if (abortRef.current) {
+        abortRef.current.abort();
+      }
+    };
+    // Only re-run when queryString or header primitive changes
+  }, [queryString, effectiveOrgId, mapBuckets]);
+
   const fallbackBarColor = PRIMARY_COLOR;
 
   return (
