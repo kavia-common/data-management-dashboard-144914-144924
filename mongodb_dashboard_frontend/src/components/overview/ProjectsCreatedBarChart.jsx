@@ -27,6 +27,56 @@ const RANGE_OPTIONS = [
   { label: 'Custom', value: RANGE.custom },
 ];
 
+/**
+ * Try to reuse a CSS theme token if present, else use Ocean Professional primary.
+ */
+const PRIMARY_BAR_COLOR =
+  typeof window !== 'undefined'
+    ? (getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim() || '#2563EB')
+    : '#2563EB';
+
+/**
+ * Tooltip that matches the other chart:
+ * - white background
+ * - subtle gray border and soft shadow
+ * - system text color
+ * - marker uses the same primary color as the bars
+ */
+function ProjectsTooltip({ active, payload, label }) {
+  if (active && payload && payload.length) {
+    const item = payload[0];
+    return (
+      <div
+        style={{
+          background: '#ffffff',
+          color: '#111827',
+          padding: '8px 10px',
+          borderRadius: 6,
+          border: '1px solid #e5e7eb',
+          boxShadow: '0 4px 8px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
+          fontSize: 12,
+        }}
+      >
+        <div style={{ marginBottom: 4, fontWeight: 600 }}>{label}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span
+            style={{
+              display: 'inline-block',
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              background: PRIMARY_BAR_COLOR,
+              flex: '0 0 8px',
+            }}
+          />
+          <span>Projects: {item.value}</span>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+
 export default function ProjectsCreatedBarChart() {
   const organizationId = useCurrentOrgId();
 
@@ -170,9 +220,9 @@ export default function ProjectsCreatedBarChart() {
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="label" />
                 <YAxis allowDecimals={false} />
-                <Tooltip />
+                <Tooltip content={<ProjectsTooltip />} />
                 <Legend />
-                <Bar dataKey="count" name="Projects Created" fill="#2563EB" />
+                <Bar dataKey="count" name="Projects Created" fill={PRIMARY_BAR_COLOR} />
               </BarChart>
             </ResponsiveContainer>
           </div>
