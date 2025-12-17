@@ -4,7 +4,7 @@ import OverviewContainer from "../../components/overview/OverviewContainer.jsx";
 /**
  * PUBLIC_INTERFACE
  * Overview page
- * Renders the OverviewContainer which includes KPI cards, service type chart,
+ * Renders the OverviewContainer.
 
  */
 export default function Overview() {

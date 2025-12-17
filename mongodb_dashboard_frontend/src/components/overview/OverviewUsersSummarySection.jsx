@@ -7,7 +7,7 @@ import './overviewUsersSummary.css';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import useUsersSummary from '../../hooks/useUsersSummary';
 import { format, parseISO } from 'date-fns';
-import ProjectsServiceTypeBarChart from './ProjectsServiceTypeBarChart';
+
 
 /**
  * PUBLIC_INTERFACE
@@ -126,10 +126,7 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
         )}
       </div>
 
-      {/* Insert the Service Type chart below the Users summary */}
-      <div className="service_type_created_chart"  style={{ marginTop: 16 }}>
-        <ProjectsServiceTypeBarChart />
-      </div>
+
     </section>
   );
 }
