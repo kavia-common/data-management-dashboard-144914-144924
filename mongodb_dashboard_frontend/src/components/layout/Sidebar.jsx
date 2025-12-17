@@ -4,7 +4,6 @@ import { useAuth } from "../../context/AuthContext";
 import Button from "../ui/Button.jsx";
 import "./Sidebar.css";
 import { resolveOrganizationId } from "../../utils/orgContext";
- // REQ-UI-LOGO-REPLACE: logo removed from sidebar; asset import no longer needed
 
 /**
  * PUBLIC_INTERFACE
@@ -54,16 +53,33 @@ export default function Sidebar() {
   /** Always-visible sidebar with main navigation links and a pinned Logout button. */
   const navigate = useNavigate();
   const auth = useAuth();
+
+  // Resolve the active tenant id from shared context/token utils
   const tenantId = useMemo(() => resolveOrganizationId({ auth }), [auth]);
-  const leftTitle = tenantId && String(tenantId).trim() ? String(tenantId).trim() : "Dashboard";
+
+  // Derive a human-friendly tenant display name.
+  // If your auth context includes a richer tenant object (e.g., auth.tenant.name),
+  // prefer that here. For now, we use tenantId as a fallback string.
+  const tenantDisplayName = useMemo(() => {
+    const maybeName =
+      auth?.tenant?.name ||
+      auth?.tenantName ||
+      auth?.organizationName ||
+      auth?.user?.organizationName ||
+      auth?.user?.tenantName ||
+      null;
+
+    const base = (maybeName && String(maybeName).trim()) || (tenantId && String(tenantId).trim());
+    return base || null;
+  }, [auth, tenantId]);
+
+  // Format as "<Tenant Name> Tenants Dashboard" or fallback to "Dashboard"
+  const leftTitle = tenantDisplayName ? `${tenantDisplayName} Tenants Dashboard` : "Dashboard";
 
   // PUBLIC_INTERFACE
   function handleLogout() {
     /** Clears auth/session state and navigates to the login page. */
     try {
-      // Remove any additional client-side tokens/identifiers
-      clearClientAuthArtifacts();
-
       // Clear primary app auth state via context
       if (typeof auth?.logout === "function") {
         auth.logout();

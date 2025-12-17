@@ -12,16 +12,31 @@ import { resolveOrganizationId } from "../../utils/orgContext";
 export default function Topbar() {
   /** Top navigation bar with brand mark/wordmark and dynamic tenant name. */
   const auth = useAuth?.() || {};
+
+  // Resolve the active tenant id from shared context/token utils
   const tenantId = useMemo(() => resolveOrganizationId({ auth }), [auth]);
 
-  // Derive display name for the left-side title: prefer tenant id/name, fallback to "Dashboard"
-  const leftTitle = tenantId && String(tenantId).trim() ? String(tenantId).trim() : "Dashboard";
+  // Derive the tenant display name consistently with Sidebar
+  const tenantDisplayName = useMemo(() => {
+    const maybeName =
+      auth?.tenant?.name ||
+      auth?.tenantName ||
+      auth?.organizationName ||
+      auth?.user?.organizationName ||
+      auth?.user?.tenantName ||
+      null;
+
+    const base = (maybeName && String(maybeName).trim()) || (tenantId && String(tenantId).trim());
+    return base || null;
+  }, [auth, tenantId]);
+
+  // Format as "<Tenant Name> Tenants Dashboard" or fallback to "Dashboard"
+  const leftTitle = tenantDisplayName ? `${tenantDisplayName} Tenants Dashboard` : "Dashboard";
 
   return (
     <header className="topbar app-headbar" role="banner">
       <div className="topbar-left">
         <div className="brand" aria-label={`${leftTitle}`}>
-          {/* REQ-UI-LOGO-REPLACE: Reuse the same logo asset as Sidebar, placed before the title */}
           <img
             src={appLogo}
             alt="Company logo"
@@ -32,7 +47,6 @@ export default function Topbar() {
         </div>
       </div>
 
-      {/* Remove explicit role/user labels per requirement; keep area for future actions if needed */}
       <div className="topbar-actions" role="group" aria-label="User actions" />
     </header>
   );
