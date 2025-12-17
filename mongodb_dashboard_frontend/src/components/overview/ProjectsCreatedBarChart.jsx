@@ -7,18 +7,15 @@ import UsersSummaryBarChart from '../charts/UsersSummaryBarChart';
 
 /**
  * PUBLIC_INTERFACE
- * ProjectCreatedBarChart
- * A bar chart component showing the number of projects created over time.
- * Mirrors the behavior and styling of the existing SessionCreatedBarChart.
- *
+ * ProjectsCreatedBarChart
+ * Displays count of projects created over time using /api/projects/summary.
  * Props:
- * - range: 'daily' | 'weekly' | 'monthly' | 'custom' (default 'daily')
- * - startDate: string YYYY-MM-DD (required for range='custom')
- * - endDate: string YYYY-MM-DD (required for range='custom')
- * - organizationId: optional explicit tenant override; falls back to context or URL query per hook behavior
- * - className: optional additional className
+ * - range: 'daily' | 'weekly' | 'monthly' | 'custom'
+ * - startDate, endDate: YYYY-MM-DD (required for custom)
+ * - organizationId: optional override
+ * - className: optional
  */
-export default function ProjectCreatedBarChart({
+export default function ProjectsCreatedBarChart({
   range = 'daily',
   startDate,
   endDate,
@@ -28,34 +25,26 @@ export default function ProjectCreatedBarChart({
   const currentOrgId = useCurrentOrgId(organizationId);
 
   const queryParams = useMemo(() => {
-    const base = {
-      range,
-    };
+    const base = { range };
     if (range === 'custom') {
       if (startDate) base.start_date = startDate;
       if (endDate) base.end_date = endDate;
     }
-    // Consistent tenant param naming: use organization_id like Users summary chart does
-    if (currentOrgId) {
-      base.organization_id = currentOrgId;
-    }
+    if (currentOrgId) base.organization_id = currentOrgId;
     return base;
   }, [range, startDate, endDate, currentOrgId]);
 
   const { url, params } = useMemo(() => {
-    const u = '/api/project-create/summary';
+    const u = '/api/projects/summary';
     const p = buildOverviewFilterParams(queryParams);
     return { url: u, params: p };
   }, [queryParams]);
 
-  // Data fetching via apiClient directly; UsersSummaryBarChart accepts a fetcher that returns { buckets: [...] }
   const fetcher = async () => {
     const response = await apiClient.get(url, { params });
-    // Expecting schema: { range, start_date, end_date, buckets: [{ key, label, count }] }
     return response?.data || { buckets: [] };
   };
 
-  // Title and tooltip should mirror the session created chart pattern
   const title = 'Projects Created';
   const tooltipFormatter = (bucket) => `${bucket?.label ?? bucket?.key}: ${bucket?.count ?? 0}`;
 
@@ -68,18 +57,13 @@ export default function ProjectCreatedBarChart({
       labelKey="label"
       tooltipFormatter={tooltipFormatter}
       emptyMessage="No projects created in the selected period."
-      // Forward common controls if the underlying chart supports them
-      controls={{
-        range,
-        startDate,
-        endDate,
-      }}
+      controls={{ range, startDate, endDate }}
       testId="projects-created-bar-chart"
     />
   );
 }
 
-ProjectCreatedBarChart.propTypes = {
+ProjectsCreatedBarChart.propTypes = {
   range: PropTypes.oneOf(['daily', 'weekly', 'monthly', 'custom']),
   startDate: PropTypes.string,
   endDate: PropTypes.string,

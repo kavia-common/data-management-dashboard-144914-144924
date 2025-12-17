@@ -4,7 +4,7 @@ import {
   OverviewKpiCountCards,
   OverviewUsersSummarySection,
   ProjectsServiceTypeBarChart,
-  ProjectCreatedBarChart,
+  ProjectsCreatedBarChart,
 } from './index';
 
 /**
@@ -36,7 +36,7 @@ export default function OverviewContainer() {
 
       {/* Exactly one Projects Created Bar Chart below the service_type_created_chart section */}
       <section aria-label="Projects Created" className="projects_created_chart" style={{ marginTop: 16 }}>
-        <ProjectCreatedBarChart />
+        <ProjectsCreatedBarChart />
       </section>
     </div>
   );
