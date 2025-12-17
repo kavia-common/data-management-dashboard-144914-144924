@@ -61,7 +61,7 @@ export default function Costs() {
 
   const columns = useMemo(() => {
     return [
-      { key: "organization_id", label: "organization_id" },
+      // organization_id removed per requirement
       { key: "organization_name", label: "organization_name" },
       {
         key: "organization_cost",
@@ -70,7 +70,15 @@ export default function Costs() {
         className: "num",
         priority: 1,
       },
-      { key: "user_id", label: "user_id" },
+      // Replace user_id with user_name; fallback to "Unknown User" when missing
+      {
+        key: "user_name",
+        label: "user_name",
+        render: (v, row) => {
+          const name = v || row?.user_name || "Unknown User";
+          return <span className="td--emphasis-name">{name}</span>;
+        },
+      },
       {
         key: "user_cost",
         label: "user_cost",
@@ -124,7 +132,7 @@ export default function Costs() {
         <div className="toolbar" aria-label="Costs toolbar" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
           <input
             className="input"
-            placeholder="organization_id (optional)"
+            placeholder="Filter by tenant (optional)"
             aria-label="Organization ID"
             value={organizationId}
             onChange={(e) => setOrganizationId(e.target.value)}
