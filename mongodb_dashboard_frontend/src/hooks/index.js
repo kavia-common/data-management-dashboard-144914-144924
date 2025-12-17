@@ -17,3 +17,4 @@ export { default as useUsers } from './useUsers';
 export { default as useVerifyUsersUrlOnce } from './useVerifyUsersUrlOnce';
 export { default as useUsersSummary } from './useUsersSummary';
 export { default as useTenantDisplayName } from './useTenantDisplayName';
+export { default as useCurrentUser } from './useCurrentUser';

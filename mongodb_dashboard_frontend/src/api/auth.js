@@ -12,7 +12,8 @@ export async function login({ organization_id, email, password }) {
     const token = data.id_token || data.token;
     // Prefer tenant from payload; else keep existing
     const tenant_id = data.tenant_id || data['custom:tenant_id'] || null;
-    setAuthContext({ token, tenant_id });
+    const tenant_name = data.tenant_name || data.tenantName || data.organization_name || null;
+    setAuthContext({ token, tenant_id, tenant_name });
   }
   return data;
 }

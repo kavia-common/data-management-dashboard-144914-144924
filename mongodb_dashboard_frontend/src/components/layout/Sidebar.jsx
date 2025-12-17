@@ -4,7 +4,7 @@ import { useAuth } from "../../context/AuthContext";
 import Button from "../ui/Button.jsx";
 import "./Sidebar.css";
 import { resolveOrganizationId } from "../../utils/orgContext";
-import useTenantDisplayName from "../../hooks/useTenantDisplayName";
+
 
 /**
  * PUBLIC_INTERFACE
@@ -58,10 +58,8 @@ export default function Sidebar() {
   // Resolve the active tenant id from shared context/token utils (used for fallback display)
   const tenantId = useMemo(() => resolveOrganizationId({ auth }), [auth]);
 
-  // Fetch tenant display name by email; gracefully handle loading/errors.
-  const { tenantName, loading } = useTenantDisplayName();
+  const nameFromAuth = auth?.user?.tenant_name || null;
 
-  // Prefer fetched tenantName; fallback to any local name hints or tenantId; finally "Dashboard"
   const localNameHints =
     auth?.tenant?.name ||
     auth?.tenantName ||
@@ -71,15 +69,13 @@ export default function Sidebar() {
     null;
 
   const effectiveName =
-    (tenantName && String(tenantName).trim()) ||
+    (nameFromAuth && String(nameFromAuth).trim()) ||
     (localNameHints && String(localNameHints).trim()) ||
     (tenantId && String(tenantId).trim()) ||
     null;
 
   const leftTitle = effectiveName
-    ? `${effectiveName} Tenants Dashboard`
-    : loading
-    ? "Loading…"
+    ? `${effectiveName} Tenant Dashboard`
     : "Dashboard";
 
   // PUBLIC_INTERFACE

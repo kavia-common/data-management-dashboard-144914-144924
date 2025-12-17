@@ -110,10 +110,12 @@ export async function loginWithOrgEmailPassword({ organizationId, email, passwor
     token = payload.token || payload.access_token;
   }
 
-  // Derive tenant_id if present in response
+  // Derive tenant identifiers if present in response
   const tenant_id =
     (payload && (payload.tenant_id || payload.tenantId)) || null;
+  const tenant_name =
+    (payload && (payload.tenant_name || payload.tenantName || payload.organization_name)) || null;
 
-  return { token, payload: { ...payload, tenant_id } };
+  return { token, payload: { ...payload, tenant_id, tenant_name } };
 }
  

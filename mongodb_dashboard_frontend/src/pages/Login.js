@@ -100,7 +100,8 @@ export default function Login() {
       });
       // Persist token and any tenant info provided by backend (if present)
       const maybeTenant = (payload && (payload.tenant_id || payload.tenantId)) || null;
-      login({ token: token || null, tenant_id: maybeTenant });
+      const maybeTenantName = (payload && (payload.tenant_name || payload.tenantName || payload.organization_name)) || null;
+      login({ token: token || null, tenant_id: maybeTenant, tenant_name: maybeTenantName });
       const from = location.state?.from?.pathname || SUCCESS_REDIRECT;
       navigate(from, { replace: true });
     } catch (e) {

@@ -7,6 +7,7 @@
 const AUTH_STORAGE_KEY = 'auth';
 const ACTIVE_ORG_KEY = 'activeOrganization';
 const ACTIVE_TENANT_KEY = 'activeTenant'; // legacy alias kept for backward compatibility
+const ACTIVE_TENANT_NAME_KEY = 'activeTenantName'; // new: persist tenant display name from login
 
 // PUBLIC_INTERFACE
 export function getToken() {
@@ -52,27 +53,35 @@ export function getTenantId() {
  * - token is required for logged-in state
  * - organization_id, if present, will be mirrored into activeOrganization (and legacy activeTenant for compat)
  */
-export function setFromLoginResponse({ token, organization_id, tenant_id } = {}) {
+export function setFromLoginResponse({ token, organization_id, tenant_id, tenant_name } = {}) {
   try {
-    if (token) {
-      const data = { loggedIn: true, token };
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data));
-    } else {
-      localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify({ loggedIn: true }));
-    }
+    const existing = (() => {
+      try {
+        const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+        return raw ? JSON.parse(raw) : {};
+      } catch {
+        return {};
+      }
+    })();
+    const data = { ...existing, loggedIn: true };
+    if (token) data.token = token;
+    if (tenant_name) data.user = { ...(existing.user || {}), tenant_name };
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data));
   } catch {
     // ignore storage errors
   }
 
   const org = organization_id || tenant_id || null;
-  if (org) {
-    try {
+  try {
+    if (org) {
       localStorage.setItem(ACTIVE_ORG_KEY, String(org));
-      // keep legacy mirror for any scattered reads
-      localStorage.setItem(ACTIVE_TENANT_KEY, String(org));
-    } catch {
-      // ignore
+      localStorage.setItem(ACTIVE_TENANT_KEY, String(org)); // legacy mirror
     }
+    if (tenant_name) {
+      localStorage.setItem(ACTIVE_TENANT_NAME_KEY, String(tenant_name));
+    }
+  } catch {
+    // ignore
   }
 }
 
@@ -108,6 +117,26 @@ export function clearAuth() {
     localStorage.removeItem(AUTH_STORAGE_KEY);
   } catch {
     // ignore
+  }
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getTenantName
+ * Returns the persisted tenant display name from login response if available.
+ */
+export function getTenantName() {
+  try {
+    // Prefer explicit key, then embedded in auth.user
+    const name = localStorage.getItem(ACTIVE_TENANT_NAME_KEY);
+    if (name && name.trim()) return name.trim();
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const fromUser = parsed?.user?.tenant_name || parsed?.tenant_name;
+    return fromUser ? String(fromUser) : null;
+  } catch {
+    return null;
   }
 }
 

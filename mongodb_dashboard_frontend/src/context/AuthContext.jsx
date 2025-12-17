@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { getStoredAuth, isAuthenticated as isAuthed, saveAuthSession, clearAuthSession } from '../config/auth';
-import { getOrganizationId as getActiveOrganization, setActiveOrganizationId as setActiveOrganization, setFromLoginResponse } from '../api/authTokenProvider';
+import { getOrganizationId as getActiveOrganization, setActiveOrganizationId as setActiveOrganization, setFromLoginResponse, getTenantName as getActiveTenantName } from '../api/authTokenProvider';
 
 const AuthContext = createContext({
   isAuthenticated: false,
@@ -36,17 +36,26 @@ export function AuthProvider({ children }) {
   }, []);
 
   const value = useMemo(() => {
+    const user = {
+      tenant_name: getActiveTenantName() || auth?.user?.tenant_name || null,
+    };
     return {
       isAuthenticated: isAuthed(),
       token: auth?.token || null,
+      user,
       // expose both organizationId and legacy tenantId for consumers
       organizationId: organizationId || getActiveOrganization(),
       tenantId: organizationId || getActiveOrganization(),
-      // login now accepts either token string or { token, organization_id, tenant_id }
+      // login now accepts either token string or { token, organization_id, tenant_id, tenant_name }
       login: (loginPayload) => {
         if (loginPayload && typeof loginPayload === 'object') {
-          const { token, organization_id, tenant_id } = loginPayload;
-          setFromLoginResponse({ token: token || null, organization_id: organization_id || tenant_id || null });
+          const { token, organization_id, tenant_id, tenant_name } = loginPayload;
+          setFromLoginResponse({
+            token: token || null,
+            organization_id: organization_id || tenant_id || null,
+            tenant_id: tenant_id || organization_id || null,
+            tenant_name: tenant_name || null,
+          });
           // keep config/auth in sync for backwards compat
           saveAuthSession(token || null);
           if (organization_id || tenant_id) setActiveOrganization(organization_id || tenant_id);

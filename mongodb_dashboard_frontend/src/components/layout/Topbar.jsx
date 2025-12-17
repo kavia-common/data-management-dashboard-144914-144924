@@ -2,7 +2,6 @@ import React, { useMemo } from "react";
 import appLogo from "../../assets/logo/app-logo-2025.png";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { resolveOrganizationId } from "../../utils/orgContext";
-import useTenantDisplayName from "../../hooks/useTenantDisplayName";
 
 /**
  * PUBLIC_INTERFACE
@@ -17,10 +16,9 @@ export default function Topbar() {
   // Resolve the active tenant id from shared context/token utils (used for fallback display)
   const tenantId = useMemo(() => resolveOrganizationId({ auth }), [auth]);
 
-  // Fetch tenant display name by email; gracefully handle loading/errors.
-  const { tenantName, loading } = useTenantDisplayName();
+  // Prefer tenant_name from login-provided auth state
+  const nameFromAuth = auth?.user?.tenant_name || null;
 
-  // Prefer fetched tenantName; fallback to any local name hints or tenantId; finally "Dashboard"
   const localNameHints =
     auth?.tenant?.name ||
     auth?.tenantName ||
@@ -30,15 +28,13 @@ export default function Topbar() {
     null;
 
   const effectiveName =
-    (tenantName && String(tenantName).trim()) ||
+    (nameFromAuth && String(nameFromAuth).trim()) ||
     (localNameHints && String(localNameHints).trim()) ||
     (tenantId && String(tenantId).trim()) ||
     null;
 
   const leftTitle = effectiveName
-    ? `${effectiveName} Tenants Dashboard`
-    : loading
-    ? "Loading…"
+    ? `${effectiveName} Tenant Dashboard`
     : "Dashboard";
 
   return (

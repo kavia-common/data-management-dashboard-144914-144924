@@ -40,9 +40,11 @@ export default function Login() {
     setLoading(true);
     try {
       // Perform login using auth client (throws on non-2xx)
-      const { token } = await loginWithOrgEmailPassword(form);
-      // Persist session via context
-      login(token || null);
+      const { token, payload } = await loginWithOrgEmailPassword(form);
+      // Persist session via context, include tenant_id and tenant_name when present
+      const tid = (payload && (payload.tenant_id || payload.tenantId)) || null;
+      const tname = (payload && (payload.tenant_name || payload.tenantName || payload.organization_name)) || null;
+      login({ token: token || null, tenant_id: tid, tenant_name: tname });
       // success -> redirect to dashboard overview or prior route
       navigate(from, { replace: true });
     } catch (err) {
