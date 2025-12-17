@@ -3,8 +3,8 @@ import React from 'react';
 /**
  * PUBLIC_INTERFACE
  * OverviewKpiCountCards
- * Minimal KPI count cards for Users, Sessions, Deployments with Ocean Professional theme.
- * - data: { totalUsers: number, totalSessions: number, totalDeployedApps: number }
+ * Minimal KPI count cards for Users, Sessions with Ocean Professional theme.
+ * - data: { totalUsers: number, totalSessions: number }
  * - loading: boolean
  * - error: boolean
  *
@@ -25,13 +25,6 @@ export default function OverviewKpiCountCards({ data, loading = false, error = f
       value: Number(data?.totalSessions ?? 0),
       accent: '#6B7280', // neutral accent since not themed in guide; keep subtle
       bg: 'linear-gradient(180deg, rgba(107,114,128,0.06) 0%, rgba(249,250,251,1) 100%)',
-    },
-    {
-      key: 'deployments',
-      label: 'Deployments',
-      value: Number(data?.totalDeployedApps ?? 0),
-      accent: '#F59E0B', // secondary/success
-      bg: 'linear-gradient(180deg, rgba(245,158,11,0.06) 0%, rgba(249,250,251,1) 100%)',
     },
   ];
 

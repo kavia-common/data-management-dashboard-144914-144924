@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import Skeleton from "../../components/ui/Skeleton.jsx";
-import { listUsers, listSessions, listDeployments, health } from "../../api";
+import { listUsers, listSessions, health } from "../../api";
 import { OverviewUsersSummarySection } from "../../components/overview";
 
 /**
@@ -11,7 +11,7 @@ import { OverviewUsersSummarySection } from "../../components/overview";
  */
 export default function Overview() {
   const [loading, setLoading] = useState(true);
-  const [metrics, setMetrics] = useState({ users: 0, sessions: 0, deployments: 0 });
+  const [metrics, setMetrics] = useState({ users: 0, sessions: 0 });
   const [error, setError] = useState("");
   const [, setApiStatus] = useState("checking");
 
@@ -22,16 +22,14 @@ export default function Overview() {
       setLoading(true);
       setError("");
       try {
-        const [usersRes, sessionsRes, deploymentsRes] = await Promise.all([
+        const [usersRes, sessionsRes] = await Promise.all([
           listUsers({ limit: 5 }),
           listSessions({ limit: 5 }),
-          listDeployments({ limit: 5 }),
         ]);
         if (cancelled) return;
         setMetrics({
           users: usersRes?.total || usersRes?.length || usersRes?.items?.length || 0,
           sessions: sessionsRes?.total || sessionsRes?.length || sessionsRes?.items?.length || 0,
-          deployments: deploymentsRes?.total || deploymentsRes?.length || deploymentsRes?.items?.length || 0,
         });
       } catch (e) {
         if (!cancelled) {
@@ -91,19 +89,6 @@ export default function Overview() {
             )}
           </div>
           <div className="kpi-label">Sessions</div>
-        </div>
-      </Card>
-
-      <Card title="Deployments" subtitle="Recent app deployments" className="kpi-card">
-        <div className="kpi">
-          <div className="kpi-value">
-            {loading ? (
-              <Skeleton width={72} height={28} aria-label="Loading deployments metric" />
-            ) : (
-              metrics.deployments
-            )}
-          </div>
-          <div className="kpi-label">Deployments</div>
         </div>
       </Card>
 

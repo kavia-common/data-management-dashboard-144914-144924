@@ -1,5 +1,7 @@
-import React from "react";
+import React, { useMemo } from "react";
 import appLogo from "../../assets/logo/app-logo-2025.png";
+import { useAuth } from "../../context/AuthContext.jsx";
+import { resolveOrganizationId } from "../../utils/orgContext";
 
 /**
  * PUBLIC_INTERFACE
@@ -8,11 +10,17 @@ import appLogo from "../../assets/logo/app-logo-2025.png";
  */
 // PUBLIC_INTERFACE
 export default function Topbar() {
-  /** Top navigation bar with brand mark/wordmark and user chip. */
+  /** Top navigation bar with brand mark/wordmark and dynamic tenant name. */
+  const auth = useAuth?.() || {};
+  const tenantId = useMemo(() => resolveOrganizationId({ auth }), [auth]);
+
+  // Derive display name for the left-side title: prefer tenant id/name, fallback to "Dashboard"
+  const leftTitle = tenantId && String(tenantId).trim() ? String(tenantId).trim() : "Dashboard";
+
   return (
     <header className="topbar app-headbar" role="banner">
       <div className="topbar-left">
-        <div className="brand" aria-label="Tenant Dashboard">
+        <div className="brand" aria-label={`${leftTitle}`}>
           {/* REQ-UI-LOGO-REPLACE: Reuse the same logo asset as Sidebar, placed before the title */}
           <img
             src={appLogo}
@@ -20,22 +28,12 @@ export default function Topbar() {
             className="brand-logo"
             style={{ height: 28, width: "auto", marginRight: 8, borderRadius: 8 }}
           />
-          <span className="brand-title">Tenant Dashboard</span>
+          <span className="brand-title">{leftTitle}</span>
         </div>
       </div>
 
-      <div className="topbar-actions" role="group" aria-label="User actions">
-        <span className="role-badge" aria-label="Role">Super Admin</span>
-        <button
-          type="button"
-          className="user-chip"
-          aria-label="User profile"
-          title="User: Guest"
-        >
-          <span className="user-avatar" aria-hidden="true">G</span>
-          <span className="user-name">Guest</span>
-        </button>
-      </div>
+      {/* Remove explicit role/user labels per requirement; keep area for future actions if needed */}
+      <div className="topbar-actions" role="group" aria-label="User actions" />
     </header>
   );
 }

@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import Button from "../ui/Button.jsx";
 import "./Sidebar.css";
+import { resolveOrganizationId } from "../../utils/orgContext";
  // REQ-UI-LOGO-REPLACE: logo removed from sidebar; asset import no longer needed
 
 /**
@@ -52,7 +53,9 @@ export function clearClientAuthArtifacts(extraKeys = []) {
 export default function Sidebar() {
   /** Always-visible sidebar with main navigation links and a pinned Logout button. */
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const auth = useAuth();
+  const tenantId = useMemo(() => resolveOrganizationId({ auth }), [auth]);
+  const leftTitle = tenantId && String(tenantId).trim() ? String(tenantId).trim() : "Dashboard";
 
   // PUBLIC_INTERFACE
   function handleLogout() {
@@ -62,8 +65,8 @@ export default function Sidebar() {
       clearClientAuthArtifacts();
 
       // Clear primary app auth state via context
-      if (typeof logout === "function") {
-        logout();
+      if (typeof auth?.logout === "function") {
+        auth.logout();
       }
     } catch (e) {
       // Non-fatal; proceed to navigation even if cleanup partially fails
@@ -82,8 +85,8 @@ export default function Sidebar() {
       aria-label="Primary navigation"
       role="navigation"
     >
-      <div className="sidebar-brand" role="banner" tabIndex="0">
-        {/* REQ-UI-LOGO-REPLACE: logo removed intentionally to simplify sidebar branding */}
+      <div className="sidebar-brand" role="banner" tabIndex="0" aria-label={leftTitle}>
+        <span className="brand-title">{leftTitle}</span>
       </div>
       <div className="sidebar-scroll">
         <nav aria-label="Dashboard sections">
