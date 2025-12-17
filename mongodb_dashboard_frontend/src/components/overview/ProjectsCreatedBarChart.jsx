@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -104,51 +104,55 @@ function useProjectsCreatedData(filters) {
   const organizationId = useCurrentOrgId();
   const [state, setState] = useState({ status: 'idle', error: null, data: [] });
 
-  // Build query params from filters and org context
-  const queryParams = useMemo(() => {
-    const params = { ...(filters || {}) };
-    const effectiveOrg =
+  // Keep the last serialized params to avoid re-fetching when values didn't actually change
+  const lastParamsRef = useRef('');
+
+  // Build query params with only primitives and stable references
+  const stableParams = useMemo(() => {
+    const effOrg =
       organizationId ||
       filters?.organizationId ||
       filters?.organization_id ||
-      filters?.tenant_id;
+      filters?.tenant_id ||
+      null;
 
-    if (effectiveOrg) {
-      params.organization_id = effectiveOrg;
-      params.organizationId = effectiveOrg;
-      params.tenant_id = effectiveOrg;
-    }
-
-    // Normalize any date/range params if present in filters
-    if (filters?.range) params.range = filters.range;
-    if (filters?.start_date) params.start_date = filters.start_date;
-    if (filters?.end_date) params.end_date = filters.end_date;
-
-    return params;
-  }, [organizationId, filters]);
+    // Only primitives to keep deps stable; avoid including whole filters object
+    return {
+      organization_id: effOrg || undefined,
+      // Only pass the canonical org query - avoid passing multiple aliases to prevent backend confusion and unnecessary diffs
+      range: filters?.range || undefined,
+      start_date: filters?.start_date || undefined,
+      end_date: filters?.end_date || undefined,
+    };
+    // Depend only on primitives we used above
+  }, [organizationId, filters?.range, filters?.start_date, filters?.end_date, filters?.organizationId, filters?.organization_id, filters?.tenant_id]);
 
   useEffect(() => {
-    let cancelled = false;
+    // Guard: require an organization id
+    if (!stableParams.organization_id) {
+      setState({ status: 'empty', error: null, data: [] });
+      return;
+    }
+
+    // Compare with last used params to prevent unnecessary refetch loops
+    const nextSerialized = JSON.stringify(stableParams);
+    if (lastParamsRef.current === nextSerialized) {
+      return; // nothing changed effectively
+    }
+    lastParamsRef.current = nextSerialized;
+
+    const controller = new AbortController();
 
     async function fetchData() {
-      // If no tenant available, treat as empty
-      if (!queryParams.organization_id && !queryParams.organizationId && !queryParams.tenant_id) {
-        setState({ status: 'empty', error: null, data: [] });
-        return;
-      }
-
-      setState((s) => ({ ...s, status: 'loading', error: null }));
+      // set loading without changing object identity too much
+      setState((s) => (s.status === 'loading' ? s : { ...s, status: 'loading', error: null }));
 
       try {
-        // Correct endpoint per request: GET /api/project-create/summary
         const resp = await apiClient.get('/project-create/summary', {
-          params: queryParams,
-          headers: (organizationId || queryParams.organization_id)
-            ? { 'x-organization-id': organizationId || queryParams.organization_id }
-            : undefined,
+          params: stableParams,
+          headers: { 'x-organization-id': stableParams.organization_id },
+          signal: controller.signal,
         });
-
-        if (cancelled) return;
 
         // Expected buckets: [{ key, label, count }]
         const buckets = Array.isArray(resp?.data?.buckets)
@@ -157,7 +161,6 @@ function useProjectsCreatedData(filters) {
           ? resp.data.items
           : [];
 
-        // Map to recharts data: [{ name, value, color }]
         const data = buckets.map((b) => ({
           name: b?.label || b?.key || '',
           value: typeof b?.count === 'number' ? b.count : Number(b?.count || 0),
@@ -166,21 +169,28 @@ function useProjectsCreatedData(filters) {
 
         setState({ status: data.length ? 'success' : 'empty', error: null, data });
       } catch (e) {
-        if (!cancelled) {
-          setState({
-            status: 'error',
-            error: e?.response?.data?.message || e?.message || 'Failed to load projects summary.',
-            data: [],
-          });
+        if (e?.name === 'CanceledError') {
+          // axios abort
+          return;
         }
+        if (e?.code === 'ERR_CANCELED') {
+          // axios cancellation code
+          return;
+        }
+        setState({
+          status: 'error',
+          error: e?.response?.data?.message || e?.message || 'Failed to load projects summary.',
+          data: [],
+        });
       }
     }
 
     fetchData();
+
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [queryParams, organizationId]);
+  }, [stableParams]);
 
   return state;
 }
