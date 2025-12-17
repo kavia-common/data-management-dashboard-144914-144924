@@ -171,8 +171,8 @@ export default function ProjectsCreatedBarChart() {
 
   return (
     <Card style={{ marginTop: 16, overflow: 'visible' }}>
-      <div className="overview-users-summary__header project summary" style={{ marginBottom: 8 }}>
-        <h3 className="overview-users-summary__title">Sessions Created</h3>
+      <div className="overview-users-summary__header project_created" style={{ marginBottom: 8 }}>
+        <h3 className="overview-users-summary__title">Project Created</h3>
         <div className="overview-users-summary__controls">
           <label htmlFor="projects-range" className="overview-users-summary__label">
             Range
