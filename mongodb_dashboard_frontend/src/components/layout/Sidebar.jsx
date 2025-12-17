@@ -4,6 +4,7 @@ import { useAuth } from "../../context/AuthContext";
 import Button from "../ui/Button.jsx";
 import "./Sidebar.css";
 import { resolveOrganizationId } from "../../utils/orgContext";
+import useTenantDisplayName from "../../hooks/useTenantDisplayName";
 
 /**
  * PUBLIC_INTERFACE
@@ -54,27 +55,32 @@ export default function Sidebar() {
   const navigate = useNavigate();
   const auth = useAuth();
 
-  // Resolve the active tenant id from shared context/token utils
+  // Resolve the active tenant id from shared context/token utils (used for fallback display)
   const tenantId = useMemo(() => resolveOrganizationId({ auth }), [auth]);
 
-  // Derive a human-friendly tenant display name.
-  // If your auth context includes a richer tenant object (e.g., auth.tenant.name),
-  // prefer that here. For now, we use tenantId as a fallback string.
-  const tenantDisplayName = useMemo(() => {
-    const maybeName =
-      auth?.tenant?.name ||
-      auth?.tenantName ||
-      auth?.organizationName ||
-      auth?.user?.organizationName ||
-      auth?.user?.tenantName ||
-      null;
+  // Fetch tenant display name by email; gracefully handle loading/errors.
+  const { tenantName, loading } = useTenantDisplayName();
 
-    const base = (maybeName && String(maybeName).trim()) || (tenantId && String(tenantId).trim());
-    return base || null;
-  }, [auth, tenantId]);
+  // Prefer fetched tenantName; fallback to any local name hints or tenantId; finally "Dashboard"
+  const localNameHints =
+    auth?.tenant?.name ||
+    auth?.tenantName ||
+    auth?.organizationName ||
+    auth?.user?.organizationName ||
+    auth?.user?.tenantName ||
+    null;
 
-  // Format as "<Tenant Name> Tenants Dashboard" or fallback to "Dashboard"
-  const leftTitle = tenantDisplayName ? `${tenantDisplayName} Tenants Dashboard` : "Dashboard";
+  const effectiveName =
+    (tenantName && String(tenantName).trim()) ||
+    (localNameHints && String(localNameHints).trim()) ||
+    (tenantId && String(tenantId).trim()) ||
+    null;
+
+  const leftTitle = effectiveName
+    ? `${effectiveName} Tenants Dashboard`
+    : loading
+    ? "Loading…"
+    : "Dashboard";
 
   // PUBLIC_INTERFACE
   function handleLogout() {

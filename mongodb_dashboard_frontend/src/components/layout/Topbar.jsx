@@ -2,6 +2,7 @@ import React, { useMemo } from "react";
 import appLogo from "../../assets/logo/app-logo-2025.png";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { resolveOrganizationId } from "../../utils/orgContext";
+import useTenantDisplayName from "../../hooks/useTenantDisplayName";
 
 /**
  * PUBLIC_INTERFACE
@@ -13,25 +14,32 @@ export default function Topbar() {
   /** Top navigation bar with brand mark/wordmark and dynamic tenant name. */
   const auth = useAuth?.() || {};
 
-  // Resolve the active tenant id from shared context/token utils
+  // Resolve the active tenant id from shared context/token utils (used for fallback display)
   const tenantId = useMemo(() => resolveOrganizationId({ auth }), [auth]);
 
-  // Derive the tenant display name consistently with Sidebar
-  const tenantDisplayName = useMemo(() => {
-    const maybeName =
-      auth?.tenant?.name ||
-      auth?.tenantName ||
-      auth?.organizationName ||
-      auth?.user?.organizationName ||
-      auth?.user?.tenantName ||
-      null;
+  // Fetch tenant display name by email; gracefully handle loading/errors.
+  const { tenantName, loading } = useTenantDisplayName();
 
-    const base = (maybeName && String(maybeName).trim()) || (tenantId && String(tenantId).trim());
-    return base || null;
-  }, [auth, tenantId]);
+  // Prefer fetched tenantName; fallback to any local name hints or tenantId; finally "Dashboard"
+  const localNameHints =
+    auth?.tenant?.name ||
+    auth?.tenantName ||
+    auth?.organizationName ||
+    auth?.user?.organizationName ||
+    auth?.user?.tenantName ||
+    null;
 
-  // Format as "<Tenant Name> Tenants Dashboard" or fallback to "Dashboard"
-  const leftTitle = tenantDisplayName ? `${tenantDisplayName} Tenants Dashboard` : "Dashboard";
+  const effectiveName =
+    (tenantName && String(tenantName).trim()) ||
+    (localNameHints && String(localNameHints).trim()) ||
+    (tenantId && String(tenantId).trim()) ||
+    null;
+
+  const leftTitle = effectiveName
+    ? `${effectiveName} Tenants Dashboard`
+    : loading
+    ? "Loading…"
+    : "Dashboard";
 
   return (
     <header className="topbar app-headbar" role="banner">
