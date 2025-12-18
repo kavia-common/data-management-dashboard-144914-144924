@@ -301,8 +301,15 @@ export default function Costs() {
     {
       key: "user_name",
       label: "User",
-      render: (v) =>
-        v ? v : <span className="muted">Unknown User</span>,
+      render: (v, row) => {
+        // Prefer user_display_name when present; fall back to user_name then "Unknown User"
+        const displayName =
+          (typeof row?.user_display_name === "string" && row.user_display_name.trim()
+            ? row.user_display_name
+            : null) ||
+          (typeof v === "string" && v.trim() ? v : "Unknown User");
+        return displayName || <span className="muted">Unknown User</span>;
+      },
     },
     {
       key: "user_cost",

@@ -127,10 +127,18 @@ export default function Costs() {
             </thead>
             <tbody>
               {sorted.map((row) => {
-                const uname = typeof row.user_name === 'string' && row.user_name.trim() ? row.user_name : 'Unknown User';
+                // Prefer user_display_name when provided by backend; fall back to existing user_name then "Unknown User"
+                const displayName =
+                  (typeof row.user_display_name === 'string' && row.user_display_name.trim()
+                    ? row.user_display_name
+                    : null) ||
+                  (typeof row.user_name === 'string' && row.user_name.trim()
+                    ? row.user_name
+                    : 'Unknown User');
+
                 return (
                   <tr key={row._id} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                    <td style={{ padding: '8px 6px' }}>{uname}</td>
+                    <td style={{ padding: '8px 6px' }}>{displayName}</td>
                     <td style={{ padding: '8px 6px' }}>{row.provider || '-'}</td>
                     <td style={{ padding: '8px 6px' }}>{row.model || row.llm_model || '-'}</td>
                     <td style={{ padding: '8px 6px' }}>{row.timestamp ? new Date(row.timestamp).toLocaleString() : '-'}</td>
