@@ -81,7 +81,8 @@ export default function ProjectsServiceTypeBarChart({
     params.set('organization_id', organizationId);
 
     try {
-      const res = await apiGet(`/service-type/summary?${params.toString()}`, {
+      // Use '/api/...' so utils/api.joinUrl resolves with the configured base host.
+      const res = await apiGet(`/api/service-type/summary?${params.toString()}`, {
         organization_id: organizationId,
       });
 
