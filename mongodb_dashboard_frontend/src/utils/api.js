@@ -12,27 +12,35 @@ function isAbsoluteUrl(url) {
 }
 
 function getBaseApiUrl() {
-  // Preferred: window.location.origin + '/api' for preview/proxy environments
-  try {
-    if (typeof window !== 'undefined' && window.location && window.location.origin) {
-      return `${window.location.origin.replace(/\/+$/, '')}/api`;
-    }
-  } catch {
-    // ignore
-  }
-  // Fallback: REACT_APP_API_BASE_URL if provided
+  // Respect environment override first
   const fromEnv =
     (typeof process !== 'undefined' &&
       process.env &&
       process.env.REACT_APP_API_BASE_URL) ||
     '';
   if (fromEnv) {
-    // If env already points to /api, keep as-is; otherwise append '/api' if it looks like a host root
-    const trimmed = String(fromEnv).replace(/\/+$/, '');
-    if (trimmed.endsWith('/api')) return trimmed;
-    return `${trimmed}/api`;
+    const trimmed = String(fromEnv).trim().replace(/\/*$/, '');
+    const url = trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+    // eslint-disable-next-line no-console
+    console.log('[utils/api] Effective API base (env):', url);
+    return url;
   }
+
+  // Fallback to current origin for local dev/proxy scenarios
+  try {
+    if (typeof window !== 'undefined' && window.location && window.location.origin) {
+      const url = `${window.location.origin.replace(/\/*$/, '')}/api`;
+      // eslint-disable-next-line no-console
+      console.log('[utils/api] Effective API base (origin):', url);
+      return url;
+    }
+  } catch {
+    // ignore
+  }
+
   // Last resort: relative '/api'
+  // eslint-disable-next-line no-console
+  console.log('[utils/api] Effective API base (relative): /api');
   return '/api';
 }
 

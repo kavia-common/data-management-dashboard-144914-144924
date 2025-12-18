@@ -18,22 +18,30 @@ export function buildQueryString(params = {}) {
  * Backward-compatible resolver returning the API base URL string.
  */
 export function getApiBaseUrl() {
-  // Prefer current origin in preview/proxy environments
+  // PUBLIC_INTERFACE
+  /**
+   * Resolve the API base URL, ensuring it includes '/api' exactly once.
+   * Resolution order:
+   * 1) Respect REACT_APP_API_BASE_URL when provided (never override it with window.origin)
+   * 2) Fallback to window.location.origin + '/api' (for local dev/proxy)
+   * 3) Fallback to relative '/api'
+   */
+  const env = (typeof process !== 'undefined' && process.env && process.env.REACT_APP_API_BASE_URL) || '';
+
+  if (env && typeof env === 'string' && env.trim()) {
+    const trimmed = env.trim().replace(/\/*$/, '');
+    return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+  }
+
   try {
-    if (typeof window !== "undefined" && window.location && window.location.origin) {
-      return `${String(window.location.origin).replace(/\/*$/, "")}/api`;
+    if (typeof window !== 'undefined' && window.location && window.location.origin) {
+      return `${String(window.location.origin).replace(/\/*$/, '')}/api`;
     }
   } catch {
-    // ignore and fallback to env
+    // ignore
   }
-  // Fallback to explicit env if provided
-  const env = process.env.REACT_APP_API_BASE_URL;
-  if (env && typeof env === "string" && env.trim()) {
-    const trimmed = env.trim().replace(/\/*$/, "");
-    return trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
-  }
-  // Last resort: relative /api to allow dev proxy (setupProxy.js)
-  return "/api";
+
+  return '/api';
 }
 
 /**
@@ -54,20 +62,40 @@ export function withTenantHeaders(organizationId) {
  * Guarantees that '/api' appears exactly once in the returned URL.
  */
 export function joinApiPath(base, path) {
-  const b = String(base || "").replace(/\/*$/, "");
-  if (!path) return b;
+  // PUBLIC_INTERFACE
+  /**
+   * Join a base (which may or may not end with '/api') and a path (which may be absolute, start with '/api', or be relative),
+   * guaranteeing that '/api' appears exactly once in the final URL.
+   */
+  const b = String(base || '').replace(/\/*$/, '');
+  if (!path) {
+    // eslint-disable-next-line no-console
+    console.debug('[api/util] joinApiPath(base only)', b);
+    return b;
+  }
+
   const p = String(path);
 
   // Absolute URL -> return as-is
-  if (/^https?:\/\//i.test(p)) return p;
+  if (/^https?:\/\//i.test(p)) {
+    // eslint-disable-next-line no-console
+    console.debug('[api/util] joinApiPath absolute passthrough', p);
+    return p;
+  }
 
   // If path begins with '/api', join against origin root part of base
-  if (p.startsWith("/api")) {
-    const originRoot = b.endsWith("/api") ? b.replace(/\/api$/, "") : b;
-    return `${originRoot}${p}`;
+  if (p.startsWith('/api')) {
+    const originRoot = b.endsWith('/api') ? b.replace(/\/api$/, '') : b;
+    const joined = `${originRoot}${p}`;
+    // eslint-disable-next-line no-console
+    console.debug('[api/util] joinApiPath path starts with /api ->', joined);
+    return joined;
   }
 
   // Normal relative join under base
-  const rel = p.startsWith("/") ? p : `/${p}`;
-  return `${b}${rel}`;
+  const rel = p.startsWith('/') ? p : `/${p}`;
+  const joined = `${b}${rel}`;
+  // eslint-disable-next-line no-console
+  console.debug('[api/util] joinApiPath joined', joined);
+  return joined;
 }

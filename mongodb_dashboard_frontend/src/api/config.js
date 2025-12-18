@@ -1,35 +1,45 @@
-//
-// Centralized API base URL used by API clients
 /**
- * Keep this URL exactly as provided.
- * Note:
- * - Backend expects tenant context via header `x-organization-id` (preferred). Query aliases ?organization_id or ?tenant_id are supported.
- * - In previews, ensure the backend origin here is allowed by backend CORS (it is via permissive /api CORS with OPTIONS support).
+ * Centralized API base URL used by API clients.
+ * Resolution order:
+ * 1) REACT_APP_API_BASE_URL (respected as the source of truth)
+ * 2) window.location.origin + '/api'
+ * 3) '/api'
  */
-//
-const apiBase = 
- `https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api`;
-// 'https://vscode-internal-22450-beta.beta01.cloud.kavia.ai:3001/api';
+function resolveApiBase() {
+  const fromEnv =
+    (typeof process !== 'undefined' &&
+      process.env &&
+      process.env.REACT_APP_API_BASE_URL) ||
+    '';
+  if (fromEnv && String(fromEnv).trim()) {
+    const trimmed = String(fromEnv).trim().replace(/\/*$/, '');
+    return trimmed.endsWith('/api') ? trimmed : `${trimmed}/api`;
+  }
+  try {
+    if (typeof window !== 'undefined' && window.location && window.location.origin) {
+      return `${String(window.location.origin).replace(/\/*$/, '')}/api`;
+    }
+  } catch {
+    // ignore
+  }
+  return '/api';
+}
+
+const apiBase = resolveApiBase();
 
 /**
  * PUBLIC_INTERFACE
  * getApiBase
  * Returns the base URL for backend API requests.
- * This exists for modules that expect a function-based accessor.
  */
 export function getApiBase() {
   return apiBase;
 }
 
-// Default export as an object to match existing import style in the codebase
 const config = {
   apiBase,
   getApiBase,
 };
 
 export default config;
-
-// Also provide a named export for modules that import { apiBase }
 export { apiBase };
-
- 
