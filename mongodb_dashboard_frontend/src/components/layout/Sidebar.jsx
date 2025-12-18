@@ -70,10 +70,10 @@ export default function Sidebar() {
 
   const effectiveName = String(auth?.user?.tenant_name || "").trim();
 
-  const leftTitle = effectiveName
-    ? `${effectiveName}`
-    : "Tenant Dashboard";
 
+  const leftTitle = effectiveName
+    ? `${effectiveName} Tenant Dashboard`
+    : "Tenant Dashboard";
 
 
   // PUBLIC_INTERFACE

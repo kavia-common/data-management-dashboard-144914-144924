@@ -56,12 +56,12 @@ export default function ProjectsServiceTypeBarChart({
   const theme = getChartTheme
     ? getChartTheme()
     : {
-        primary: '#2563EB',
-        grid: '#e5e7eb',
-        label: '#374151',
-        axisTick: '#9ca3af',
-        palette: ['#2563EB', '#F59E0B', '#10B981', '#EC4899', '#8B5CF6', '#F43F5E', '#0EA5E9'],
-      };
+      primary: '#2563EB',
+      grid: '#e5e7eb',
+      label: '#374151',
+      axisTick: '#9ca3af',
+      palette: ['#2563EB', '#F59E0B', '#10B981', '#EC4899', '#8B5CF6', '#F43F5E', '#0EA5E9'],
+    };
 
   const debounceRef = useRef(null);
   const mountedRef = useRef(false);
@@ -82,9 +82,11 @@ export default function ProjectsServiceTypeBarChart({
 
     try {
       // Use '/api/...' so utils/api.joinUrl resolves with the configured base host.
-      const res = await apiGet(`/api/service-type/summary?${params.toString()}`, {
-        organization_id: organizationId,
-      });
+      const res = await apiGet(
+        `/api/service-type/summary?${params.toString()}`,
+        { organization_id: organizationId }
+      );
+
 
       let nextLabels = null;
       let nextSeries = null;

@@ -33,9 +33,11 @@ export default function Topbar() {
     (tenantId && String(tenantId).trim()) ||
     null;
 
+  
   const leftTitle = effectiveName
     ? `${effectiveName} Tenant Dashboard`
-    : "Dashboard";
+    : "Tenant Dashboard";
+
 
   return (
     <header className="topbar app-headbar" role="banner">

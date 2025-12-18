@@ -1,10 +1,11 @@
 import { buildAuthHeaders, getOrganizationId } from '../api/authTokenProvider';
+import { apiBase as configuredApiBase } from '../api/config';
 
 /**
  * PUBLIC_INTERFACE
  * apiGet (JS wrapper)
  * Centralized GET helper that automatically injects Authorization, resolves the correct baseURL with /api
- * (works for absolute URLs, '/api/*' paths, or relative paths), appends organization_id when available
+ * using centralized config (src/api/config.js), appends organization_id when available
  * (without duplicating), and logs the final resolved URL.
  */
 function isAbsoluteUrl(url) {
@@ -12,26 +13,28 @@ function isAbsoluteUrl(url) {
 }
 
 function getBaseApiUrl() {
-  // Preferred: window.location.origin + '/api' for preview/proxy environments
-  try {
-    if (typeof window !== 'undefined' && window.location && window.location.origin) {
-      return `${window.location.origin.replace(/\/+$/, '')}/api`;
+  // Prefer centralized configured base from src/api/config.js
+  let base = String(configuredApiBase || '').replace(/\/+$/, '');
+  if (base) {
+    // Ensure it ends with /api
+    if (!/\/api$/.test(base)) {
+      base = `${base}/api`;
     }
-  } catch {
-    // ignore
+    return base;
   }
-  // Fallback: REACT_APP_API_BASE_URL if provided
+
+  // Fallback: REACT_APP_API_BASE_URL if provided (kept for safety in edge cases)
   const fromEnv =
     (typeof process !== 'undefined' &&
       process.env &&
       process.env.REACT_APP_API_BASE_URL) ||
     '';
   if (fromEnv) {
-    // If env already points to /api, keep as-is; otherwise append '/api' if it looks like a host root
     const trimmed = String(fromEnv).replace(/\/+$/, '');
     if (trimmed.endsWith('/api')) return trimmed;
     return `${trimmed}/api`;
   }
+
   // Last resort: relative '/api'
   return '/api';
 }
@@ -71,7 +74,7 @@ export async function apiGet(pathOrUrl, options = {}) {
   let url = isAbsoluteUrl(pathOrUrl)
     ? pathOrUrl
     : pathOrUrl && pathOrUrl.startsWith('/api')
-    ? joinUrl(base, pathOrUrl) // path contains /api -> join against origin root
+    ? joinUrl(base, pathOrUrl) // path contains /api -> join against backend root
     : joinUrl(base, pathOrUrl); // relative path
 
   // Append organization_id if available and not already provided
