@@ -20,11 +20,31 @@ import ProjectDetails from './ProjectDetails.jsx';
 function UserDetailsView({ user }) {
   if (!user) return <div className="text-gray-500">No user selected</div>;
 
-  const name =
-    user?.name ||
-    user?.full_name ||
-    `${user?.first_name ?? ''} ${user?.last_name ?? ''}`.trim() ||
-    '';
+  const name = (() => {
+    const direct =
+      user?.name ||
+      user?.displayName ||
+      user?.display_name ||
+      user?.full_name ||
+      user?.fullName ||
+      user?.user_name;
+    if (direct && String(direct).trim()) return String(direct).trim();
+    const fromParts = [
+      user?.first_name ?? user?.firstName,
+      user?.last_name ?? user?.lastName,
+    ]
+      .filter((s) => !!(s && String(s).trim()))
+      .join(" ")
+      .trim();
+    if (fromParts) return fromParts;
+    const email = user?.email ? String(user.email).trim() : '';
+    if (email) {
+      const u = email.split('@')[0];
+      if (u) return u;
+    }
+    const id = user?._id || user?.id || user?.user_id || '';
+    return id ? String(id).slice(0, 8) : '';
+  })();
   const email = user?.email || '';
   const department =
     user?.department ??
@@ -207,7 +227,30 @@ export default function TabbedUserModal({
     []
   );
 
-  const title = useMemo(() => user?.name || user?.full_name || user?.email || 'User', [user]);
+  const title = useMemo(() => {
+    if (!user) return 'User';
+    const direct =
+      user?.name ||
+      user?.displayName ||
+      user?.display_name ||
+      user?.full_name ||
+      user?.fullName ||
+      user?.user_name;
+    if (direct && String(direct).trim()) return String(direct).trim();
+    const fromParts = [
+      user?.first_name ?? user?.firstName,
+      user?.last_name ?? user?.lastName,
+    ]
+      .filter((s) => !!(s && String(s).trim()))
+      .join(" ")
+      .trim();
+    if (fromParts) return fromParts;
+    // Fallback to email or id prefix
+    const email = user?.email ? String(user.email).trim() : '';
+    if (email) return email;
+    const id = user?._id || user?.id || user?.user_id || '';
+    return id ? String(id).slice(0, 8) : 'User';
+  }, [user]);
 
   function ThemedTabs({ activeKey, onChange }) {
     return (

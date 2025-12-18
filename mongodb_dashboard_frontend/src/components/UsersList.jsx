@@ -46,8 +46,43 @@ export default function UsersList({
       row?.organization ||
       row?.organization_id ||
       "—";
+
+    const resolveName = (row) => {
+      // Try common name fields and derive from first/last when available
+      const direct =
+        row?.name ||
+        row?.displayName ||
+        row?.display_name ||
+        row?.full_name ||
+        row?.fullName ||
+        row?.user_name;
+      if (direct && String(direct).trim()) return String(direct).trim();
+      const fromParts = [
+        row?.first_name ?? row?.firstName,
+        row?.last_name ?? row?.lastName,
+      ]
+        .filter((s) => !!(s && String(s).trim()))
+        .join(" ")
+        .trim();
+      if (fromParts) return fromParts;
+      // Fallback: email username or id prefix
+      const email = row?.email ? String(row.email).trim() : "";
+      if (email) {
+        const u = email.split("@")[0];
+        if (u) return u;
+      }
+      const id =
+        row?._id || row?.id || row?.user_id || row?.username || row?.email || "";
+      return id ? String(id).slice(0, 8) : "—";
+    };
+
     return [
-      { key: "name", label: "Name", priority: 1 },
+      {
+        key: "__name",
+        label: "Name",
+        priority: 1,
+        render: (v, row) => resolveName(row),
+      },
       { key: "__tenant", label: "Tenant Id", render: renderTenant, priority: 2 },
       { key: "email", label: "Mail", priority: 2 },
       { key: "department", label: "Department", priority: 3 },
