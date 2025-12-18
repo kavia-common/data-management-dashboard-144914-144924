@@ -7,10 +7,12 @@ import Modal from '../ui/Modal.jsx';
 // Shared components/utilities
 import DataTable from '../DataTable.jsx';
 
-import { listSessions, listLlmCosts } from '../../api/baseClient';
+import { listSessions } from '../../api/baseClient';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
 import ProjectDetails from './ProjectDetails.jsx';
+import useCurrentOrgId from '../../hooks/useCurrentOrgId';
+import { getUserTotalCost } from '../../api/costs';
 
 /**
  * Internal presentational view for user details
@@ -614,30 +616,32 @@ export default function TabbedUserModal({
 
   // Credits Consumed Tab
   function CreditsConsumedTab({ userId }) {
-    const [rows, setRows] = useState([]);
+    const orgId = useCurrentOrgId();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [totalCost, setTotalCost] = useState(0);
+    const [currency, setCurrency] = useState('USD');
+
+    // Keep UI pagination scaffold intact (even if endpoint doesn't return rows)
+    const [page, setPage] = useState(1);
+    const [limit, setLimit] = useState(20);
 
     async function load() {
       if (!userId) return;
       setLoading(true);
       setError('');
       try {
-        const res = await listLlmCosts({ page: 1, limit: 100, sort: '-timestamp' });
-        let items = Array.isArray(res?.items) ? res.items : [];
-        const normalizedUserId = String(userId);
-        items = items.filter((row) => {
-          const uid =
-            row?.user_id ??
-            row?.userId ??
-            row?.user?.id ??
-            row?.user?._id ??
-            row?.user?.user_id;
-          return uid && String(uid) === normalizedUserId;
+        const isGlobal = !orgId || orgId === 'T0000';
+        const { totalCost: tc, currency: cur } = await getUserTotalCost({
+          user_id: userId,
+          ...(isGlobal ? {} : { organization_id: orgId }),
+          page,
+          limit,
+          sort: '-timestamp',
         });
-        setRows(items);
+        setTotalCost(Number(tc) || 0);
+        setCurrency(cur || 'USD');
       } catch (e) {
-        setRows([]);
         setError(e?.message || 'Failed to load credits consumed.');
       } finally {
         setLoading(false);
@@ -647,20 +651,19 @@ export default function TabbedUserModal({
     useEffect(() => {
       load();
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [userId]);
+    }, [userId, orgId, page, limit]);
 
-    // compute total cost
-    const totalCost = useMemo(() => {
-      return (rows || []).reduce((acc, r) => {
-        const raw = r?.running_total ?? r?.total_cost ?? r?.cost ?? r?.amount ?? 0;
-        const num = typeof raw === 'number' ? raw : Number(String(raw).replace(/[$,]/g, ''));
-        return acc + (Number.isFinite(num) ? num : 0);
-      }, 0);
-    }, [rows]);
+    const onPrev = () => setPage((p) => Math.max(1, p - 1));
+    const onNext = () => setPage((p) => p + 1);
+    const onChangeLimit = (e) => {
+      const next = Number(e.target.value) || 20;
+      setLimit(next);
+      setPage(1);
+    };
 
     return (
       <div data-testid="credits-consumed-tab">
-        {/* Summary header */}
+        {/* Prominent total summary */}
         <div
           className="card"
           style={{
@@ -674,13 +677,16 @@ export default function TabbedUserModal({
           <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)', fontWeight: 700, letterSpacing: '.02em' }}>
             Total Cost
           </div>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>
+          <div style={{ fontSize: 22, fontWeight: 800 }}>
             {formatUsdUpToSixDecimals(totalCost)}
+          </div>
+          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+            Scope: {(!orgId || orgId === 'T0000') ? 'Global' : `Tenant ${orgId}`}
           </div>
         </div>
 
         {loading && (
-          <div role="status" aria-live="polite" style={{ minHeight: 160, display: 'grid', placeItems: 'center' }}>
+          <div role="status" aria-live="polite" style={{ minHeight: 120, display: 'grid', placeItems: 'center' }}>
             Loading credits...
           </div>
         )}
@@ -690,21 +696,24 @@ export default function TabbedUserModal({
             <button type="button" onClick={load} className="btn btn-ghost">Retry</button>
           </div>
         )}
+
+        {/* Keep pagination controls visible for consistency */}
         {!loading && !error && (
-          Array.isArray(rows) && rows.length > 0 ? (
-            <DataTable
-              data={rows || []}
-              loading={false}
-              pageSize={10}
-              initialPage={1}
-              paginationTitle="Costs pages"
-              maxBodyHeight={360}
-              forceHorizontalScroll
-            />
-          ) : (
-            <div className="table-empty">No cost records found for this user.</div>
-          )
+          <div className="mt-2 flex items-center justify-between" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+            <div className="text-xs text-gray-600">Page {page} · Limit {limit}</div>
+            <div className="space-x-2" style={{ display: 'flex', gap: 8 }}>
+              <button className="px-2 py-1 border rounded" disabled={page <= 1} onClick={onPrev}>Prev</button>
+              <button className="px-2 py-1 border rounded" onClick={onNext}>Next</button>
+              <select className="ml-2 border rounded px-2 py-1" value={limit} onChange={onChangeLimit}>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </div>
+          </div>
         )}
+
+        {/* We no longer render a table of individual cost rows here as primary concern is totalCost */}
       </div>
     );
   }
