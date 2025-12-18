@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
-import { listLlmCostsUnderscore } from "../../api";
+import { listLlmCosts } from "../../api";
 
 // PUBLIC_INTERFACE
 function formatCurrencyUSD(n) {
@@ -70,13 +70,13 @@ export default function Costs() {
         className: "num",
         priority: 1,
       },
-      // Replace user_id with user_name; fallback to "Unknown User" when missing
+      // Display resolved user_name returned by enriched API
       {
         key: "user_name",
         label: "user_name",
         render: (v, row) => {
-          const name = v || row?.user_name || "Unknown User";
-          return <span className="td--emphasis-name">{name}</span>;
+          const name = v ?? row?.user_name;
+          return <span className="td--emphasis-name">{name ?? ""}</span>;
         },
       },
       {
@@ -94,7 +94,7 @@ export default function Costs() {
     ];
   }, []);
 
-  // Fetcher for underscore endpoint with optional organization_id
+  // Fetcher for enriched endpoint with optional organization_id
   async function doFetch(nextPage = page, nextLimit = limit) {
     setLoading(true);
     setError("");
@@ -104,7 +104,7 @@ export default function Costs() {
         page: nextPage,
         limit: nextLimit,
       };
-      const res = await listLlmCostsUnderscore(params);
+      const res = await listLlmCosts(params);
       const rows = Array.isArray(res.items) ? res.items : [];
       setItems(rows);
       setTotal(typeof res.total === "number" ? res.total : rows.length);
@@ -126,7 +126,7 @@ export default function Costs() {
     <div>
       <Card
         title="Costs"
-        subtitle="LLM usage cost records (underscore API)"
+        subtitle="LLM usage cost records (enriched API)"
         className="mt-4"
       >
         <div className="toolbar" aria-label="Costs toolbar" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -143,7 +143,7 @@ export default function Costs() {
             type="button"
             onClick={() => doFetch(1, limit)}
             aria-label="Load costs"
-            title="Load costs"
+            title="Load enriched costs"
             disabled={loading}
           >
             {loading ? "Loading..." : "Load"}
