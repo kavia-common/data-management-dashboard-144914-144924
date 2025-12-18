@@ -64,6 +64,7 @@ export default function Users() {
         subtitle="All users"
         showActions={false}
         onUserSelect={handleUserSelect}
+        onUserRowClick={handleUserSelect}
       />
 
       <TabbedUserModal

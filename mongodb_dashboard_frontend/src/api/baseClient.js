@@ -276,11 +276,11 @@ async function httpJson(method, pathOrUrl, body, { headers, signal, params } = {
 }
 
 function normalizeListPayload(payload) {
-  const items = Array.isArray(payload) ? payload : payload?.data || [];
-  const total =
-    (payload && payload.meta && typeof payload.meta.total === "number" && payload.meta.total) ||
-    (Array.isArray(items) ? items.length : 0);
-  return { items, total, meta: payload?.meta || null };
+  // Supports both array and envelope shapes. If envelope, expect { success?, data, meta }
+  const items = Array.isArray(payload) ? payload : (Array.isArray(payload?.data) ? payload.data : []);
+  const meta = (payload && !Array.isArray(payload) && payload.meta) ? payload.meta : null;
+  const total = (meta && typeof meta.total === "number") ? meta.total : (Array.isArray(items) ? items.length : 0);
+  return { items, total, meta };
 }
 
 // PUBLIC_INTERFACE

@@ -89,7 +89,8 @@ export default function UsersList({
     try {
       // listUsers routes through shared client enforcing /api/users?organization_id=<ORG_ID> only.
       const res = await listUsers({});
-      const arr = res?.items ?? (Array.isArray(res) ? res : []);
+      // listUsers returns { items, total, meta } even when backend returns a raw array
+      const arr = Array.isArray(res?.items) ? res.items : (Array.isArray(res) ? res : []);
       setAllItems(arr);
       setItems(arr);
       setMeta((prev) => ({
