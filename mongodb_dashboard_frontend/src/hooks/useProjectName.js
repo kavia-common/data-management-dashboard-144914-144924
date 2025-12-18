@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { getProjectName } from '../api/projectName';
+import { fetchProjectNameDirect } from '../api/projectName';
 
 // Simple in-memory caches at module scope
 // Cache structure: Map<normalizedProjectId, { value: string|null, expiresAt: number }>
@@ -59,10 +59,10 @@ async function fetchProjectNameDedupe(key) {
   }
   const p = (async () => {
     try {
-      const { projectName } = await getProjectName(key);
-      // Cache even null responses to avoid refetching for TTL duration
-      setCachedName(key, projectName ?? null);
-      return projectName ?? null;
+      // fetchProjectNameDirect returns string|null; align cache accordingly
+      const name = await fetchProjectNameDirect(key);
+      setCachedName(key, name ?? null);
+      return name ?? null;
     } finally {
       // Ensure inflight entry cleared regardless of success/failure
       inflight.delete(key);

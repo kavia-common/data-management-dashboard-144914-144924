@@ -145,8 +145,9 @@ export default function ProjectDetails({ selectedUser }) {
               {/* Project Name */}
               <div className="font-medium text-white">
                 <span className="font-semibold">Project Name:</span>
-                <span className="font-mono ml-1"> {p.project_name || '—'}</span>
-
+                <span className="font-mono ml-1">
+                  {p.project_name || (p.project_id ? `Project ${String(p.project_id).slice(0, 6)}` : '—')}
+                </span>
               </div>
 
               {/* Project ID */}
