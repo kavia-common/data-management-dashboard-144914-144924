@@ -48,31 +48,24 @@ export default function UsersList({
       "—";
 
     const resolveName = (row) => {
-      // Try common name fields and derive from first/last when available
-      const direct =
-        row?.name ||
+      // Prefer canonical 'name'; keep a minimal non-breaking fallback for truly legacy data
+      const nm = row?.name;
+      if (nm && String(nm).trim()) return String(nm).trim();
+
+      // Legacy safety: derive a lightweight display for old records until backend normalization fills 'name'
+      const legacy =
         row?.displayName ||
         row?.display_name ||
         row?.full_name ||
         row?.fullName ||
-        row?.user_name;
-      if (direct && String(direct).trim()) return String(direct).trim();
-      const fromParts = [
-        row?.first_name ?? row?.firstName,
-        row?.last_name ?? row?.lastName,
-      ]
-        .filter((s) => !!(s && String(s).trim()))
-        .join(" ")
-        .trim();
-      if (fromParts) return fromParts;
-      // Fallback: email username or id prefix
-      const email = row?.email ? String(row.email).trim() : "";
-      if (email) {
-        const u = email.split("@")[0];
-        if (u) return u;
-      }
-      const id =
-        row?._id || row?.id || row?.user_id || row?.username || row?.email || "";
+        row?.user_name ||
+        ((row?.first_name || row?.firstName || row?.last_name || row?.lastName)
+          ? [row?.first_name ?? row?.firstName, row?.last_name ?? row?.lastName].filter((s) => !!(s && String(s).trim())).join(' ').trim()
+          : null) ||
+        (row?.email ? String(row.email).split('@')[0] : null);
+      if (legacy && String(legacy).trim()) return String(legacy).trim();
+
+      const id = row?._id || row?.id || row?.user_id || row?.username || row?.email || '';
       return id ? String(id).slice(0, 8) : "—";
     };
 

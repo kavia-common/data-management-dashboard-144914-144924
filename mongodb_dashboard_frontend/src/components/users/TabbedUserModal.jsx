@@ -21,27 +21,18 @@ function UserDetailsView({ user }) {
   if (!user) return <div className="text-gray-500">No user selected</div>;
 
   const name = (() => {
-    const direct =
-      user?.name ||
+    if (user?.name && String(user.name).trim()) return String(user.name).trim();
+    const legacy =
       user?.displayName ||
       user?.display_name ||
       user?.full_name ||
       user?.fullName ||
-      user?.user_name;
-    if (direct && String(direct).trim()) return String(direct).trim();
-    const fromParts = [
-      user?.first_name ?? user?.firstName,
-      user?.last_name ?? user?.lastName,
-    ]
-      .filter((s) => !!(s && String(s).trim()))
-      .join(" ")
-      .trim();
-    if (fromParts) return fromParts;
-    const email = user?.email ? String(user.email).trim() : '';
-    if (email) {
-      const u = email.split('@')[0];
-      if (u) return u;
-    }
+      user?.user_name ||
+      ((user?.first_name || user?.firstName || user?.last_name || user?.lastName)
+        ? [user?.first_name ?? user?.firstName, user?.last_name ?? user?.lastName].filter((s) => !!(s && String(s).trim())).join(' ').trim()
+        : null) ||
+      (user?.email ? String(user.email).split('@')[0] : null);
+    if (legacy && String(legacy).trim()) return String(legacy).trim();
     const id = user?._id || user?.id || user?.user_id || '';
     return id ? String(id).slice(0, 8) : '';
   })();
@@ -229,25 +220,22 @@ export default function TabbedUserModal({
 
   const title = useMemo(() => {
     if (!user) return 'User';
-    const direct =
-      user?.name ||
+    // Prefer canonical 'name'
+    if (user?.name && String(user.name).trim()) return String(user.name).trim();
+
+    // Minimal legacy fallback to avoid breaking older records before normalization
+    const legacy =
       user?.displayName ||
       user?.display_name ||
       user?.full_name ||
       user?.fullName ||
-      user?.user_name;
-    if (direct && String(direct).trim()) return String(direct).trim();
-    const fromParts = [
-      user?.first_name ?? user?.firstName,
-      user?.last_name ?? user?.lastName,
-    ]
-      .filter((s) => !!(s && String(s).trim()))
-      .join(" ")
-      .trim();
-    if (fromParts) return fromParts;
-    // Fallback to email or id prefix
-    const email = user?.email ? String(user.email).trim() : '';
-    if (email) return email;
+      user?.user_name ||
+      ((user?.first_name || user?.firstName || user?.last_name || user?.lastName)
+        ? [user?.first_name ?? user?.firstName, user?.last_name ?? user?.lastName].filter((s) => !!(s && String(s).trim())).join(' ').trim()
+        : null) ||
+      (user?.email ? String(user.email).trim() : null);
+    if (legacy && String(legacy).trim()) return String(legacy).trim();
+
     const id = user?._id || user?.id || user?.user_id || '';
     return id ? String(id).slice(0, 8) : 'User';
   }, [user]);

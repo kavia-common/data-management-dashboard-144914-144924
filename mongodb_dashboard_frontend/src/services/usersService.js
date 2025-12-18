@@ -1,4 +1,4 @@
-import { listUsers } from "../api";
+import { listUsers, postUser, putUser } from "../api";
 
 /**
  * PUBLIC_INTERFACE
@@ -17,4 +17,30 @@ export async function getUsers(options = {}) {
   }
   const res = await listUsers(params);
   return res;
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * createUser
+ * Creates a user; payload must include { name }. Any other name-like fields are ignored client-side.
+ */
+export async function createUser({ name, ...rest }) {
+  const payload = { ...rest };
+  if (name && String(name).trim()) {
+    payload.name = String(name).trim();
+  }
+  return await postUser(payload);
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * updateUser
+ * Updates a user by id; payload must include { name } when modifying the primary name.
+ */
+export async function updateUser(id, { name, ...rest }) {
+  const payload = { ...rest };
+  if (name && String(name).trim()) {
+    payload.name = String(name).trim();
+  }
+  return await putUser(id, payload);
 }
