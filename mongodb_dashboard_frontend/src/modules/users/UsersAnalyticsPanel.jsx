@@ -15,9 +15,9 @@ import {
   Cell,
 } from "recharts";
 import { useUsers } from "../../hooks/useUsers";
-import { getApiClient } from "../../api";
 import { getActiveTenant } from "../../utils/tenantClient";
 import Skeleton from "../../components/ui/Skeleton";
+import useUserProjects from "../../hooks/useUserProjects";
 
 /**
  * PUBLIC_INTERFACE
@@ -27,9 +27,9 @@ import Skeleton from "../../components/ui/Skeleton";
  * - Projects by Department (pie/donut)
  *
  * Data source:
- * - Reuses /api/users to get users, then uses /api/users/:userId/projects
- *   to fetch per-user projects when available. Falls back to client-side
- *   aggregation from data already loaded if needed.
+ * - Reuses /api/users to get users, then uses a single call to /api/session-tracking
+ *   scoped by tenant and date range to derive per-user projects map. This avoids
+ *   N parallel requests to /api/users/:userId/projects and guarantees a single call.
  *
  * Filters:
  * - Date range (start, end with explicit ISO)
@@ -90,57 +90,87 @@ export default function UsersAnalyticsPanel({
     limit: 200,
   });
 
-  // Fetch projects per user when needed
+  // Centralized projects load: single request to session-tracking to derive user->projects map,
+  // avoiding N requests to /api/users/:id/projects. This preserves functionality while
+  // enforcing a single network call per (tenant, range).
   const [projectsByUser, setProjectsByUser] = useState({});
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
-    async function run() {
-      // Lazily fetch projects for each user for better accuracy of counts over time.
-      // If endpoint not available or fails, gracefully continue with partial data.
-      if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
+    async function loadOnce() {
+      if (!activeTenantId) {
         setProjectsByUser({});
         return;
       }
       setProjectsLoading(true);
       setProjectsError("");
-      const api = getApiClient();
-      const acc = {};
       try {
-        // Fetch in small batches to avoid overloading backend
-        const batchSize = 8;
-        for (let i = 0; i < users.length; i += batchSize) {
-          const slice = users.slice(i, i + batchSize);
-          await Promise.all(
-            slice.map(async (u) => {
-              if (!u?._id) return;
-              try {
-                const res = await api.get(
-                  `/users/${encodeURIComponent(String(u._id))}/projects`,
-                  {
-                    params: {
-                      organization_id: activeTenantId,
-                      from: startISO,
-                      to: endISO,
-                    },
-                  }
-                );
-                const payload = res.data?.data ?? res.data;
-                const list = Array.isArray(payload?.projects)
-                  ? payload.projects
-                  : [];
-                acc[String(u._id)] = list;
-              } catch {
-                // Ignore individual user fetch errors; rely on others or fallback
-                acc[String(u._id)] = acc[String(u._id)] || [];
-              }
-            })
-          );
-          if (cancelled) return;
+        // Use sessions root list with a reasonable cap; server normalizes envelope.
+        // We only need user_id, project_id, and timestamps to compute last activity.
+        const url = "/api/session-tracking";
+        const params = {
+          page: 1,
+          limit: 1000, // cap; analytics panel is a summary view
+          sort: "-last_updated",
+          tenant_id: activeTenantId,
+          from: startISO,
+          to: endISO,
+        };
+        const { getApiClient } = await import("../../api/baseClient");
+        const api = getApiClient();
+        const res = await api.get(url, { params });
+        const payload = res?.data;
+        const items = Array.isArray(payload?.data)
+          ? payload.data
+          : Array.isArray(payload?.items)
+          ? payload.items
+          : Array.isArray(payload)
+          ? payload
+          : [];
+
+        const acc = {};
+        for (const s of items) {
+          const uid =
+            s?.user_id ??
+            s?.userId ??
+            s?.user?._id ??
+            s?.user?.id ??
+            s?.user?.user_id ??
+            null;
+          const pid =
+            s?.project_id ||
+            s?.projectId ||
+            s?.session_data?.project_id ||
+            s?.project?.id ||
+            null;
+          if (!uid || !pid) continue;
+          const key = String(uid);
+          const projKey = String(pid);
+          if (!acc[key]) acc[key] = new Map();
+          const when =
+            s?.last_updated ||
+            s?.session_end ||
+            s?.updated_at ||
+            s?.timestamp ||
+            s?.session_start ||
+            null;
+          const prev = acc[key].get(projKey);
+          if (!prev) {
+            acc[key].set(projKey, { project_id: projKey, last_activity: when || null });
+          } else {
+            // keep most recent
+            if (when && (!prev.last_activity || when > prev.last_activity)) {
+              prev.last_activity = when;
+            }
+          }
         }
-        if (!cancelled) setProjectsByUser(acc);
+        const out = {};
+        Object.keys(acc).forEach((k) => {
+          out[k] = Array.from(acc[k].values());
+        });
+        if (!cancelled) setProjectsByUser(out);
       } catch (e) {
         if (!cancelled) {
           setProjectsError(e?.message || "Failed to load user projects.");
@@ -150,7 +180,10 @@ export default function UsersAnalyticsPanel({
         if (!cancelled) setProjectsLoading(false);
       }
     }
-    run();
+    // Load only when users list is present to constrain scope for rendering
+    if (Array.isArray(users)) {
+      loadOnce();
+    }
     return () => {
       cancelled = true;
     };

@@ -21,6 +21,9 @@ export async function getUserBasic(userId, params = {}) {
  * { organization_id?: string, tenant_id?: string, from?: string, to?: string }
  */
 export async function getUserProjects(userId, params = {}) {
+  // PUBLIC_INTERFACE
+  // Note: Backend currently returns the full list; pagination (page/limit) is ignored server-side.
+  // We still pass through filters and org scope.
   if (!userId) throw new Error('userId is required');
   const api = getApiClient();
   const { data } = await api.get(`/api/users/${encodeURIComponent(userId)}/projects`, { params });
