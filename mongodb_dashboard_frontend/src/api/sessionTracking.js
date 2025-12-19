@@ -15,13 +15,13 @@ import { buildQueryString } from './util';
  * @param {number} [params.limit]
  * @param {string} [params.tenant_id] Active tenant scope (alias: organization_id on server)
  * @param {string} [params.sort]
- * @param {string} [params.q] Text search query (applies to service_type and other fields)
+ * @param {string} [params.q] Text search query
+ * @param {string} [params.user_id] Optional explicit user filter (forwarded to backend if supported)
  * @returns {Promise<{ items: Array<any>, total: number, meta: any }>}
  */
 export async function fetchSessionTracking(params = {}) {
   const {
-    page, limit, tenant_id, sort, q,
-    // ignore any deprecated params that callers might send
+    page, limit, tenant_id, sort, q, user_id,
   } = params || {};
 
   const safeParams = {};
@@ -30,6 +30,7 @@ export async function fetchSessionTracking(params = {}) {
   if (tenant_id !== undefined) safeParams.tenant_id = tenant_id;
   if (sort !== undefined) safeParams.sort = sort;
   if (q !== undefined) safeParams.q = q;
+  if (user_id !== undefined) safeParams.user_id = user_id;
 
   const qs = buildQueryString(safeParams);
   const url = `/api/session-tracking${qs}`;
