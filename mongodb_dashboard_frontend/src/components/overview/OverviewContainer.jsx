@@ -1,65 +1,38 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo } from 'react';
 import OverviewTimeControls from './OverviewTimeControls';
 import OverviewKpiCards from './OverviewKpiCards';
 import OverviewUsersSummarySection from './OverviewUsersSummarySection';
 import ProjectsCreatedBarChart from './ProjectsCreatedBarChart';
 import T0000OrgHorizontalBarChart from './T0000OrgHorizontalBarChart';
-import useCurrentOrgId from '../../hooks/useCurrentOrgId';
-import { fetchProjectCreateSummary } from '../../services/projectCreateSummaryApi';
-import { shapeT0000ProjectCreateSeries } from '../../utils/projectCreateT0000Series';
+import OverviewEmptyState from './OverviewEmptyState';
+import { useProjectsCreatedSummary } from '../../hooks/useProjectsCreatedSummary';
+import { projectCreateT0000Series } from '../../utils/projectCreateT0000Series';
+import { getOrgIdFromContext } from '../../utils/orgContext';
 import './overview.css';
 
 /**
  * PUBLIC_INTERFACE
  * OverviewContainer
  * Provides KPI cards and the Users Created summary section with filters.
- * Adds T0000-specific horizontal bar chart for api/project-create/summary.
+ * Adds T0000-specific horizontal bar chart for /api/projects/summary.
  */
 export default function OverviewContainer() {
-  const organizationId = useCurrentOrgId();
+  const { data, loading, error, orgId } = useProjectsCreatedSummary();
 
-  // Minimal fetch wiring for T0000 horizontal chart
-  const [t0000Loading, setT0000Loading] = useState(false);
-  const [t0000Error, setT0000Error] = useState('');
-  const [t0000Series, setT0000Series] = useState([]);
-  const abortRef = useRef(null);
+  const effectiveOrg = useMemo(() => orgId || getOrgIdFromContext() || '', [orgId]);
+  const isT0000 = String(effectiveOrg).toUpperCase() === 'T0000';
 
-  const isT0000 = useMemo(
-    () => String(organizationId || '').toUpperCase() === 'T0000',
-    [organizationId]
-  );
+  if (loading) {
+    return <OverviewEmptyState message="Loading overview..." />;
+  }
+  if (error) {
+    return <OverviewEmptyState message="Failed to load overview." />;
+  }
 
-  useEffect(() => {
-    if (!isT0000) return;
-
-    // cancel in-flight
-    if (abortRef.current) abortRef.current.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    setT0000Loading(true);
-    setT0000Error('');
-    // Default: daily range window (matches ProjectsCreatedBarChart defaults)
-    fetchProjectCreateSummary(
-      { organization_id: organizationId, range: 'daily' },
-      { signal: controller.signal }
-    )
-      .then((resp) => {
-        const buckets = resp?.buckets || [];
-        const series = shapeT0000ProjectCreateSeries(buckets, organizationId);
-        setT0000Series(series);
-      })
-      .catch((err) => {
-        if (err?.name === 'AbortError') return;
-        setT0000Error(err?.message || 'Failed to load project-create summary');
-      })
-      .finally(() => setT0000Loading(false));
-
-    return () => controller.abort();
-  }, [isT0000, organizationId]);
+  const hasData = Array.isArray(data?.buckets) && data.buckets.length > 0;
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div className="overview-container">
       <OverviewTimeControls />
       <OverviewKpiCards />
       <OverviewUsersSummarySection />
@@ -67,14 +40,16 @@ export default function OverviewContainer() {
       <div style={{ marginTop: 16 }}>
         {isT0000 ? (
           <T0000OrgHorizontalBarChart
-            data={t0000Series}
-            loading={t0000Loading}
-            error={t0000Error}
-            title="Projects Created by Organization"
-            height={320}
+            series={projectCreateT0000Series({
+              buckets: data?.buckets || [],
+              range: data?.range,
+              start_date: data?.start_date,
+              end_date: data?.end_date,
+            })}
+            title="Projects Created (T0000)"
           />
         ) : (
-          <ProjectsCreatedBarChart />
+          hasData && <ProjectsCreatedBarChart data={data} />
         )}
       </div>
     </div>

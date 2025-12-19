@@ -1,152 +1,68 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import PropTypes from 'prop-types';
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Legend,
-  CartesianGrid,
-} from 'recharts';
-import { getChartTheme } from '../charts/chartTheme';
+import './overview.css';
+import getOceanColors from '../../theme/colors';
 
 /**
  * PUBLIC_INTERFACE
  * T0000OrgHorizontalBarChart
- * A horizontal bar chart used only for organization_id === 'T0000'.
- * Expects data in the shape: [{ name: <organization_name>, value: <count_or_metric> }]
- * Styling follows existing chart theme and patterns.
+ * Renders a simple horizontal bar chart using divs to avoid external deps; styled to match theme.
  */
-export default function T0000OrgHorizontalBarChart({
-  data = [],
-  loading = false,
-  error = '',
-  title = 'Projects Created by Organization',
-  height = 320,
-}) {
-  const t = getChartTheme();
+export default function T0000OrgHorizontalBarChart({ series, title = 'Projects Created' }) {
+  const colorTokens = getOceanColors() || {};
+  const colors = { primary: colorTokens.primary || '#2563EB', secondary: colorTokens.secondary || '#F59E0B' };
+  const labels = Array.isArray(series?.labels) ? series.labels : [];
+  const data = Array.isArray(series?.datasets?.[0]?.data) ? series.datasets[0].data : [];
 
-  const normalized = useMemo(() => {
-    const arr = Array.isArray(data) ? data : [];
-    // Ensure required keys and numeric value
-    return arr.map((d, i) => ({
-      name: String(d?.name ?? `Org ${i + 1}`),
-      value: Number.isFinite(Number(d?.value)) ? Number(d.value) : 0,
-    }));
-  }, [data]);
-
-  const CustomTooltip = ({ active, payload, label }) => {
-    if (active && payload && payload.length) {
-      const item = payload[0];
-      const count = item?.value ?? 0;
-      return (
-        <div
-          role="dialog"
-          aria-live="polite"
-          style={{
-            background: t.tooltip.bg,
-            border: `1px solid ${t.tooltip.border}`,
-            borderRadius: 8,
-            padding: '8px 10px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
-            color: t.tooltip.text,
-          }}
-        >
-          <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
-          <div>Projects: {count}</div>
-        </div>
-      );
-    }
-    return null;
-  };
-
-  if (error) {
+  if (!labels.length || !data.length) {
     return (
-      <div style={{ width: '100%', height, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#b91c1c' }} role="alert">
-        {String(error)}
+      <div className="card surface p-3">
+        <div className="card-title">{title}</div>
+        <div className="muted">No data available</div>
       </div>
     );
   }
 
-  if (loading) {
-    return (
-      <div style={{ width: '100%', height, display: 'flex', alignItems: 'center', justifyContent: 'center' }} aria-busy="true">
-        Loading chart...
-      </div>
-    );
-  }
+  const max = Math.max(...data, 1);
 
   return (
-    <div style={{ width: '100%', height }} role="img" aria-label="Horizontal bar chart of projects created by organization">
-      {title ? (
-        <div style={{ marginBottom: 8 }}>
-          <h3 style={{ fontSize: 14, margin: 0 }}>{title}</h3>
-        </div>
-      ) : null}
-      {(Array.isArray(normalized) ? normalized.length : 0) === 0 ? (
-        <div style={{ width: '100%', height: height - 32, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280' }}>
-          No data
-        </div>
-      ) : (
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            layout="vertical"
-            data={normalized}
-            margin={{ top: 8, right: 24, bottom: 8, left: 24 }}
-            barCategoryGap={14}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke={t.grid} />
-            <XAxis
-              type="number"
-              tick={{ fontSize: 12, fill: t.axisTick }}
-              axisLine={{ stroke: t.axisTick }}
-              tickLine={false}
-              allowDecimals={false}
-              domain={[0, 'dataMax']}
-            />
-            <YAxis
-              dataKey="name"
-              type="category"
-              tick={{ fontSize: 12, fill: t.axisTick }}
-              axisLine={{ stroke: t.axisTick }}
-              tickLine={false}
-              width={140}
-            />
-            <Tooltip
-              content={<CustomTooltip />}
-              wrapperStyle={{ outline: 'none' }}
-            />
-            <Legend
-              verticalAlign="top"
-              height={24}
-              wrapperStyle={{ fontSize: 12, color: t.legend.text }}
-            />
-            <Bar
-              dataKey="value"
-              name="Projects"
-              fill={t.primary}
-              stroke={t.primary}
-              radius={[0, 4, 4, 0]}
-              aria-label="Projects count"
-            />
-          </BarChart>
-        </ResponsiveContainer>
-      )}
+    <div className="card surface p-3">
+      <div className="card-title">{title}</div>
+      <div className="t0000-hbar-container">
+        {labels.map((label, idx) => {
+          const value = Number.isFinite(data[idx]) ? data[idx] : 0;
+          const widthPct = Math.max(2, (value / max) * 100);
+          return (
+            <div key={`${label}-${idx}`} className="t0000-hbar-row">
+              <div className="t0000-hbar-label">{label}</div>
+              <div className="t0000-hbar-barwrap">
+                <div
+                  className="t0000-hbar-bar"
+                  style={{
+                    width: `${widthPct}%`,
+                    backgroundColor: colors.primary,
+                  }}
+                  aria-label={`${label}: ${value}`}
+                  role="img"
+                />
+              </div>
+              <div className="t0000-hbar-value">{value}</div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
 T0000OrgHorizontalBarChart.propTypes = {
-  data: PropTypes.arrayOf(
-    PropTypes.shape({
-      name: PropTypes.string,
-      value: PropTypes.number,
-    })
-  ),
-  loading: PropTypes.bool,
-  error: PropTypes.any,
+  series: PropTypes.shape({
+    labels: PropTypes.arrayOf(PropTypes.string),
+    datasets: PropTypes.arrayOf(
+      PropTypes.shape({
+        data: PropTypes.arrayOf(PropTypes.number),
+      })
+    ),
+  }),
   title: PropTypes.string,
-  height: PropTypes.number,
 };

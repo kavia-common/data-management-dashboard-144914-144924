@@ -3,3 +3,4 @@ export { default as OverviewUsersSummarySection } from './OverviewUsersSummarySe
 export { default as OverviewTimeControls } from './OverviewTimeControls';
 export { default as OverviewKpiCards } from './OverviewKpiCards';
 export { default as ProjectsCreatedBarChart } from './ProjectsCreatedBarChart';
+export { default as OverviewContainer } from './OverviewContainer';

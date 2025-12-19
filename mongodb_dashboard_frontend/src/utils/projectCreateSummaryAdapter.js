@@ -1,26 +1,27 @@
-'use strict';
+import { formatShortDateLabel } from './date';
 
 /**
  * PUBLIC_INTERFACE
- * adaptProjectCreateBuckets
- * Given API response buckets and the organization_id used in the request,
- * normalize buckets for display:
- * - For T0000: use label/key (organization_id) as display and keep user fields null.
- * - Otherwise: prefer user_name as label.
+ * adaptProjectCreateSummary
+ * Converts /api/projects/summary payload to a normalized structure used by charts.
  */
-// PUBLIC_INTERFACE
-export function adaptProjectCreateBuckets(buckets = [], organization_id) {
-  /** This is a public function. */
-  const isT0000 = String(organization_id || '').toUpperCase() === 'T0000';
-  if (!Array.isArray(buckets)) return [];
-  if (isT0000) {
-    return buckets.map((b) => ({
-      ...b,
-      display: b.label || b.key || 'unknown',
-    }));
-  }
-  return buckets.map((b) => ({
-    ...b,
-    display: b.user_name || b.label || b.key || b.user_id || '',
-  }));
+export function adaptProjectCreateSummary(raw) {
+  const out = {
+    buckets: [],
+    range: raw?.range || 'daily',
+    start_date: raw?.start_date || null,
+    end_date: raw?.end_date || null,
+    total: 0,
+  };
+
+  const buckets = Array.isArray(raw?.buckets) ? raw.buckets : [];
+  out.buckets = buckets.map((b) => {
+    const key = b?.key || '';
+    const label = b?.label || (key ? formatShortDateLabel(key) : '');
+    const count = Number.isFinite(b?.count) ? b.count : 0;
+    return { key, label, count };
+  });
+
+  out.total = out.buckets.reduce((acc, b) => acc + (Number.isFinite(b.count) ? b.count : 0), 0);
+  return out;
 }

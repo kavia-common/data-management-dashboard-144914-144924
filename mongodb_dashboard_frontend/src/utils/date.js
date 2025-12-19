@@ -1,12 +1,9 @@
- /**
-  * PUBLIC_INTERFACE
-  * formatDateUTC(date)
-  * Formats a Date object to YYYY-MM-DD in UTC.
-  */
-export function formatDateUTC(date) {
-  const d = new Date(date);
-  const year = d.getUTCFullYear();
-  const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+export function formatShortDateLabel(yyyy_mm_dd) {
+  try {
+    if (!yyyy_mm_dd) return '';
+    const [y, m, d] = yyyy_mm_dd.split('-');
+    return `${m}/${d}`;
+  } catch {
+    return '';
+  }
 }

@@ -1,6 +1,8 @@
 //
 // Utility helpers to resolve current organization/tenant id for API calls.
+// Provides a single source of truth used across org-aware features.
 //
+
 // PUBLIC_INTERFACE
 export function getOrgIdFromAuthContext(auth) {
   /** Derive organization/tenant id from an auth context object.
@@ -27,16 +29,10 @@ export function getOrgIdFromStoredToken() {
    * Returns string | undefined.
    */
   try {
-    const tryKeys = [
-      'auth_token',
-      'token',
-      'access_token',
-      'session_token',
-      'jwt',
-    ];
+    const tryKeys = ['auth_token', 'token', 'access_token', 'session_token', 'jwt'];
     let raw;
     for (const k of tryKeys) {
-      raw = raw || window.localStorage?.getItem(k) || window.sessionStorage?.getItem(k);
+      raw = raw || (typeof window !== 'undefined' && (window.localStorage?.getItem(k) || window.sessionStorage?.getItem(k)));
     }
     if (!raw) return undefined;
 
@@ -45,14 +41,7 @@ export function getOrgIdFromStoredToken() {
     if (parts.length < 2) return undefined;
 
     const payloadJson = JSON.parse(atob(parts[1]));
-    const fields = [
-      'organizationId',
-      'organization_id',
-      'tenantId',
-      'tenant_id',
-      'org',
-      'tenant',
-    ];
+    const fields = ['organizationId', 'organization_id', 'tenantId', 'tenant_id', 'org', 'tenant'];
     for (const f of fields) {
       if (typeof payloadJson[f] === 'string' && payloadJson[f].trim()) {
         return payloadJson[f].trim();
@@ -65,13 +54,46 @@ export function getOrgIdFromStoredToken() {
 }
 
 // PUBLIC_INTERFACE
+export function getOrgIdFromContext() {
+  /**
+   * Returns the effective organization id used across the app.
+   * Priority:
+   * 1) window.__ORG_ID__ (set by bootstrap/session)
+   * 2) Cookie "organization_id"
+   * 3) LocalStorage "x-organization-id"
+   * 4) JWT payload from stored tokens
+   */
+  try {
+    const fromWindow = typeof window !== 'undefined' ? window.__ORG_ID__ : null;
+    if (fromWindow) return String(fromWindow);
+
+    if (typeof document !== 'undefined') {
+      const cookie = document.cookie || '';
+      const match = cookie.match(/(?:^|;\s*)organization_id=([^;]+)/);
+      if (match && match[1]) return decodeURIComponent(match[1]);
+    }
+
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const headerOverride = window.localStorage.getItem('x-organization-id');
+      if (headerOverride) return headerOverride;
+    }
+
+    const fromToken = getOrgIdFromStoredToken();
+    if (fromToken) return fromToken;
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// PUBLIC_INTERFACE
 export function resolveOrganizationId({ auth } = {}) {
   /** Resolve the current organization/tenant id using various strategies.
    * - Prefer AuthContext if provided
-   * - Fallback to stored token
-   * - Otherwise undefined
+   * - Fallback to getOrgIdFromContext (cookie/header/localStorage/JWT)
    */
   const fromCtx = getOrgIdFromAuthContext(auth);
   if (fromCtx) return fromCtx;
-  return getOrgIdFromStoredToken();
+  return getOrgIdFromContext();
 }
