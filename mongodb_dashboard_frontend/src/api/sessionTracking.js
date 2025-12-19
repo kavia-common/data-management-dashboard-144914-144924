@@ -5,9 +5,10 @@ import { buildQueryString } from './util';
  * PUBLIC_INTERFACE
  * fetchSessionTracking
  * Fetch session tracking records with pagination, sorting, and optional text search.
- * Note: Backend no longer accepts or applies a 'filter' parameter or date-range compound filters.
+ * The single source of truth for search is the 'q' parameter which performs a global text match on backend
+ * across task_id, tenant_id, organization_name, user_name, project_id, container_id, service_type, status,
+ * and session_data fields (session_name, description, llm_model). Avoid client-only filters for correctness.
  * Tenant scoping is enforced via tenant_id only (handled by baseClient).
- * Supports lightweight text search via ?q which includes service_type field on backend.
  *
  * @param {Object} params
  * @param {number} [params.page]

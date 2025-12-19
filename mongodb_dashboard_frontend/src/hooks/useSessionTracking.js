@@ -11,9 +11,14 @@ import useDebouncedValue from "./useDebouncedValue";
  * - page: number (1-based)
  * - limit: number
  * - tenantId: optional tenant scope override; when omitted, baseClient ensures scoping from auth/session.
- * - q: optional text query (debounced internal to reduce fetch thrash in fast-typing UIs)
+ * - q: optional text query (debounced internally; this is the single source of truth for global search)
  * - sort: optional sort string accepted by backend. Example: "user_name" or "-timestamp"
  * - immediate: boolean (default true) - whether to fetch on mount/param change automatically.
+ *
+ * Behavior:
+ * - Debounces q to avoid multiple requests while typing.
+ * - Uses an in-flight request id guard to prevent late responses from overwriting newer state.
+ * - Changing page/limit/sort triggers exactly one request via fetchOnce; DataTable should call fetchPage once.
  *
  * Returns:
  * { items, total, loading, error, meta, refetch, setPage, setLimit, setQuery, setSort }

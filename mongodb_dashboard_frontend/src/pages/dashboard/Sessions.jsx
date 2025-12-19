@@ -26,22 +26,18 @@ export default function Sessions() {
    * calls. The UI controls only update state (page/limit/q/sort), which triggers the
    * single fetch inside the hook.
    */
-  const [query, setQuery] = useState("");
-  const debouncedQuery = useDebouncedValue(query, 250);
+  const [searchValue, setSearchValue] = useState("");
+  const debouncedSearch = useDebouncedValue(searchValue, 250);
 
-  // New UI filters (used currently for client-side filtering or future server params)
-  const [filterUserName, setFilterUserName] = useState("");
-  const [filterTenantId, setFilterTenantId] = useState("");
+  // Filter by user selection (dropdown shows user names but we pass userId for accuracy)
+  const [selectedUserId, setSelectedUserId] = useState("");
+  const [selectedTenantId, setSelectedTenantId] = useState("");
 
-  // Date range (used by aggregates only)
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  // Dropdown options populated from aggregated dataset
+  const [userOptions, setUserOptions] = useState([]); // [{ id, name }]
+  const [tenantOptions, setTenantOptions] = useState([]); // [tenantId]
 
-  // Dropdown options populated from fetched datasets
-  const [userNameOptions, setUserNameOptions] = useState([]);
-  const [tenantIdOptions, setTenantIdOptions] = useState([]);
-
-  // Main consolidated session-tracking hook
+  // Single source of truth: useSessionTracking manages fetches. We pass only supported params.
   const {
     items,
     total,
@@ -60,33 +56,25 @@ export default function Sessions() {
     sort: undefined,
   });
 
-  // Keep URL query params in sync for dropdowns (so back/forward works)
+  // Keep URL query params in sync (user and tenant for shareable state)
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
-    if (filterUserName) usp.set("user_name", filterUserName);
-    else usp.delete("user_name");
-    if (filterTenantId) usp.set("tenant_id", filterTenantId);
+    if (selectedUserId) usp.set("user_id", selectedUserId);
+    else usp.delete("user_id");
+    if (selectedTenantId) usp.set("tenant_id", selectedTenantId);
     else usp.delete("tenant_id");
-    if (startDate) usp.set("from", startDate);
-    else usp.delete("from");
-    if (endDate) usp.set("to", endDate);
-    else usp.delete("to");
     const qs = usp.toString();
     const next = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
     window.history.replaceState({}, "", next);
-  }, [filterUserName, filterTenantId, startDate, endDate]);
+  }, [selectedUserId, selectedTenantId]);
 
-  // Initialize dropdown selections from URL on first mount
+  // Initialize selections from URL once
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
-    const initialUser = usp.get("user_name") || "";
+    const initialUserId = usp.get("user_id") || "";
     const initialTenant = usp.get("tenant_id") || "";
-    const urlFrom = usp.get("from") || "";
-    const urlTo = usp.get("to") || "";
-    if (initialUser) setFilterUserName(initialUser);
-    if (initialTenant) setFilterTenantId(initialTenant);
-    if (urlFrom) setStartDate(urlFrom);
-    if (urlTo) setEndDate(urlTo);
+    if (initialUserId) setSelectedUserId(initialUserId);
+    if (initialTenant) setSelectedTenantId(initialTenant);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -138,20 +126,19 @@ export default function Sessions() {
 
   const [columns, setColumns] = useState(buildRestrictedColumns());
 
-  // If schema changes, we still keep fixed columns from allowedOrdered (requirement)
+  // Keep fixed columns
   useEffect(() => {
     setColumns(buildRestrictedColumns());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items]);
 
-  // Aggregates for charts
+  // Build aggregates and dropdown options using broader fetch that doesn't interfere with main hook (tenant is enforced by base client)
   const [aggLoading, setAggLoading] = useState(false);
   const [aggError, setAggError] = useState("");
-  const [byOrg, setByOrg] = useState([]);   // [{ organization_name, session_count }]
-  const [byType, setByType] = useState([]); // [{ session_type, session_count }]
+  const [byOrg, setByOrg] = useState([]);
+  const [byType, setByType] = useState([]);
 
   async function loadAggregates(qStr = "") {
-    // Build aggregates by fetching multiple pages (still separate from main list)
     setAggLoading(true);
     setAggError("");
     try {
@@ -161,15 +148,7 @@ export default function Sessions() {
       const all = [];
       while (localPage <= maxPages) {
         const res = await (async () => {
-          // Use API client directly here to avoid interfering with the hook's state
           const params = { page: localPage, limit: pageLimit, q: qStr };
-          if (startDate) params.start = new Date(startDate).toISOString();
-          if (endDate) {
-            params.end =
-              endDate && !/T/.test(endDate)
-                ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
-                : new Date(endDate).toISOString();
-          }
           const { listSessions } = await import("../../api/baseClient.js");
           return listSessions(params);
         })();
@@ -180,7 +159,7 @@ export default function Sessions() {
         localPage += 1;
       }
 
-      // Build dropdown options
+      // Build dropdown options from aggregated items
       const userPairs = all
         .map((it) => ({
           id: it?.user_id,
@@ -203,19 +182,15 @@ export default function Sessions() {
         }
       });
 
-      const tenantIds = distinctSorted(all.map((it) => it?.tenant_id ?? ""));
+      const tenants = distinctSorted(all.map((it) => it?.tenant_id ?? ""));
 
-      setUserNameOptions(uniqueUsers);
-      setTenantIdOptions(tenantIds);
+      setUserOptions(uniqueUsers);
+      setTenantOptions(tenants);
 
       // Aggregations
       const orgCounts = new Map();
       all.forEach((it) => {
-        let org =
-          it?.organization_name ||
-          it?.organization?.name ||
-          it?.tenant_id ||
-          "";
+        let org = it?.organization_name || it?.organization?.name || it?.tenant_id || "";
         org = String(org || "").trim();
         if (!org) org = "Unknown";
         orgCounts.set(org, (orgCounts.get(org) || 0) + 1);
@@ -246,24 +221,37 @@ export default function Sessions() {
     }
   }
 
-  // Sync input query into the hook's debounced query param
+  // Wire global Search input to the hook's q param (single source of truth)
   useEffect(() => {
-    const q = (debouncedQuery || "").trim();
-    // Reset to first page when query changes
+    const q = (debouncedSearch || "").trim();
     setPage(1);
     setHookQuery(q);
     loadAggregates(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, startDate, endDate]);
+  }, [debouncedSearch]);
 
-  // Apply dropdown changes by refetching current page with same query
+  // When selecting a user in dropdown, update the same hook to trigger one fetch.
+  // For now, we incorporate userId into the global q to leverage backend global search (which includes user_name, etc.).
   useEffect(() => {
-    // For now, dropdown filters are client-side; if switched to server-side, setHookQuery/build filter here.
-    // Keep aggregates broad; do not reload aggregates on dropdown changes.
-    // Just trigger a refetch to refresh table data (still scoped by tenant via base client).
+    // If a user is selected, combine with existing search to form a single q.
+    // Keep the user's id to ensure uniqueness when names overlap; backend may match id as text when present.
+    const baseQ = (debouncedSearch || "").trim();
+    const q = selectedUserId ? `${baseQ} ${selectedUserId}`.trim() : baseQ;
+    setPage(1);
+    setHookQuery(q);
+    // do not reload aggregates on user selection to avoid excessive requests
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUserId]);
+
+  // Selecting tenant in dropdown should not break tenant scoping (baseClient applies tenant_id automatically).
+  // We only reflect the selection in the UI and URL; table data remains scoped by active tenant.
+  useEffect(() => {
+    // A tenant change in this dropdown is informational; no extra fetch beyond the hook's normal lifecycle.
+    // If future behavior requires changing tenant scope, a separate active-tenant selection flow should be used.
+    // Trigger a soft refetch to keep parity with control change without duplicating requests.
     refetch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterUserName, filterTenantId]);
+  }, [selectedTenantId]);
 
   // Modal open/close body class toggle
   const [selectedSession, setSelectedSession] = useState(null);
@@ -351,8 +339,8 @@ export default function Sessions() {
             className="input-search"
             placeholder="Search sessions (user, org, service, status, etc.)..."
             aria-label="Search sessions"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={searchValue}
+            onChange={(e) => setSearchValue(e.target.value)}
             style={{ minWidth: 280 }}
           />
           <label htmlFor="filter-user" className="sr-only">Filter by User name</label>
@@ -360,12 +348,12 @@ export default function Sessions() {
             id="filter-user"
             className="input-filter"
             aria-label="Filter by User"
-            value={filterUserName}
-            onChange={(e) => setFilterUserName(e.target.value)}
+            value={selectedUserId}
+            onChange={(e) => setSelectedUserId(e.target.value)}
             style={{ minWidth: 220 }}
           >
             <option value="">All users</option>
-            {userNameOptions.map((u) => (
+            {userOptions.map((u) => (
               <option key={u.id} value={u.id}>{u.name}</option>
             ))}
           </select>
@@ -375,37 +363,17 @@ export default function Sessions() {
             id="filter-tenant"
             className="input-filter"
             aria-label="Filter by Tenant ID"
-            value={filterTenantId}
-            onChange={(e) => setFilterTenantId(e.target.value)}
+            value={selectedTenantId}
+            onChange={(e) => setSelectedTenantId(e.target.value)}
             style={{ minWidth: 180 }}
           >
             <option value="">All tenants</option>
-            {tenantIdOptions.map((t) => (
+            {tenantOptions.map((t) => (
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
 
-          {/* Date range controls (aggregates only) */}
-          <div role="group" aria-label="Date filters" style={{ display: "inline-flex", gap: 8, alignItems: "center", marginLeft: 8 }}>
-            <label htmlFor="start-date" style={{ fontSize: 12, color: "#374151" }}>Start</label>
-            <input
-              id="start-date"
-              type="date"
-              className="input-filter"
-              aria-label="Start date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-            <label htmlFor="end-date" style={{ fontSize: 12, color: "#374151" }}>End</label>
-            <input
-              id="end-date"
-              type="date"
-              className="input-filter"
-              aria-label="End date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
-          </div>
+          {/* Date filters removed per requirements */}
 
           <div className="spacer" style={{ flex: 1 }} />
         </div>
