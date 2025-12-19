@@ -314,7 +314,7 @@ export default function UsersAnalyticsPanel({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1.2fr 1fr",
+              gridTemplateColumns: "1fr",
               gap: 12,
             }}
           >
@@ -375,67 +375,7 @@ export default function UsersAnalyticsPanel({
               </div>
             </div>
 
-            {/* Projects by Department */}
-            <div className="card" aria-label="Activity by Department">
-              <div className="card-header" style={{ paddingBottom: 0 }}>
-                <h4 className="card-title">Activity by Department</h4>
-                <div className="card-subtitle">
-                  Distribution by department
-                </div>
-              </div>
-              <div className="card-content" style={{ height: 340 }}>
-                {usersLoading || projectsLoading ? (
-                  <div aria-busy="true">
-                    <div
-                      className="skeleton"
-                      style={{ height: 14, width: "60%", marginBottom: 8 }}
-                    />
-                    <div
-                      className="skeleton"
-                      style={{ height: 12, width: "50%", marginBottom: 8 }}
-                    />
-                    <div
-                      className="skeleton"
-                      style={{ height: 260, width: "100%" }}
-                    />
-                  </div>
-                ) : usersError ? (
-                  <div className="error" role="alert">
-                    {usersError.message || "Failed to load users"}
-                  </div>
-                ) : projectsError ? (
-                  <div className="error" role="alert">
-                    {projectsError}
-                  </div>
-                ) : aggregates.departmentData.length === 0 ? (
-                  <div className="screen-center">No department project data</div>
-                ) : (
-                  <ResponsiveContainer>
-                    <PieChart>
-                      <Tooltip />
-                      <Legend />
-                      <Pie
-                        data={aggregates.departmentData}
-                        dataKey="count"
-                        nameKey="department"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius="80%"
-                        paddingAngle={2}
-                      >
-                        {aggregates.departmentData.map((entry, idx) => (
-                          <Cell
-                            key={entry.department}
-                            fill={palette[idx % palette.length]}
-                            stroke={palette[idx % palette.length]}
-                          />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
+
 
 
           </div>
