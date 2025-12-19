@@ -1,27 +1,22 @@
-import { formatShortDateLabel } from './date';
-
 /**
  * PUBLIC_INTERFACE
  * adaptProjectCreateSummary
- * Converts /api/projects/summary payload to a normalized structure used by charts.
+ * - Non-T0000: expects { buckets: [{ key,label,count }, ...] } -> [{ name: label, value: count }]
+ * - T0000: backend returns array [{ organization_id, count }] -> [{ name: organization_id, value: count }]
  */
-export function adaptProjectCreateSummary(raw) {
-  const out = {
-    buckets: [],
-    range: raw?.range || 'daily',
-    start_date: raw?.start_date || null,
-    end_date: raw?.end_date || null,
-    total: 0,
-  };
-
-  const buckets = Array.isArray(raw?.buckets) ? raw.buckets : [];
-  out.buckets = buckets.map((b) => {
-    const key = b?.key || '';
-    const label = b?.label || (key ? formatShortDateLabel(key) : '');
-    const count = Number.isFinite(b?.count) ? b.count : 0;
-    return { key, label, count };
-  });
-
-  out.total = out.buckets.reduce((acc, b) => acc + (Number.isFinite(b.count) ? b.count : 0), 0);
-  return out;
+// PUBLIC_INTERFACE
+export function adaptProjectCreateSummary(data) {
+  if (!data) return [];
+  if (Array.isArray(data)) {
+    // T0000 array response
+    return data.map((d, idx) => ({
+      name: d?.organization_id || d?.label || d?.key || `#${idx + 1}`,
+      value: typeof d?.count === 'number' ? d.count : 0,
+    }));
+  }
+  const buckets = Array.isArray(data?.buckets) ? data.buckets : [];
+  return buckets.map((b) => ({
+    name: b?.label || b?.key || '',
+    value: typeof b?.count === 'number' ? b.count : 0,
+  }));
 }
