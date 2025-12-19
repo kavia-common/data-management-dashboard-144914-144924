@@ -1,12 +1,5 @@
-export { default as OverviewUsersSummarySection } from './OverviewUsersSummarySection.jsx';
-export { default as OverviewContainer } from './OverviewContainer.jsx';
-export { default as OverviewEmptyState } from './OverviewEmptyState.jsx';
-export { default as OverviewFeaturesSection } from './OverviewFeaturesSection.jsx';
-export { default as OverviewKpiCards } from './OverviewKpiCards.jsx';
-export { default as OverviewKpiCountCards } from './OverviewKpiCountCards.jsx';
-export { default as OverviewTimeControls } from './OverviewTimeControls.jsx';
-export { default as SummaryPanel } from './SummaryPanel.jsx';
-export { default as ProjectsCreatedBarChart } from './ProjectsCreatedBarChart.jsx';
-export { default as ProjectsServiceTypeBarChart } from './ProjectsServiceTypeBarChart.jsx';
-export { default as SessionCreateBarChart } from './SessionCreateBarChart.jsx';
-export { default as SessionsCreatedBarChart } from './SessionsCreatedBarChart.jsx';
+export { default as T0000OrgHorizontalBarChart } from './T0000OrgHorizontalBarChart';
+export { default as OverviewUsersSummarySection } from './OverviewUsersSummarySection';
+export { default as OverviewTimeControls } from './OverviewTimeControls';
+export { default as OverviewKpiCards } from './OverviewKpiCards';
+export { default as ProjectsCreatedBarChart } from './ProjectsCreatedBarChart';
