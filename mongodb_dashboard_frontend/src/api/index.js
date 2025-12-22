@@ -4,4 +4,5 @@ export * from './modulesClient';
 export * from './util';
 export { getUserProjects, getUserBasic } from './users';
 
-// Note: Removed export of usersSummary to disable /api/users/summary usage.
+// PUBLIC_INTERFACE
+export * from './projectsSummary.client';

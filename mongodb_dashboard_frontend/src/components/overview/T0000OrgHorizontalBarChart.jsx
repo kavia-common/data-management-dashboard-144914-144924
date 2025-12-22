@@ -1,52 +1,31 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import './overview.css';
-import getOceanColors from '../../theme/colors';
 
 /**
  * PUBLIC_INTERFACE
  * T0000OrgHorizontalBarChart
- * Renders a simple horizontal bar chart using divs to avoid external deps; styled to match theme.
+ * Simple horizontal bar chart for T0000 series: [{ name, value }]
  */
-export default function T0000OrgHorizontalBarChart({ series, title = 'Projects Created' }) {
-  const colorTokens = getOceanColors() || {};
-  const colors = { primary: colorTokens.primary || '#2563EB', secondary: colorTokens.secondary || '#F59E0B' };
-  const labels = Array.isArray(series?.labels) ? series.labels : [];
-  const data = Array.isArray(series?.datasets?.[0]?.data) ? series.datasets[0].data : [];
+// PUBLIC_INTERFACE
+export default function T0000OrgHorizontalBarChart({ series, title = 'Organization Projects (T0000)' }) {
+  if (!Array.isArray(series) || series.length === 0) return null;
 
-  if (!labels.length || !data.length) {
-    return (
-      <div className="card surface p-3">
-        <div className="card-title">{title}</div>
-        <div className="muted">No data available</div>
-      </div>
-    );
-  }
-
-  const max = Math.max(...data, 1);
+  const max = Math.max(...series.map((d) => (Number.isFinite(d.value) ? d.value : 0)), 1);
 
   return (
-    <div className="card surface p-3">
-      <div className="card-title">{title}</div>
-      <div className="t0000-hbar-container">
-        {labels.map((label, idx) => {
-          const value = Number.isFinite(data[idx]) ? data[idx] : 0;
-          const widthPct = Math.max(2, (value / max) * 100);
+    <div className="card" style={{ padding: 16 }}>
+      <div className="card-header" style={{ fontWeight: 700, marginBottom: 8 }}>{title}</div>
+      <div className="card-body">
+        {series.map((d) => {
+          const val = Number.isFinite(d.value) ? d.value : 0;
+          const widthPct = Math.min(100, Math.max(4, (val / max) * 100));
           return (
-            <div key={`${label}-${idx}`} className="t0000-hbar-row">
-              <div className="t0000-hbar-label">{label}</div>
-              <div className="t0000-hbar-barwrap">
-                <div
-                  className="t0000-hbar-bar"
-                  style={{
-                    width: `${widthPct}%`,
-                    backgroundColor: colors.primary,
-                  }}
-                  aria-label={`${label}: ${value}`}
-                  role="img"
-                />
+            <div key={d.name} className="bar" style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              <span className="label" style={{ minWidth: 140, fontWeight: 600 }}>{d.name}</span>
+              <div style={{ flex: 1, background: '#e5e7eb', height: 8, borderRadius: 4, position: 'relative' }}>
+                <div style={{ position: 'absolute', top: 0, left: 0, height: 8, borderRadius: 4, width: `${widthPct}%`, background: '#2563EB' }} />
               </div>
-              <div className="t0000-hbar-value">{value}</div>
+              <span className="value" style={{ minWidth: 40, textAlign: 'right' }}>{val}</span>
             </div>
           );
         })}
@@ -56,13 +35,11 @@ export default function T0000OrgHorizontalBarChart({ series, title = 'Projects C
 }
 
 T0000OrgHorizontalBarChart.propTypes = {
-  series: PropTypes.shape({
-    labels: PropTypes.arrayOf(PropTypes.string),
-    datasets: PropTypes.arrayOf(
-      PropTypes.shape({
-        data: PropTypes.arrayOf(PropTypes.number),
-      })
-    ),
-  }),
+  series: PropTypes.arrayOf(
+    PropTypes.shape({
+      name: PropTypes.string.isRequired,
+      value: PropTypes.number.isRequired,
+    })
+  ),
   title: PropTypes.string,
 };
