@@ -84,7 +84,8 @@ export default function UsersAnalyticsPanel({
 
   // Fetch users; table is unchanged elsewhere
   const { users, loading: usersLoading, error: usersError } = useUsers({
-    limit: 200,
+    page: 1,
+    limit: 50,
   });
 
   // Fetch projects per user when needed
@@ -94,6 +95,14 @@ export default function UsersAnalyticsPanel({
 
   useEffect(() => {
     let cancelled = false;
+    // Build a stable key to prevent duplicate triggers when inputs haven't meaningfully changed
+    const triggerKey = JSON.stringify({
+      tenant: activeTenantId || "",
+      startISO,
+      endISO,
+      usersLen: Array.isArray(users) ? users.length : 0,
+    });
+
     async function run() {
       // Lazily fetch projects for each user for better accuracy of counts over time.
       // If endpoint not available or fails, gracefully continue with partial data.
@@ -115,7 +124,7 @@ export default function UsersAnalyticsPanel({
               if (!u?._id) return;
               try {
                 const res = await api.get(
-                  `/users/${encodeURIComponent(String(u._id))}/projects`,
+                  `/api/users/${encodeURIComponent(String(u._id))}/projects`,
                   {
                     params: {
                       organization_id: activeTenantId,
@@ -148,10 +157,12 @@ export default function UsersAnalyticsPanel({
       }
     }
     run();
+
     return () => {
       cancelled = true;
     };
-  }, [users, activeTenantId, startISO, endISO]);
+    // Only re-run when the stable key changes
+  }, [activeTenantId, startISO, endISO, Array.isArray(users) ? users.length : 0]);
 
   // Aggregations
   const aggregates = useMemo(() => {
@@ -275,7 +286,6 @@ export default function UsersAnalyticsPanel({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1.2fr 1fr",
               gap: 12,
             }}
           >
