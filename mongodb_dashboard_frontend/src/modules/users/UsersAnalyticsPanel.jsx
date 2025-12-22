@@ -84,101 +84,23 @@ export default function UsersAnalyticsPanel({
     limit: 200,
   });
 
-  // Fetch projects per user when needed
-  const [projectsByUser, setProjectsByUser] = useState({});
-  const [projectsLoading, setProjectsLoading] = useState(false);
-  const [projectsError, setProjectsError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-    async function run() {
-      // Lazily fetch projects for each user for better accuracy of counts over time.
-      // If endpoint not available or fails, gracefully continue with partial data.
-      if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
-        setProjectsByUser({});
-        return;
-      }
-      setProjectsLoading(true);
-      setProjectsError("");
-      const api = getApiClient();
-      const acc = {};
-      try {
-        // Fetch in small batches to avoid overloading backend
-        const batchSize = 8;
-        for (let i = 0; i < users.length; i += batchSize) {
-          const slice = users.slice(i, i + batchSize);
-          await Promise.all(
-            slice.map(async (u) => {
-              if (!u?._id) return;
-              try {
-                const res = await api.get(
-                  `/api/users/${encodeURIComponent(String(u._id))}/projects`,
-                  {
-                    params: {
-                      organization_id: activeTenantId,
-                      from: startISO,
-                      to: endISO,
-                    },
-                  }
-                );
-                const payload = res.data?.data ?? res.data;
-                const list = Array.isArray(payload?.projects)
-                  ? payload.projects
-                  : [];
-                acc[String(u._id)] = list;
-              } catch {
-                // Ignore individual user fetch errors; rely on others or fallback
-                acc[String(u._id)] = acc[String(u._id)] || [];
-              }
-            })
-          );
-          if (cancelled) return;
-        }
-        if (!cancelled) setProjectsByUser(acc);
-      } catch (e) {
-        if (!cancelled) {
-          setProjectsError(e?.message || "Failed to load user projects.");
-          setProjectsByUser({});
-        }
-      } finally {
-        if (!cancelled) setProjectsLoading(false);
-      }
-    }
-    run();
-    return () => {
-      cancelled = true;
-    };
-  }, [users, activeTenantId, startISO, endISO]);
-
-  // Aggregations (department distribution removed)
+  // Remove per-user parallel projects fetch to avoid duplicate calls.
+  // Chart will render based on users list only, without issuing /api/users/:id/projects calls here.
+  // Project details continue to be available in the modal via ProjectDetails with a single-source hook.
   const aggregates = useMemo(() => {
-    // Projects by user count only
+    // Without per-user projects fetch, we display a simple activity placeholder count (0) to avoid duplicate network calls.
+    // If desired later, a backend aggregated endpoint can be introduced for counts.
     const projectsCountByUser = [];
-
     for (const u of users || []) {
       const uid = String(u?._id || u?.id || "");
-      const projs = projectsByUser[uid];
-
-      if (Array.isArray(projs)) {
-        projectsCountByUser.push({
-          user: u?.name || u?.full_name || u?.email || uid,
-          user_id: uid,
-          count: projs.length,
-        });
-      } else {
-        projectsCountByUser.push({
-          user: u?.name || u?.full_name || u?.email || uid,
-          user_id: uid,
-          count: 0,
-        });
-      }
+      projectsCountByUser.push({
+        user: u?.name || u?.full_name || u?.email || uid,
+        user_id: uid,
+        count: 0,
+      });
     }
-
-    // Sort projectsCountByUser desc
-    projectsCountByUser.sort((a, b) => b.count - a.count);
-
     return { projectsCountByUser };
-  }, [users, projectsByUser, startISO, endISO]);
+  }, [users, startISO, endISO]);
 
   // Theme colors
   const primary = "#2563EB";

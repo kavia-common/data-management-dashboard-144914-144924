@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
-import { getUserProjects } from '../../api/users';
 import { useAuth } from '../../context/AuthContext';
+import { useUserProjects } from '../../hooks/useUserProjects';
 
 /**
  * PUBLIC_INTERFACE
@@ -17,9 +17,7 @@ import { useAuth } from '../../context/AuthContext';
  */
 export default function ProjectDetails({ selectedUser }) {
   const { organizationId: authOrgId } = useAuth?.() || {};
-  const [loading, setLoading] = useState(false);
   const [projects, setProjects] = useState([]);
-  const [error, setError] = useState(null);
 
   // Local pagination state to drive a single request per change.
   const [page, setPage] = useState(1);
@@ -68,68 +66,27 @@ export default function ProjectDetails({ selectedUser }) {
     return null;
   }, [selectedUser]);
 
-  useEffect(() => {
-    let cancelled = false;
+  // Use preloaded projects when present to avoid any API request
+  const {
+    projects: fetchedProjects,
+    loading,
+    error,
+  } = useUserProjects({
+    userId,
+    organizationId: orgId,
+    page,
+    limit,
+    from,
+    to,
+  });
 
-    async function fetchProjectsOnce() {
-      // No user: reset with no fetch
-      if (!userId) {
-        setProjects([]);
-        return;
-      }
-
-      // Use preloaded when available to avoid any network call
-      if (preloadedProjects) {
-        setProjects(preloadedProjects);
-        return;
-      }
-
-      // Require org context for backend per OpenAPI; if missing, set error and skip network.
-      if (!orgId) {
-        setProjects([]);
-        setError('Missing organization/tenant to load projects');
-        return;
-      }
-
-      setLoading(true);
-      setError(null);
-      try {
-        // pagination & filters => single request per change
-        const query = {
-          organization_id: orgId,
-          page,
-          limit,
-        };
-        if (from) query.from = from;
-        if (to) query.to = to;
-
-        const res = await getUserProjects(userId, query);
-        if (!cancelled) {
-          const payload = res?.data ?? res;
-          const list = Array.isArray(payload?.projects) ? payload.projects : Array.isArray(payload) ? payload : [];
-          setProjects(
-            list.map((p) => ({
-              project_id: p.project_id || p.projectId || p.id || null,
-              project_name: p.project_name || p.projectName || p.name || null,
-              last_activity: p.last_activity || p.lastActivity || null,
-            }))
-          );
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(e?.message || 'Failed to load project details');
-          setProjects([]);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+  useMemo(() => {
+    if (preloadedProjects) {
+      setProjects(preloadedProjects);
+    } else {
+      setProjects(Array.isArray(fetchedProjects) ? fetchedProjects : []);
     }
-
-    fetchProjectsOnce();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, orgId, preloadedProjects, page, limit, from, to]);
+  }, [preloadedProjects, fetchedProjects]);
 
   if (!selectedUser) {
     return (
