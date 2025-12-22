@@ -1,6 +1,5 @@
 import { getApiBaseUrl } from './config';
 import { tenantHeaders } from './util';
-import { buildOverviewFilterParams } from './buildOverviewFilterParams';
 
 /**
  * PUBLIC_INTERFACE
