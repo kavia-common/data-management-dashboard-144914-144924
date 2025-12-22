@@ -103,6 +103,23 @@ export default function Costs() {
       ),
     },
     {
+      key: "agents",
+      label: "Agents",
+      render: (v, row) => {
+        const arr = Array.isArray(row?.agents) ? row.agents : [];
+        if (!arr.length) return <span className="muted">—</span>;
+        return (
+          <div className="flex flex-wrap gap-1" style={{ maxWidth: 260 }}>
+            {arr.map((name, i) => (
+              <span key={`${name}-${i}`} className="badge badge-neutral">
+                {name}
+              </span>
+            ))}
+          </div>
+        );
+      },
+    },
+    {
       key: "projects",
       label: "Projects",
       className: "num",
