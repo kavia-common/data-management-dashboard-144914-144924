@@ -1,268 +1,268 @@
-/**
- * CHANGE LOG (Users Projects dedupe + cancel):
- * - Restored the pattern to source per-user projects via shared hook (useUserProjects) when needed.
- * - This panel intentionally avoids firing /api/users/:id/projects in loops to prevent duplicates.
- * - If you need to show per-user project counts here, map users to useUserProjects keyed calls,
- *   which dedupe and cancel inflight requests. Keep one request per param change.
- */
+ /**
+  * CHANGE LOG (Users Projects dedupe + cancel):
+  * - Restored the pattern to source per-user projects via shared hook (useUserProjects) when needed.
+  * - This panel intentionally avoids firing /api/users/:id/projects in loops to prevent duplicates.
+  * - If you need to show per-user project counts here, map users to useUserProjects keyed calls,
+  *   which dedupe and cancel inflight requests. Keep one request per param change.
+  */
 
-import React, { useEffect, useMemo, useState } from "react";
-import PropTypes from "prop-types";
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-} from "recharts";
-import { useUsers } from "../../hooks/useUsers";
-import { getActiveTenant } from "../../utils/tenantClient";
-import Skeleton from "../../components/ui/Skeleton";
-import { getApiClient } from "../../api/baseClient.js";
+ import React, { useEffect, useMemo, useState } from "react";
+ import PropTypes from "prop-types";
+ import {
+   ResponsiveContainer,
+   BarChart,
+   Bar,
+   XAxis,
+   YAxis,
+   CartesianGrid,
+   Tooltip,
+   Legend,
+ } from "recharts";
+ import { useUsers } from "../../hooks/useUsers";
+ import { getActiveTenant } from "../../utils/tenantClient";
+ import Skeleton from "../../components/ui/Skeleton";
+ import { getApiClient } from "../../api/baseClient.js";
 
-/**
- * PUBLIC_INTERFACE
- * UsersAnalyticsPanel
- * A charts/analytics panel for the Users page, with independent filters.
- * - Activity by User (bar)
- *
- * Data source:
- * - Reuses /api/users to get users.
- * - Per-user /api/users/:userId/projects is centralized via the shared hook (useUserProjects) in components that need it,
- *   to prevent duplicate requests from multiple sources.
- *
- * Filters:
- * - Date range (start, end with explicit ISO)
- * - Tenant scoped via base client and active tenant helper.
- *
- * Accessibility:
- * - Proper aria-labels and live region updates for date label.
- */
-export default function UsersAnalyticsPanel({
-  style,
-  className,
-  defaultDays = 30,
-}) {
-  // Filter state (independent from Overview)
-  const [days, setDays] = useState(defaultDays);
-  const [customStart, setCustomStart] = useState(null);
-  const [customEnd, setCustomEnd] = useState(null);
-  const [dateLiveLabel, setDateLiveLabel] = useState("");
+ /**
+  * PUBLIC_INTERFACE
+  * UsersAnalyticsPanel
+  * A charts/analytics panel for the Users page, with independent filters.
+  * - Activity by User (bar)
+  *
+  * Data source:
+  * - Reuses /api/users to get users.
+  * - Per-user /api/users/:userId/projects is centralized via the shared hook (useUserProjects) in components that need it,
+  *   to prevent duplicate requests from multiple sources.
+  *
+  * Filters:
+  * - Date range (start, end with explicit ISO)
+  * - Tenant scoped via base client and active tenant helper.
+  *
+  * Accessibility:
+  * - Proper aria-labels and live region updates for date label.
+  */
+ export default function UsersAnalyticsPanel({
+   style,
+   className,
+   defaultDays = 30,
+ }) {
+   // Filter state (independent from Overview)
+   const [days, setDays] = useState(defaultDays);
+   const [customStart, setCustomStart] = useState(null);
+   const [customEnd, setCustomEnd] = useState(null);
+   const [dateLiveLabel, setDateLiveLabel] = useState("");
 
-  // Active tenant (scoped by client too, but visible here for explicit query params when needed)
-  const activeTenantId = getActiveTenant?.() || null;
+   // Active tenant (scoped by client too, but visible here for explicit query params when needed)
+   const activeTenantId = getActiveTenant?.() || null;
 
-  // Compute date range ISO strings; end is set to 23:59:59.999
-  const { startISO, endISO } = useMemo(() => {
-    let start;
-    let end;
-    if (customStart && customEnd) {
-      start = new Date(customStart);
-      end = new Date(customEnd);
-    } else {
-      end = new Date();
-      // end to end-of-day
-      end.setHours(23, 59, 59, 999);
-      start = new Date();
-      start.setDate(end.getDate() - days + 1);
-      start.setHours(0, 0, 0, 0);
-    }
-    return { startISO: start.toISOString(), endISO: end.toISOString() };
-  }, [customStart, customEnd, days]);
+   // Compute date range ISO strings; end is set to 23:59:59.999
+   const { startISO, endISO } = useMemo(() => {
+     let start;
+     let end;
+     if (customStart && customEnd) {
+       start = new Date(customStart);
+       end = new Date(customEnd);
+     } else {
+       end = new Date();
+       // end to end-of-day
+       end.setHours(23, 59, 59, 999);
+       start = new Date();
+       start.setDate(end.getDate() - days + 1);
+       start.setHours(0, 0, 0, 0);
+     }
+     return { startISO: start.toISOString(), endISO: end.toISOString() };
+   }, [customStart, customEnd, days]);
 
-  // Live label for date range for accessibility
-  useEffect(() => {
-    const start = new Date(startISO);
-    const end = new Date(endISO);
-    const fmt = (d) =>
-      d.toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
-    const label = `${fmt(start)} \u2013 ${fmt(end)}`;
-    setDateLiveLabel(label);
-  }, [startISO, endISO]);
+   // Live label for date range for accessibility
+   useEffect(() => {
+     const start = new Date(startISO);
+     const end = new Date(endISO);
+     const fmt = (d) =>
+       d.toLocaleDateString(undefined, {
+         year: "numeric",
+         month: "short",
+         day: "numeric",
+       });
+     const label = `${fmt(start)} \u2013 ${fmt(end)}`;
+     setDateLiveLabel(label);
+   }, [startISO, endISO]);
 
-  // Fetch users; table is unchanged elsewhere
-  const { users, loading: usersLoading, error: usersError } = useUsers({
-    limit: 200,
-  });
+   // Fetch users; table is unchanged elsewhere
+   const { users, loading: usersLoading, error: usersError } = useUsers({
+     limit: 200,
+   });
 
-  // Remove per-user parallel projects fetch to avoid duplicate calls.
-  // Chart will render based on users list only, without issuing /api/users/:id/projects calls here.
-  // Project details continue to be available in the modal via ProjectDetails with a single-source hook.
-  const aggregates = useMemo(() => {
-    // Without per-user projects fetch, we display a simple activity placeholder count (0) to avoid duplicate network calls.
-    // If desired later, a backend aggregated endpoint can be introduced for counts.
-    const projectsCountByUser = [];
-    for (const u of users || []) {
-      const uid = String(u?._id || u?.id || "");
-      projectsCountByUser.push({
-        user: u?.name || u?.full_name || u?.email || uid,
-        user_id: uid,
-        count: 0,
-      });
-    }
-    return { projectsCountByUser };
-  }, [users, startISO, endISO]);
+   // Remove per-user parallel projects fetch to avoid duplicate calls.
+   // Chart will render based on users list only, without issuing /api/users/:id/projects calls here.
+   // Project details continue to be available in the modal via ProjectDetails with a single-source hook.
+   const aggregates = useMemo(() => {
+     // Without per-user projects fetch, we display a simple activity placeholder count (0) to avoid duplicate network calls.
+     // If desired later, a backend aggregated endpoint can be introduced for counts.
+     const projectsCountByUser = [];
+     for (const u of users || []) {
+       const uid = String(u?._id || u?.id || "");
+       projectsCountByUser.push({
+         user: u?.name || u?.full_name || u?.email || uid,
+         user_id: uid,
+         count: 0,
+       });
+     }
+     return { projectsCountByUser };
+   }, [users, startISO, endISO]);
 
-  // Theme colors
-  const primary = "#2563EB";
-  const grid = "#E5E7EB";
-  const subtle = "#6B7280";
+   // Theme colors
+   const primary = "#2563EB";
+   const grid = "#E5E7EB";
+   const subtle = "#6B7280";
 
-  const ariaDateId = "users-analytics-date-label";
+   const ariaDateId = "users-analytics-date-label";
 
-  // Handlers
-  const handlePreset = (d) => {
-    setCustomStart(null);
-    setCustomEnd(null);
-    setDays(d);
-  };
+   // Handlers
+   const handlePreset = (d) => {
+     setCustomStart(null);
+     setCustomEnd(null);
+     setDays(d);
+   };
 
-  const onCustomStartChange = (e) => setCustomStart(e.target.value || null);
-  const onCustomEndChange = (e) => setCustomEnd(e.target.value || null);
+   const onCustomStartChange = (e) => setCustomStart(e.target.value || null);
+   const onCustomEndChange = (e) => setCustomEnd(e.target.value || null);
 
-  return (
-    <div className={className} style={{ ...style }}>
-      <div className="card" style={{ marginBottom: 12 }}>
-        <div className="card-header" style={{ paddingBottom: 0, gap: 12 }}>
-          <div>
-            <h3 className="card-title">Users Analytics</h3>
-            <div className="card-subtitle">User activity distribution</div>
-          </div>
-          <div
-            className="card-actions"
-            style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
-          >
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 12, color: subtle }}>Quick range</span>
-              <select
-                aria-label="Quick date range"
-                value={customStart && customEnd ? "custom" : String(days)}
-                onChange={(e) => {
-                  if (e.target.value === "custom") {
-                    // leave as-is; user will pick dates below
-                  } else {
-                    handlePreset(Number(e.target.value));
-                  }
-                }}
-                className="ui-input"
-                style={{ minWidth: 140 }}
-              >
-                <option value="7">Last 7 days</option>
-                <option value="14">Last 14 days</option>
-                <option value="30">Last 30 days</option>
-                <option value="90">Last 90 days</option>
-                <option value="custom">Custom...</option>
-              </select>
-            </label>
+   return (
+     <div className={className} style={{ ...style }}>
+       <div className="card" style={{ marginBottom: 12 }}>
+         <div className="card-header" style={{ paddingBottom: 0, gap: 12 }}>
+           <div>
+             <h3 className="card-title">Users Analytics</h3>
+             <div className="card-subtitle">User activity distribution</div>
+           </div>
+           <div
+             className="card-actions"
+             style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+           >
+             <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+               <span style={{ fontSize: 12, color: subtle }}>Quick range</span>
+               <select
+                 aria-label="Quick date range"
+                 value={customStart && customEnd ? "custom" : String(days)}
+                 onChange={(e) => {
+                   if (e.target.value === "custom") {
+                     // leave as-is; user will pick dates below
+                   } else {
+                     handlePreset(Number(e.target.value));
+                   }
+                 }}
+                 className="ui-input"
+                 style={{ minWidth: 140 }}
+               >
+                 <option value="7">Last 7 days</option>
+                 <option value="14">Last 14 days</option>
+                 <option value="30">Last 30 days</option>
+                 <option value="90">Last 90 days</option>
+                 <option value="custom">Custom...</option>
+               </select>
+             </label>
 
-            <div
-              role="group"
-              aria-label="Custom date range"
-              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-            >
-              <input
-                type="date"
-                aria-label="Start date"
-                className="ui-input"
-                onChange={onCustomStartChange}
-              />
-              <span aria-hidden="true" style={{ color: subtle }}>
-                to
-              </span>
-              <input
-                type="date"
-                aria-label="End date"
-                className="ui-input"
-                onChange={onCustomEndChange}
-              />
-            </div>
-          </div>
-        </div>
-        <div className="card-content" style={{ paddingTop: 8 }}>
-          <div
-            id={ariaDateId}
-            aria-live="polite"
-            style={{ fontSize: 12, color: subtle, marginBottom: 8 }}
-          >
-            {dateLiveLabel}
-          </div>
+             <div
+               role="group"
+               aria-label="Custom date range"
+               style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+             >
+               <input
+                 type="date"
+                 aria-label="Start date"
+                 className="ui-input"
+                 onChange={onCustomStartChange}
+               />
+               <span aria-hidden="true" style={{ color: subtle }}>
+                 to
+               </span>
+               <input
+                 type="date"
+                 aria-label="End date"
+                 className="ui-input"
+                 onChange={onCustomEndChange}
+               />
+             </div>
+           </div>
+         </div>
+         <div className="card-content" style={{ paddingTop: 8 }}>
+           <div
+             id={ariaDateId}
+             aria-live="polite"
+             style={{ fontSize: 12, color: subtle, marginBottom: 8 }}
+           >
+             {dateLiveLabel}
+           </div>
 
-          {/* Charts grid */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr",
-              gap: 12,
-            }}
-          >
-            {/* Activity by User */}
-            <div className="card" aria-label="Activity by User">
-              <div className="card-header" style={{ paddingBottom: 0 }}>
-                <h4 className="card-title">Activity by User</h4>
-                <div className="card-subtitle">Counts derived from associated activity</div>
-              </div>
-              <div className="card-content" style={{ height: 340 }}>
-                {usersLoading ? (
-                  <div aria-busy="true">
-                    <Skeleton width="60%" height={14} className="mb-2" />
-                    <Skeleton width="50%" height={12} className="mb-2" />
-                    <Skeleton width="100%" height={300} />
-                  </div>
-                ) : usersError ? (
-                  <div className="error" role="alert">
-                    {usersError.message || "Failed to load users"}
-                  </div>
-                ) : aggregates.projectsCountByUser.length === 0 ? (
-                  <div className="screen-center">No project data</div>
-                ) : (
-                  <ResponsiveContainer>
-                    <BarChart
-                      data={aggregates.projectsCountByUser.slice(0, 20)}
-                      margin={{ top: 8, right: 16, bottom: 24, left: 8 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke={grid} />
-                      <XAxis
-                        dataKey="user"
-                        tick={{ fill: subtle, fontSize: 12 }}
-                        interval={0}
-                        angle={-25}
-                        textAnchor="end"
-                        height={50}
-                      />
-                      <YAxis
-                        tick={{ fill: subtle, fontSize: 12 }}
-                        allowDecimals={false}
-                      />
-                      <Tooltip />
-                      <Legend />
-                      <Bar
-                        dataKey="count"
-                        name="Count"
-                        fill={primary}
-                        stroke={primary}
-                        radius={[6, 6, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+           {/* Charts grid */}
+           <div
+             style={{
+               display: "grid",
+               gridTemplateColumns: "1fr",
+               gap: 12,
+             }}
+           >
+             {/* Activity by User */}
+             <div className="card" aria-label="Activity by User">
+               <div className="card-header" style={{ paddingBottom: 0 }}>
+                 <h4 className="card-title">Activity by User</h4>
+                 <div className="card-subtitle">Counts derived from associated activity</div>
+               </div>
+               <div className="card-content" style={{ height: 340 }}>
+                 {usersLoading ? (
+                   <div aria-busy="true">
+                     <Skeleton width="60%" height={14} className="mb-2" />
+                     <Skeleton width="50%" height={12} className="mb-2" />
+                     <Skeleton width="100%" height={300} />
+                   </div>
+                 ) : usersError ? (
+                   <div className="error" role="alert">
+                     {usersError.message || "Failed to load users"}
+                   </div>
+                 ) : aggregates.projectsCountByUser.length === 0 ? (
+                   <div className="screen-center">No project data</div>
+                 ) : (
+                   <ResponsiveContainer>
+                     <BarChart
+                       data={aggregates.projectsCountByUser.slice(0, 20)}
+                       margin={{ top: 8, right: 16, bottom: 24, left: 8 }}
+                     >
+                       <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+                       <XAxis
+                         dataKey="user"
+                         tick={{ fill: subtle, fontSize: 12 }}
+                         interval={0}
+                         angle={-25}
+                         textAnchor="end"
+                         height={50}
+                       />
+                       <YAxis
+                         tick={{ fill: subtle, fontSize: 12 }}
+                         allowDecimals={false}
+                       />
+                       <Tooltip />
+                       <Legend />
+                       <Bar
+                         dataKey="count"
+                         name="Count"
+                         fill={primary}
+                         stroke={primary}
+                         radius={[6, 6, 0, 0]}
+                       />
+                     </BarChart>
+                   </ResponsiveContainer>
+                 )}
+               </div>
+             </div>
+           </div>
+         </div>
+       </div>
+     </div>
+   );
+ }
 
-UsersAnalyticsPanel.propTypes = {
-  style: PropTypes.object,
-  className: PropTypes.string,
-  defaultDays: PropTypes.number,
-};
+ UsersAnalyticsPanel.propTypes = {
+   style: PropTypes.object,
+   className: PropTypes.string,
+   defaultDays: PropTypes.number,
+ };
