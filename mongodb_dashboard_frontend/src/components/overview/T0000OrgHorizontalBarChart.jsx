@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
 
 /**
@@ -12,7 +12,15 @@ export default function T0000OrgHorizontalBarChart({ series = [], title = 'Organ
   const safeSeries = Array.isArray(series) ? series : [];
   const hasSeries = safeSeries.length > 0;
 
-  const max = Math.max(...safeSeries.map((d) => (Number.isFinite(d.value) ? d.value : 0)), 1);
+  const max = useMemo(
+    () => Math.max(...safeSeries.map((d) => (Number.isFinite(d.value) ? d.value : 0)), 1),
+    [safeSeries]
+  );
+
+  if (process.env.NODE_ENV !== 'test') {
+    // eslint-disable-next-line no-console
+    console.debug('[T0000OrgHorizontalBarChart] render', { items: safeSeries.length });
+  }
 
   return (
     <div className="card" style={{ padding: 16 }}>

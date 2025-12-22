@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import useCurrentOrgId from './useCurrentOrgId';
 import { fetchOverviewTotals, adaptOverviewTotalsToKpis } from '../api/overviewMetrics.client';
 
@@ -17,69 +17,98 @@ export function useOverviewKpis() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const inflightRef = useRef(null);
-  const lastParamsRef = useRef(null);
-
-  const debugPrefix = '[useOverviewKpis]';
-
-  const load = useMemo(
-    () => async () => {
-      // prevent duplicate in-flight for same params
-      const paramsKey = JSON.stringify({ organizationId: organizationId || null });
-      if (inflightRef.current && lastParamsRef.current === paramsKey) {
-        console.debug(`${debugPrefix} skip duplicate in-flight`, { organizationId });
-        return;
-      }
-
-      // cancel previous only if different params
-      if (inflightRef.current && lastParamsRef.current !== paramsKey) {
-        console.debug(`${debugPrefix} cancel previous due to param change`, {
-          prev: lastParamsRef.current,
-          next: paramsKey,
-        });
-        inflightRef.current.abort();
-      }
-
-      const controller = new AbortController();
-      inflightRef.current = controller;
-      lastParamsRef.current = paramsKey;
-
-      setLoading(true);
-      setError(null);
-
-      try {
-        console.debug(`${debugPrefix} fetch start`, { organizationId });
-        const totals = await fetchOverviewTotals({
-          organizationId,
-          signal: controller.signal,
-        });
-        const mapped = adaptOverviewTotalsToKpis(totals);
-        setKpis(mapped);
-        console.debug(`${debugPrefix} fetch success`, { kpisCount: mapped.length });
-      } catch (e) {
-        if (e?.name === 'AbortError') {
-          console.debug(`${debugPrefix} aborted`);
-        } else {
-          console.debug(`${debugPrefix} fetch error`, { message: e?.message });
-          setError(e?.message || 'Failed to load KPIs');
-        }
-      } finally {
-        setLoading(false);
-      }
-    },
-    [organizationId]
-  );
+  const abortRef = useRef(null);
+  const inflightRef = useRef(false);
+  const paramsKeyRef = useRef(null);
+  const mountedRef = useRef(false);
+  const lastKpisRef = useRef([]);
 
   useEffect(() => {
-    // load on mount and when organization changes
-    load();
-
-    // abort only on unmount; not on param changes unless we intentionally changed params above
+    mountedRef.current = true;
+    abortRef.current = new AbortController();
     return () => {
-      if (inflightRef.current) {
-        inflightRef.current.abort();
+      mountedRef.current = false;
+      try {
+        abortRef.current?.abort();
+      } catch {
+        // ignore
       }
     };
+  }, []);
+
+  const paramsKey = useMemo(() => JSON.stringify({ organizationId: organizationId || null }), [organizationId]);
+
+  const shallowArrayEqual = (a = [], b = []) => {
+    if (a === b) return true;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      const x = a[i];
+      const y = b[i];
+      if (!x || !y) return false;
+      if (x.label !== y.label || x.value !== y.value || x.delta !== y.delta) return false;
+    }
+    return true;
+  };
+
+  const load = useCallback(async () => {
+    if (inflightRef.current && paramsKeyRef.current === paramsKey) {
+      if (process.env.NODE_ENV !== 'test') {
+        // eslint-disable-next-line no-console
+        console.debug('[useOverviewKpis] skip duplicate in-flight', { organizationId });
+      }
+      return;
+    }
+
+    inflightRef.current = true;
+    paramsKeyRef.current = paramsKey;
+
+    if (mountedRef.current) {
+      setLoading(true);
+      setError(null);
+    }
+
+    try {
+      if (process.env.NODE_ENV !== 'test') {
+        // eslint-disable-next-line no-console
+        console.debug('[useOverviewKpis] fetch start', { organizationId });
+      }
+      const totals = await fetchOverviewTotals({
+        organizationId,
+        signal: abortRef.current?.signal,
+      });
+      const mapped = adaptOverviewTotalsToKpis(totals);
+
+      if (mountedRef.current && !shallowArrayEqual(mapped, lastKpisRef.current)) {
+        setKpis(mapped);
+        lastKpisRef.current = mapped;
+      }
+
+      if (process.env.NODE_ENV !== 'test') {
+        // eslint-disable-next-line no-console
+        console.debug('[useOverviewKpis] fetch success', { kpisCount: mapped.length });
+      }
+    } catch (e) {
+      if (e?.name === 'AbortError') {
+        if (process.env.NODE_ENV !== 'test') {
+          // eslint-disable-next-line no-console
+          console.debug('[useOverviewKpis] aborted');
+        }
+      } else {
+        if (process.env.NODE_ENV !== 'test') {
+          // eslint-disable-next-line no-console
+          console.debug('[useOverviewKpis] fetch error', { message: e?.message });
+        }
+        if (mountedRef.current) setError(e?.message || 'Failed to load KPIs');
+      }
+    } finally {
+      if (mountedRef.current) setLoading(false);
+      inflightRef.current = false;
+    }
+  }, [organizationId, paramsKey]);
+
+  useEffect(() => {
+    // load on mount and when organization changes (via stable paramsKey)
+    load();
   }, [load]);
 
   return { kpis, loading, error, reload: load };

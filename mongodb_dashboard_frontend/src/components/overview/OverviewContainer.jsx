@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import OverviewTimeControls from './OverviewTimeControls';
 import OverviewKpiCards from './OverviewKpiCards';
 import OverviewUsersSummarySection from './OverviewUsersSummarySection';
@@ -17,10 +17,14 @@ import './overview.css';
  * Appends T0000-specific chart when organization_id is 'T0000'.
  */
 export default function OverviewContainer() {
+  // Hooks at top-level
   const { data, loading, error, organization_id, t0000Series: hookSeries } = useProjectsCreatedSummary();
 
-  const effectiveOrg = useMemo(() => organization_id || getOrgIdFromContext() || '', [organization_id]);
-  const isT0000 = String(effectiveOrg).toUpperCase() === 'T0000';
+  const effectiveOrg = useMemo(
+    () => (organization_id || getOrgIdFromContext() || '').toString(),
+    [organization_id]
+  );
+  const isT0000 = useMemo(() => String(effectiveOrg).toUpperCase() === 'T0000', [effectiveOrg]);
 
   const t0000Series = useMemo(() => {
     if (!isT0000) return [];
@@ -28,7 +32,7 @@ export default function OverviewContainer() {
     return projectCreateT0000Series(data?.buckets || []);
   }, [isT0000, hookSeries, data]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (process.env.NODE_ENV !== 'test') {
       // eslint-disable-next-line no-console
       console.debug('[OverviewContainer] mount', { org: effectiveOrg || null });
@@ -47,15 +51,10 @@ export default function OverviewContainer() {
     });
   }
 
-  return (
-    <div className="overview-container ocean-background">
-      <OverviewTimeControls />
-      <OverviewKpiCards />
-      <OverviewUsersSummarySection />
-
-      {loading ? (
-        <OverviewEmptyState message="Loading overview..." />
-      ) : error ? (
+  const chartArea = useMemo(() => {
+    if (loading) return <OverviewEmptyState message="Loading overview..." />;
+    if (error)
+      return (
         <>
           {process.env.NODE_ENV !== 'test' && console && console.debug
             ? // eslint-disable-next-line no-console
@@ -63,26 +62,37 @@ export default function OverviewContainer() {
             : null}
           <OverviewEmptyState message="Failed to load overview." />
         </>
-      ) : (
-        <>
-          <div style={{ marginTop: 16 }}>
-            <ProjectsCreatedBarChart />
-          </div>
+      );
 
-          {isT0000 && (
-            <div style={{ marginTop: 24 }}>
-              {Array.isArray(t0000Series) && t0000Series.length > 0 ? (
-                <T0000OrgHorizontalBarChart series={t0000Series} title="Projects Created (T0000)" />
-              ) : (
-                <div>
-                  <T0000OrgHorizontalBarChart series={[]} title="Projects Created (T0000)" />
-                  <OverviewEmptyState message="No data yet" />
-                </div>
-              )}
-            </div>
-          )}
-        </>
-      )}
+    const tChart = isT0000 ? (
+      <div style={{ marginTop: 24 }}>
+        {Array.isArray(t0000Series) && t0000Series.length > 0 ? (
+          <T0000OrgHorizontalBarChart series={t0000Series} title="Projects Created (T0000)" />
+        ) : (
+          <div>
+            <T0000OrgHorizontalBarChart series={[]} title="Projects Created (T0000)" />
+            <OverviewEmptyState message="No data yet" />
+          </div>
+        )}
+      </div>
+    ) : null;
+
+    return (
+      <>
+        <div style={{ marginTop: 16 }}>
+          <ProjectsCreatedBarChart />
+        </div>
+        {tChart}
+      </>
+    );
+  }, [loading, error, effectiveOrg, isT0000, t0000Series]);
+
+  return (
+    <div className="overview-container ocean-background">
+      <OverviewTimeControls />
+      <OverviewKpiCards />
+      <OverviewUsersSummarySection />
+      {chartArea}
     </div>
   );
 }

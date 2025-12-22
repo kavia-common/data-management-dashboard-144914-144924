@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { fetchProjectCreateSummary } from '../services/projectCreateSummaryApi';
 import { projectCreateT0000Series } from '../utils/projectCreateT0000Series';
 import { getOrgIdFromContext } from '../utils/orgContext';
@@ -7,11 +7,12 @@ import { getOrgIdFromContext } from '../utils/orgContext';
  * PUBLIC_INTERFACE
  * useProjectsCreatedSummary
  * Stable return shape and minimal diagnostics for Overview/Summary panels.
- * - Issues exactly one request per stable param set (guarded by ref)
+ * - Issues exactly one request per stable param set (guarded by refs)
  * - Always passes organization_id via query and x-organization-id header (api client)
  * - Uses AbortController that aborts only on unmount (no mid-flight cancels)
  * - Adapts T0000 array/object response to [{ name, value }]
- * - Placeholder preserved and console.debug logs for start/end + response lengths
+ * - Prevents setState loops by shallow comparing before updating
+ * - Adds debug markers to confirm effects run once per param change
  */
 // PUBLIC_INTERFACE
 export function useProjectsCreatedSummary(options = {}) {
@@ -26,7 +27,7 @@ export function useProjectsCreatedSummary(options = {}) {
     [options.organization_id]
   );
 
-  // Abort controller: only abort on unmount to avoid double fetch
+  // Abort controller: create once; abort only on unmount
   const abortRef = useRef(null);
   useEffect(() => {
     abortRef.current = new AbortController();
@@ -50,15 +51,50 @@ export function useProjectsCreatedSummary(options = {}) {
     [stableOptions, organization_id]
   );
 
-  // Guard to ensure a single in-flight request
-  const inFlightRef = useRef(false);
+  // Stable helpers
+  const shallowEqual = (a, b) => {
+    if (a === b) return true;
+    if (!a || !b) return false;
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    if (aKeys.length !== bKeys.length) return false;
+    for (const k of aKeys) {
+      if (a[k] !== b[k]) return false;
+    }
+    return true;
+  };
 
+  const arrayShallowEqual = (x = [], y = []) => {
+    if (x === y) return true;
+    if (!Array.isArray(x) || !Array.isArray(y)) return false;
+    if (x.length !== y.length) return false;
+    for (let i = 0; i < x.length; i += 1) {
+      if (!shallowEqual(x[i], y[i])) return false;
+    }
+    return true;
+  };
+
+  // Track last applied states to prevent loops
+  const lastDataRef = useRef(null);
+  const lastSeriesRef = useRef([]);
+
+  const inFlightRef = useRef(false);
+  const mountedRef = useRef(false);
   useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const performFetch = useCallback(async () => {
     if (!organization_id) {
-      setData(null);
-      setT0000Series([]);
-      setError(null);
-      setLoading(false);
+      if (mountedRef.current) {
+        setLoading(false);
+        setError(null);
+        if (lastDataRef.current !== null) setData(null);
+        if (lastSeriesRef.current?.length) setT0000Series([]);
+      }
       return;
     }
 
@@ -71,82 +107,87 @@ export function useProjectsCreatedSummary(options = {}) {
     }
 
     inFlightRef.current = true;
-    setLoading(true);
-    setError(null);
+    if (mountedRef.current) {
+      setLoading(true);
+      setError(null);
+    }
 
-    // Internal activity flag: do not abort fetch mid-flight on dependency changes
-    // to avoid triggering extra requests; only abort on unmount via abortRef.
-    let isActive = true;
+    const isT0000 = String(organization_id).toUpperCase() === 'T0000';
 
     if (process.env.NODE_ENV !== 'test') {
       // eslint-disable-next-line no-console
-      console.debug('[useProjectsCreatedSummary] fetch start', {
-        organization_id,
-        params,
-      });
+      console.debug('[useProjectsCreatedSummary] fetch start', { organization_id, params });
     }
 
-    fetchProjectCreateSummary({
-      ...params,
-      organization_id,
-      signal: abortRef.current?.signal,
-    })
-      .then((payload) => {
-        if (!isActive) return;
-        setData(payload || null);
-
-        const isT0000 = String(organization_id).toUpperCase() === 'T0000';
-        // For T0000, adapt to horizontal bar chart series
-        if (isT0000) {
-          try {
-            const src = Array.isArray(payload) ? payload : payload?.buckets || [];
-            const series = projectCreateT0000Series(src);
-            setT0000Series(Array.isArray(series) ? series : []);
-          } catch (e) {
-            setT0000Series([]);
-            if (process.env.NODE_ENV !== 'test') {
-              // eslint-disable-next-line no-console
-              console.debug('[useProjectsCreatedSummary] series adapt error', String(e));
-            }
-          }
-        } else {
-          setT0000Series([]);
-        }
-
-        if (process.env.NODE_ENV !== 'test') {
-          // eslint-disable-next-line no-console
-          console.debug('[useProjectsCreatedSummary] fetch response', {
-            isT0000,
-            buckets: Array.isArray(payload?.buckets) ? payload.buckets.length : (Array.isArray(payload) ? payload.length : 0),
-            t0000SeriesLen: isT0000 ? (Array.isArray(t0000Series) ? t0000Series.length : 0) : 0,
-          });
-        }
-      })
-      .catch((e) => {
-        if (!isActive) return;
-        setError(e);
-        if (process.env.NODE_ENV !== 'test') {
-          // eslint-disable-next-line no-console
-          console.debug('[useProjectsCreatedSummary] fetch error', {
-            organization_id,
-            message: String(e),
-          });
-        }
-      })
-      .finally(() => {
-        if (!isActive) return;
-        inFlightRef.current = false;
-        setLoading(false);
-        if (process.env.NODE_ENV !== 'test') {
-          // eslint-disable-next-line no-console
-          console.debug('[useProjectsCreatedSummary] fetch end');
-        }
+    try {
+      const payload = await fetchProjectCreateSummary({
+        ...params,
+        organization_id,
+        signal: abortRef.current?.signal,
       });
 
-    return () => {
-      isActive = false;
-    };
-  }, [params, organization_id]);
+      if (!mountedRef.current) return;
+
+      // Update data only if changed to avoid loops
+      const nextData = payload || null;
+      const shouldUpdateData =
+        nextData === null
+          ? lastDataRef.current !== null
+          : !shallowEqual(
+              { buckets: Array.isArray(nextData?.buckets) ? nextData.buckets.length : Array.isArray(nextData) ? nextData.length : 0 },
+              { buckets: Array.isArray(lastDataRef.current?.buckets) ? lastDataRef.current.buckets.length : Array.isArray(lastDataRef.current) ? lastDataRef.current.length : 0 }
+            );
+
+      if (shouldUpdateData) {
+        setData(nextData);
+        lastDataRef.current = nextData;
+      }
+
+      // For T0000, adapt series and update only if changed
+      let nextSeries = [];
+      if (isT0000) {
+        const src = Array.isArray(payload) ? payload : payload?.buckets || [];
+        try {
+          nextSeries = projectCreateT0000Series(src) || [];
+        } catch (_) {
+          nextSeries = [];
+        }
+      }
+
+      if (!arrayShallowEqual(nextSeries, lastSeriesRef.current)) {
+        setT0000Series(nextSeries);
+        lastSeriesRef.current = nextSeries;
+      }
+
+      if (process.env.NODE_ENV !== 'test') {
+        // eslint-disable-next-line no-console
+        console.debug('[useProjectsCreatedSummary] fetch response', {
+          isT0000,
+          buckets: Array.isArray(payload?.buckets) ? payload.buckets.length : Array.isArray(payload) ? payload.length : 0,
+          t0000SeriesLen: nextSeries.length,
+        });
+      }
+    } catch (e) {
+      if (!mountedRef.current) return;
+      setError(e);
+      if (process.env.NODE_ENV !== 'test') {
+        // eslint-disable-next-line no-console
+        console.debug('[useProjectsCreatedSummary] fetch error', { organization_id, message: String(e) });
+      }
+    } finally {
+      if (mountedRef.current) setLoading(false);
+      inFlightRef.current = false;
+      if (process.env.NODE_ENV !== 'test') {
+        // eslint-disable-next-line no-console
+        console.debug('[useProjectsCreatedSummary] fetch end');
+      }
+    }
+  }, [organization_id, params]);
+
+  useEffect(() => {
+    // trigger once per stable params change
+    performFetch();
+  }, [performFetch]);
 
   // Stable shape for consumers
   return { loading, error, data, t0000Series, organization_id };
