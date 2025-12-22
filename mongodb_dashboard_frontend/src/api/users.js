@@ -1,4 +1,4 @@
-import { getApiClient } from './baseClient.js';
+import { getApiClient } from './baseClient';
 
 /**
  * PUBLIC_INTERFACE
