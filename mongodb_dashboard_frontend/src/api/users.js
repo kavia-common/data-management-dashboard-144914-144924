@@ -9,7 +9,7 @@ import { getApiClient } from './baseClient';
 export async function getUserBasic(userId, params = {}) {
   if (!userId) throw new Error('userId is required');
   const api = getApiClient();
-  const { data } = await api.get(`/api/users/${encodeURIComponent(String(userId))}`, { params });
+  const { data } = await api.get(`/api/users/${encodeURIComponent(userId)}`, { params });
   return data;
 }
 
@@ -23,6 +23,6 @@ export async function getUserBasic(userId, params = {}) {
 export async function getUserProjects(userId, params = {}) {
   if (!userId) throw new Error('userId is required');
   const api = getApiClient();
-  const { data } = await api.get(`/api/users/${encodeURIComponent(String(userId))}/projects`, { params });
+  const { data } = await api.get(`/api/users/${encodeURIComponent(userId)}/projects`, { params });
   return data;
 }

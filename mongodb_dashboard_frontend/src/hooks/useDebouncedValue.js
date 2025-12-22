@@ -1,27 +1,21 @@
- /**
-  * PUBLIC_INTERFACE
-  * useDebouncedValue
-  * Debounces a changing value by the specified delay (ms).
-  */
 import { useEffect, useState } from "react";
 
 /**
  * PUBLIC_INTERFACE
- * Debounce a rapidly-changing value.
- * Returns a debounced version of the value that only updates after the given delay.
- * Default delay = 300ms.
+ * useDebouncedValue
+ * Returns a debounced copy of a value that updates after the specified delay.
+ *
+ * @param {any} value - Source value to debounce
+ * @param {number} delayMs - Debounce delay in milliseconds (default 250ms)
+ * @returns {any} debounced value
  */
-export function useDebouncedValue(value, delay = 300) {
+export default function useDebouncedValue(value, delayMs = 250) {
   const [debounced, setDebounced] = useState(value);
 
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
+    const handle = setTimeout(() => setDebounced(value), Math.max(0, delayMs || 0));
+    return () => clearTimeout(handle);
+  }, [value, delayMs]);
 
   return debounced;
 }
-
-// PUBLIC_INTERFACE
-// Provide default export for compatibility where imported as default
-export default useDebouncedValue;

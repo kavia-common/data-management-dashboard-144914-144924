@@ -5,35 +5,28 @@ import { listUsers } from '../api'; // unified api index with clients
  * PUBLIC_INTERFACE
  * useUsers
  * A hook to fetch users from the backend and expose loading, error, and data states.
- * Pagination-driven: page and limit are forwarded to the API to ensure a single call per change.
  */
-export function useUsers({ page = 1, limit = 10, sort, filter, search, tenantId } = {}) {
+export function useUsers({ page, limit, sort, filter } = {}) {
   /**
    * This is a public function.
    * Returns:
    *  - users: array of user documents
    *  - loading: boolean
    *  - error: Error | null
-   *  - meta: { page, limit, total }
    *  - refetch: function to re-trigger fetch
    */
   const [users, setUsers] = useState([]);
-  const [meta, setMeta] = useState({ page, limit, total: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const params = useMemo(() => {
     const out = {};
-    // drive pagination explicitly
-    if (page != null) out.page = page;
-    if (limit != null) out.limit = limit;
+    // Note: limit is intentionally excluded for /api/users (stripped by client rule)
+    if (page) out.page = page;
     if (sort) out.sort = sort;
     if (filter) out.filter = typeof filter === 'string' ? filter : JSON.stringify(filter);
-    if (search) out.q = search;
-    // allow explicit tenant override if needed
-    if (tenantId) out.organization_id = tenantId; // alias accepted by backend
     return out;
-  }, [page, limit, sort, filter, search, tenantId]);
+  }, [page, sort, filter]);
 
   const fetchUsers = async (signal) => {
     setLoading(true);
@@ -44,22 +37,13 @@ export function useUsers({ page = 1, limit = 10, sort, filter, search, tenantId 
 
       if (process.env.NODE_ENV !== 'production') {
         // eslint-disable-next-line no-console
-        console.debug('[useUsers] listUsers => items:', Array.isArray(resp?.items) ? resp.items.length : 0, 'meta:', resp?.meta);
+        console.debug('[useUsers] listUsers => items:', Array.isArray(resp?.items) ? resp.items.length : 0);
       }
 
-      const items = Array.isArray(resp?.items) ? resp.items : [];
-      const nextMeta = resp?.meta || { page: params.page || 1, limit: params.limit || 10, total: Array.isArray(resp) ? resp.length : 0 };
-      setUsers(items);
-      setMeta({
-        page: Number(nextMeta.page) || params.page || 1,
-        limit: Number(nextMeta.limit) || params.limit || 10,
-        total: Number(nextMeta.total) || 0,
-      });
+      setUsers(Array.isArray(resp?.items) ? resp.items : []);
     } catch (err) {
       if (err?.name !== 'AbortError') {
         setError(err);
-        setUsers([]);
-        setMeta({ page: params.page || 1, limit: params.limit || 10, total: 0 });
       }
     } finally {
       setLoading(false);
@@ -77,7 +61,6 @@ export function useUsers({ page = 1, limit = 10, sort, filter, search, tenantId 
     users,
     loading,
     error,
-    meta,
     refetch: () => fetchUsers(),
   };
 }

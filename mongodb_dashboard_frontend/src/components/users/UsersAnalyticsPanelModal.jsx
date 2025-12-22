@@ -246,7 +246,7 @@ export default function UsersAnalyticsPanelModal({ userId, tenantId, from, to })
   return (
     <div style={{ display: "grid", gap: 12 }}>
       {/* Row 1: Sessions over time + Duration vs Count */}
-      <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 12 }}>
         <section
           aria-label="Sessions over time"
           style={{
