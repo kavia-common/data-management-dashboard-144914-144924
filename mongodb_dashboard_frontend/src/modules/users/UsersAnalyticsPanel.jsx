@@ -13,6 +13,7 @@ import {
 import { useUsers } from "../../hooks/useUsers";
 import { getActiveTenant } from "../../utils/tenantClient";
 import Skeleton from "../../components/ui/Skeleton";
+import { getApiClient } from "../../api/baseClient";
 
 /**
  * PUBLIC_INTERFACE
@@ -111,7 +112,7 @@ export default function UsersAnalyticsPanel({
               if (!u?._id) return;
               try {
                 const res = await api.get(
-                  `/users/${encodeURIComponent(String(u._id))}/projects`,
+                  `/api/users/${encodeURIComponent(String(u._id))}/projects`,
                   {
                     params: {
                       organization_id: activeTenantId,
