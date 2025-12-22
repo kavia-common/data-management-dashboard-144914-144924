@@ -10,6 +10,7 @@ import { getTenantHeaderOrQuery } from '../../api/util';
  * - Single call on initial load/refresh
  * - Pagination-driven subsequent fetches
  * - Overlapping request cancellation via AbortController
+ * - StrictMode guard to avoid duplicate fetches in development
  *
  * Params:
  *  - userId: string (required) user id to fetch projects for
@@ -37,7 +38,7 @@ export function useUserProjects(userId, tenantId, options = {}) {
     immediate = true,
   } = options;
 
-  const [data, setData] = useState(null); // response envelope { user_id, tenant_id, projects: [...] }
+  const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -50,18 +51,17 @@ export function useUserProjects(userId, tenantId, options = {}) {
   const abortRef = useRef(null);
   // Track if the last request was cancelled
   const cancelledRef = useRef(false);
+  // StrictMode mount guard: ensure we only trigger the initial fetch once in dev double-invoke
+  const didInitRef = useRef(false);
 
-  const canRequest = userId && tenantId;
+  const canRequest = Boolean(userId) && Boolean(tenantId);
 
   const queryParams = useMemo(() => {
     const params = new URLSearchParams();
-    // Backend requires organization_id or tenant_id; we pass both safely.
     params.set('organization_id', tenantId);
     params.set('tenant_id', tenantId);
     if (from) params.set('from', from);
     if (to) params.set('to', to);
-    // For future pagination support on this endpoint, we include page/limit if backend adds it later.
-    // Even if backend currently returns full list, this keeps hook API consistent and harmless.
     params.set('page', String(page));
     params.set('limit', String(limit));
     return params;
@@ -73,7 +73,7 @@ export function useUserProjects(userId, tenantId, options = {}) {
   }, [canRequest, userId, tenantId, from, to, page, limit]);
 
   const buildUrl = useCallback(() => {
-    const base = getUsersApiBase?.() || ''; // defensive: project already uses api/config.js helpers
+    const base = getUsersApiBase?.() || '';
     const path = `/api/users/${encodeURIComponent(userId)}/projects`;
     return `${base}${path}?${queryParams.toString()}`;
   }, [userId, queryParams]);
@@ -84,7 +84,7 @@ export function useUserProjects(userId, tenantId, options = {}) {
 
     const nextKey = requestKey;
     if (lastFetchKeyRef.current === nextKey) {
-      // Prevent duplicate network call for the same stable params (addresses StrictMode double effects)
+      // Prevent duplicate network call for the same stable params
       return;
     }
 
@@ -137,7 +137,6 @@ export function useUserProjects(userId, tenantId, options = {}) {
       if (timeoutId) clearTimeout(timeoutId);
 
       if (!res.ok) {
-        // If aborted, avoid setting error
         if (controller.signal.aborted) {
           cancelledRef.current = true;
           return;
@@ -147,7 +146,6 @@ export function useUserProjects(userId, tenantId, options = {}) {
       }
 
       const json = await res.json();
-      // Only set when the request has not been cancelled in the meantime
       if (!controller.signal.aborted) {
         setData(json);
         lastFetchKeyRef.current = nextKey;
@@ -155,7 +153,6 @@ export function useUserProjects(userId, tenantId, options = {}) {
     } catch (e) {
       if (e?.name === 'AbortError') {
         cancelledRef.current = true;
-        // Swallow abort error
       } else {
         setError(e);
       }
@@ -169,11 +166,15 @@ export function useUserProjects(userId, tenantId, options = {}) {
   // PUBLIC_INTERFACE
   const isCancelled = useCallback(() => cancelledRef.current, []);
 
-  // Single-call on initial mount/refresh, with deps limited to stable identifiers.
+  // Single-call on initial mount/refresh with StrictMode guard
   useEffect(() => {
     if (!immediate) return;
-    // Only when critical identifiers are available
-    if (canRequest) {
+    if (!canRequest) return;
+
+    // In StrictMode (development), effects run twice on mount.
+    // Ensure we only trigger the initial fetch once.
+    if (!didInitRef.current) {
+      didInitRef.current = true;
       refresh();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -198,7 +199,7 @@ export function useUserProjects(userId, tenantId, options = {}) {
     error,
     page,
     limit,
-    total: data?.projects?.length ?? 0, // backend doesn't paginate this endpoint; expose length as total
+    total: data?.projects?.length ?? 0,
     setPage,
     setLimit,
     refresh,

@@ -15,6 +15,16 @@ import { Skeleton } from '../../components/ui/Skeleton';
  *  - pageSize?: number (default 10)
  */
 export default function UserProjectsView({ userId, tenantId, pageSize = 10 }) {
+  // Stabilize incoming identifiers in case parent re-renders change referential identity
+  const stableIds = React.useMemo(
+    () => ({ userId, tenantId }),
+    [userId, tenantId]
+  );
+  const stableOptions = React.useMemo(
+    () => ({ page: 1, limit: pageSize, immediate: true }),
+    [pageSize]
+  );
+
   const {
     data,
     loading,
@@ -25,17 +35,16 @@ export default function UserProjectsView({ userId, tenantId, pageSize = 10 }) {
     setPage,
     setLimit,
     refresh,
-  } = useUserProjects(userId, tenantId, { page: 1, limit: pageSize, immediate: true });
+  } = useUserProjects(stableIds.userId, stableIds.tenantId, stableOptions);
 
   const projects = data?.projects || [];
 
-  const handlePrev = () => setPage(Math.max(1, page - 1));
-  const handleNext = () => setPage(page + 1);
-  const handlePageSize = (e) => setLimit(Number(e.target.value));
+  const handlePrev = React.useCallback(() => setPage((p) => Math.max(1, p - 1)), [setPage]);
+  const handleNext = React.useCallback(() => setPage((p) => p + 1), [setPage]);
+  const handlePageSize = React.useCallback((e) => setLimit(Number(e.target.value)), [setLimit]);
 
-  // Trigger fetch when page/limit change
+  // Trigger fetch when page/limit change only
   React.useEffect(() => {
-    // Pagination-driven subsequent fetches
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit]);
@@ -51,9 +60,13 @@ export default function UserProjectsView({ userId, tenantId, pageSize = 10 }) {
           Next
         </Button>
         <label style={{ marginLeft: 12, fontSize: 12 }}>
-          Page size:{' '}
+          Page size{' '}
           <select value={limit} onChange={handlePageSize}>
-            {[5,10,20,50].map(n => <option key={n} value={n}>{n}</option>)}
+            {[5, 10, 20, 50].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
           </select>
         </label>
         <Button onClick={refresh} disabled={loading} size="sm">
