@@ -35,6 +35,14 @@ export default function ProjectsServiceTypeBarChart({
   defaultRange = 'daily',
 }) {
   const derivedOrgId = useCurrentOrgId();
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'test') {
+      // eslint-disable-next-line no-console
+      console.debug('[ProjectsServiceTypeBarChart] mount', { org: organizationIdProp || derivedOrgId || null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const organizationId = organizationIdProp || derivedOrgId;
   const isAllTenants = String(organizationId || '').toUpperCase() === 'T0000';
 

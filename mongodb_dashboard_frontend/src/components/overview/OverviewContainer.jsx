@@ -25,8 +25,35 @@ export default function OverviewContainer() {
   const effectiveOrg = useMemo(() => organization_id || getOrgIdFromContext() || '', [organization_id]);
   const isT0000 = String(effectiveOrg).toUpperCase() === 'T0000';
 
-  // Diagnostics: fetch start/end and params/response length get logged by the hook.
-  // Log only lightweight derived info here.
+  // Build series for T0000 chart; if hook already produced a series, prefer it.
+  const t0000Series = useMemo(() => {
+    if (!isT0000) return [];
+    if (Array.isArray(hookSeries)) return hookSeries;
+    return projectCreateT0000Series(data?.buckets || []);
+  }, [isT0000, hookSeries, data]);
+
+  // Precompute flags and UI nodes without early returns to keep hook order consistent
+  const loadingNode = <OverviewEmptyState message="Loading overview..." />;
+  const errorNode = (
+    <>
+      {process.env.NODE_ENV !== 'test' && console && console.debug
+        ? // eslint-disable-next-line no-console
+          console.debug('[OverviewContainer] fetch error', { organization_id: effectiveOrg, error: String(error) })
+        : null}
+      <OverviewEmptyState message="Failed to load overview." />
+    </>
+  );
+
+  // minimal mount debug
+  React.useEffect(() => {
+    if (process.env.NODE_ENV !== 'test') {
+      // eslint-disable-next-line no-console
+      console.debug('[OverviewContainer] mount', { org: effectiveOrg || null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Diagnostics state log (non-blocking)
   if (process.env.NODE_ENV !== 'test') {
     // eslint-disable-next-line no-console
     console.debug('[OverviewContainer] state', {
@@ -38,53 +65,40 @@ export default function OverviewContainer() {
     });
   }
 
-  if (loading) {
-    return <OverviewEmptyState message="Loading overview..." />;
-  }
-  if (error) {
-    if (process.env.NODE_ENV !== 'test') {
-      // eslint-disable-next-line no-console
-      console.debug('[OverviewContainer] fetch error', { organization_id: effectiveOrg, error: String(error) });
-    }
-    return <OverviewEmptyState message="Failed to load overview." />;
-  }
-
-  const hasData = Array.isArray(data?.buckets) && data.buckets.length > 0;
-
-  // Build series for T0000 chart; if hook already produced a series, prefer it.
-  const t0000Series = useMemo(() => {
-    if (!isT0000) return [];
-    if (Array.isArray(hookSeries)) return hookSeries;
-    return projectCreateT0000Series(data?.buckets || []);
-  }, [isT0000, hookSeries, data]);
-
   return (
     <div className="overview-container">
-      {/* Preserve all original panels/sections in the same order */}
+      {/* Top controls and KPIs always render to ensure independent hooks mount */}
       <OverviewTimeControls />
       <OverviewKpiCards />
       <OverviewUsersSummarySection />
 
-      {/* Keep existing projects created chart unchanged for all orgs */}
-      {hasData && (
-        <div style={{ marginTop: 16 }}>
-          <ProjectsCreatedBarChart data={data} />
-        </div>
-      )}
+      {/* Inline loading/error gates for primary data area without affecting hook order */}
+      {loading ? (
+        loadingNode
+      ) : error ? (
+        errorNode
+      ) : (
+        <>
+          {/* Projects created chart should always mount independently */}
+          <div style={{ marginTop: 16 }}>
+            <ProjectsCreatedBarChart />
+          </div>
 
-      {/* Append-only: T0000 horizontal bar chart panel; keep skeleton mounted even if empty */}
-      {isT0000 && (
-        <div style={{ marginTop: 24 }}>
-          {Array.isArray(t0000Series) && t0000Series.length > 0 ? (
-            <T0000OrgHorizontalBarChart series={t0000Series} title="Projects Created (T0000)" />
-          ) : (
-            // Keep placeholder rendering and mount the chart shell for layout stability
-            <div>
-              <T0000OrgHorizontalBarChart series={[]} title="Projects Created (T0000)" />
-              <OverviewEmptyState message="No data yet" />
+          {/* Append-only: T0000 horizontal bar chart panel; keep skeleton mounted even if empty */}
+          {isT0000 && (
+            <div style={{ marginTop: 24 }}>
+              {Array.isArray(t0000Series) && t0000Series.length > 0 ? (
+                <T0000OrgHorizontalBarChart series={t0000Series} title="Projects Created (T0000)" />
+              ) : (
+                // Keep placeholder rendering and mount the chart shell for layout stability
+                <div>
+                  <T0000OrgHorizontalBarChart series={[]} title="Projects Created (T0000)" />
+                  <OverviewEmptyState message="No data yet" />
+                </div>
+              )}
             </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );

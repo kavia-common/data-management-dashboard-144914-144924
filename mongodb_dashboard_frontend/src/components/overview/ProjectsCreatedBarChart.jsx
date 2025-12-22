@@ -76,6 +76,15 @@ function ProjectsTooltip({ active, payload, label }) {
 export default function ProjectsCreatedBarChart() {
   const organizationId = useCurrentOrgId();
 
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'test') {
+      // eslint-disable-next-line no-console
+      console.debug('[ProjectsCreatedBarChart] mount', { org: organizationId || null });
+    }
+    // org only for initial log; not intended to control fetch here
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Aligned range/custom date state
   const [range, setRange] = useState(RANGE.daily);
   const [customStart, setCustomStart] = useState(''); // YYYY-MM-DD

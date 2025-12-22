@@ -1,30 +1,25 @@
-import React from 'react';
-import { useProjectsCreatedSummary } from '../hooks/useProjectsCreatedSummary';
-import T0000OrgHorizontalBarChart from '../components/overview/T0000OrgHorizontalBarChart';
-import ProjectsCreatedBarChart from '../components/overview/ProjectsCreatedBarChart';
-import { getOrgIdFromContext } from '../utils/orgContext';
+import React, { useEffect } from 'react';
+import OverviewContainer from '../components/overview/OverviewContainer';
 
 /**
  * PUBLIC_INTERFACE
  * Overview
- * Conditionally renders T0000 horizontal bar chart when organization_id === 'T0000', else default chart.
+ * Renders the full OverviewContainer so all existing charts mount and fetch on initial load.
+ * Keeps T0000 chart append-only behavior inside the container.
  */
 // PUBLIC_INTERFACE
 export default function Overview() {
-  const organization_id = getOrgIdFromContext();
-  const { data, t0000Series, loading, error } = useProjectsCreatedSummary({ organization_id });
-
-  if (error) {
-    return <div role="alert">Failed to load overview</div>;
-  }
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'test') {
+      // minimal debug: page-level mount
+      // eslint-disable-next-line no-console
+      console.debug('[Overview] mount');
+    }
+  }, []);
 
   return (
     <div className="overview-page">
-      {organization_id === 'T0000' ? (
-        <T0000OrgHorizontalBarChart series={Array.isArray(t0000Series) ? t0000Series : []} title="Projects Created (T0000)" />
-      ) : (
-        <ProjectsCreatedBarChart data={data} loading={loading} />
-      )}
+      <OverviewContainer />
     </div>
   );
 }

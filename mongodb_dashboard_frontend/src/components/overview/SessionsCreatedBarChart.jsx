@@ -30,6 +30,14 @@ import { getOverviewProjectsSummary } from '../../api/overviewAnalytics';
  */
 export default function SessionsCreateBarChart() {
   const organizationId = useCurrentOrgId();
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== 'test') {
+      // eslint-disable-next-line no-console
+      console.debug('[SessionsCreatedBarChart] mount', { org: organizationId || null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [range, setRange] = useState('daily');
   const [pendingStart, setPendingStart] = useState('');
   const [pendingEnd, setPendingEnd] = useState('');
