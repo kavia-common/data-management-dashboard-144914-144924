@@ -222,7 +222,11 @@ export default function Costs() {
             id="costs-pagesize"
             className="input"
             value={limit}
-            onChange={(e) => setLimit(Number(e.target.value) || 10)}
+            onChange={(e) => {
+              const newLimit = Number(e.target.value) || 10;
+              doFetch(1, newLimit);   // refetch from page 1
+            }}
+
           >
             {[10, 20, 50, 100, 200].map((n) => (
               <option key={n} value={n}>
