@@ -118,7 +118,7 @@ export default function Costs() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>
-                <th style={{ padding: '8px 6px', cursor: 'pointer' }} onClick={() => onHeaderClick('user_name')}>User</th>
+                <th style={{ padding: '8px 6px', cursor: 'pointer' }} onClick={() => onHeaderClick('user_name')}>User Name</th>
                 <th style={{ padding: '8px 6px' }}>Provider</th>
                 <th style={{ padding: '8px 6px' }}>Model</th>
                 <th style={{ padding: '8px 6px' }}>Timestamp</th>
@@ -127,13 +127,13 @@ export default function Costs() {
             </thead>
             <tbody>
               {sorted.map((row) => {
-                // Prefer user_display_name when provided by backend; fall back to existing user_name then "Unknown User"
+                // Prefer user_name provided by backend; optionally fall back to user_display_name; then "Unknown User"
                 const displayName =
-                  (typeof row.user_display_name === 'string' && row.user_display_name.trim()
-                    ? row.user_display_name
-                    : null) ||
                   (typeof row.user_name === 'string' && row.user_name.trim()
                     ? row.user_name
+                    : null) ||
+                  (typeof row.user_display_name === 'string' && row.user_display_name.trim()
+                    ? row.user_display_name
                     : 'Unknown User');
 
                 return (
