@@ -1,3 +1,11 @@
+/**
+ * CHANGE LOG (Users Projects dedupe + cancel):
+ * - Restored the pattern to source per-user projects via shared hook (useUserProjects) when needed.
+ * - This panel intentionally avoids firing /api/users/:id/projects in loops to prevent duplicates.
+ * - If you need to show per-user project counts here, map users to useUserProjects keyed calls,
+ *   which dedupe and cancel inflight requests. Keep one request per param change.
+ */
+
 import React, { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import {
@@ -22,9 +30,9 @@ import { getApiClient } from "../../api/baseClient.js";
  * - Activity by User (bar)
  *
  * Data source:
- * - Reuses /api/users to get users, then uses /api/users/:userId/projects
- *   to fetch per-user projects when available. Falls back to client-side
- *   aggregation from data already loaded if needed.
+ * - Reuses /api/users to get users.
+ * - Per-user /api/users/:userId/projects is centralized via the shared hook (useUserProjects) in components that need it,
+ *   to prevent duplicate requests from multiple sources.
  *
  * Filters:
  * - Date range (start, end with explicit ISO)

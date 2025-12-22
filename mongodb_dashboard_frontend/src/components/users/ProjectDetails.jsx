@@ -1,3 +1,11 @@
+/**
+ * CHANGE LOG (Users Projects dedupe + cancel):
+ * - Uses shared hook useUserProjects which dedupes and cancels in-flight requests by key.
+ * - Restores required call to /api/users/:id/projects for this view when preloaded data is absent.
+ * - Ensures one request per change (page, limit, from, to, userId), and cancels inflight on parameter change.
+ * - Keeps UI and pagination behavior intact.
+ */
+
 import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useAuth } from '../../context/AuthContext';
@@ -10,10 +18,6 @@ import { useUserProjects } from '../../hooks/useUserProjects';
  * It attempts to read project details (project_id, project_name) from the selectedUser object when available.
  * If not present, it will fetch from the backend using the /api/users/{userId}/projects endpoint,
  * requiring tenant/organization scoping taken from auth context when available.
- *
- * Change log:
- * - Adds explicit pagination (page/limit) so only a single network request is made per pagination/filter change.
- * - Guards against duplicate concurrent fetches by using a single effect driven by [userId, orgId, page, limit, from, to].
  */
 export default function ProjectDetails({ selectedUser }) {
   const { organizationId: authOrgId } = useAuth?.() || {};
