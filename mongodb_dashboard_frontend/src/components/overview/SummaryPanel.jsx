@@ -13,6 +13,17 @@ import useProjectsCreatedSummary from '../../hooks/useProjectsCreatedSummary';
 export default function SummaryPanel({ className = '' }) {
   const { data, t0000Series, loading, error, organization_id } = useProjectsCreatedSummary({ range: 'daily' });
 
+  if (process.env.NODE_ENV !== 'test') {
+    // eslint-disable-next-line no-console
+    console.debug('[SummaryPanel] state', {
+      org: organization_id,
+      loading,
+      hasError: !!error,
+      buckets: Array.isArray(data?.buckets) ? data.buckets.length : 0,
+      t0000SeriesLen: Array.isArray(t0000Series) ? t0000Series.length : 0,
+    });
+  }
+
   if (loading) {
     return (
       <Card title="Summary" subtitle="Key insights from recent activity" className={className}>
@@ -40,15 +51,14 @@ export default function SummaryPanel({ className = '' }) {
     <div className={className}>
       <Card title="Summary" subtitle="Key insights from recent activity">
         <div style={{ marginBottom: 12, color: 'var(--ocean-muted, #6B7280)' }}>{buckets.length} buckets</div>
-        {/* Keep minimal content; the detailed insight cards were part of earlier version. */}
       </Card>
 
-      {/* Render T0000-only horizontal bar when applicable and data present */}
-      {isT0000 && Array.isArray(t0000Series) && t0000Series.length > 0 ? (
+      {/* Render T0000-only horizontal bar; keep skeleton mounted with placeholder when empty */}
+      {isT0000 && (
         <div style={{ marginTop: 16 }}>
-          <T0000OrgHorizontalBarChart series={t0000Series} />
+          <T0000OrgHorizontalBarChart series={Array.isArray(t0000Series) ? t0000Series : []} />
         </div>
-      ) : null}
+      )}
     </div>
   );
 }

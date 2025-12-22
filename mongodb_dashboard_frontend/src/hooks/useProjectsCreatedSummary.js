@@ -6,12 +6,7 @@ import { getOrgIdFromContext } from '../utils/orgContext';
 /**
  * PUBLIC_INTERFACE
  * useProjectsCreatedSummary
- * Hardened hook to fetch /api/projects/summary with:
- * - Single in-flight request guard
- * - Always passing organization_id in query and x-organization-id header
- * - AbortController that aborts only on unmount
- * - T0000 series transformation
- * - Minimal logs for start/end to detect cancellations
+ * Stable return shape and minimal diagnostics for Overview/Summary panels.
  */
 // PUBLIC_INTERFACE
 export function useProjectsCreatedSummary(options = {}) {
@@ -20,13 +15,11 @@ export function useProjectsCreatedSummary(options = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Resolve current org; options can override
   const organization_id = useMemo(
     () => (options.organization_id || getOrgIdFromContext() || '').trim(),
     [options.organization_id]
   );
 
-  // Only abort on unmount
   const abortRef = useRef(null);
   useEffect(() => {
     abortRef.current = new AbortController();
@@ -39,13 +32,11 @@ export function useProjectsCreatedSummary(options = {}) {
     };
   }, []);
 
-  // Avoid stringifying options; pick stable keys
   const stableOptions = useMemo(() => {
     const { range, start_date, end_date, project_id } = options || {};
     return { range, start_date, end_date, project_id };
   }, [options.range, options.start_date, options.end_date, options.project_id]);
 
-  // Memoize params to enforce single in-flight on actual change
   const params = useMemo(
     () => ({ ...stableOptions, organization_id }),
     [stableOptions, organization_id]
@@ -65,7 +56,7 @@ export function useProjectsCreatedSummary(options = {}) {
     if (inFlightRef.current) {
       if (process.env.NODE_ENV !== 'test') {
         // eslint-disable-next-line no-console
-        console.log('[useProjectsCreatedSummary] fetch skipped (in-flight)');
+        console.debug('[useProjectsCreatedSummary] skip (in-flight)');
       }
       return;
     }
@@ -78,23 +69,53 @@ export function useProjectsCreatedSummary(options = {}) {
 
     if (process.env.NODE_ENV !== 'test') {
       // eslint-disable-next-line no-console
-      console.log('[useProjectsCreatedSummary] fetch start', params);
+      console.debug('[useProjectsCreatedSummary] fetch start', {
+        organization_id,
+        params,
+      });
     }
 
-    // Note: AbortController not passed to client; we only cancel on unmount by guarding isActive
     fetchProjectsSummary(params, organization_id)
       .then((payload) => {
         if (!isActive) return;
         setData(payload || null);
-        if (organization_id === 'T0000' && Array.isArray(payload?.buckets) && payload.buckets.length > 0) {
-          setT0000Series(projectCreateT0000Series(payload.buckets));
+
+        const bucketsLen = Array.isArray(payload?.buckets) ? payload.buckets.length : 0;
+        const isT0000 = organization_id === 'T0000';
+
+        if (isT0000 && bucketsLen > 0) {
+          try {
+            setT0000Series(projectCreateT0000Series(payload.buckets));
+          } catch (e) {
+            setT0000Series([]);
+            if (process.env.NODE_ENV !== 'test') {
+              // eslint-disable-next-line no-console
+              console.debug('[useProjectsCreatedSummary] series adapt error', String(e));
+            }
+          }
         } else {
           setT0000Series([]);
+        }
+
+        if (process.env.NODE_ENV !== 'test') {
+          // eslint-disable-next-line no-console
+          console.debug('[useProjectsCreatedSummary] fetch ok', {
+            buckets: bucketsLen,
+            isT0000,
+            t0000SeriesLen: isT0000 ? (Array.isArray(payload?.buckets) ? payload.buckets.length : 0) : 0,
+          });
         }
       })
       .catch((e) => {
         if (!isActive) return;
         setError(e);
+        if (process.env.NODE_ENV !== 'test') {
+          // eslint-disable-next-line no-console
+          console.debug('[useProjectsCreatedSummary] fetch error', {
+            organization_id,
+            message: String(e),
+          });
+        }
       })
       .finally(() => {
         if (!isActive) return;
@@ -102,17 +123,17 @@ export function useProjectsCreatedSummary(options = {}) {
         setLoading(false);
         if (process.env.NODE_ENV !== 'test') {
           // eslint-disable-next-line no-console
-          console.log('[useProjectsCreatedSummary] fetch end');
+          console.debug('[useProjectsCreatedSummary] fetch end');
         }
       });
 
     return () => {
-      isActive = false; // do not abort request; just ignore resolution after unmount/change
+      isActive = false;
     };
   }, [params, organization_id]);
 
-  return { data, t0000Series, loading, error, organization_id };
+  // Stable shape for consumers
+  return { loading, error, data, t0000Series, organization_id };
 }
 
-// Maintain default export for existing import styles
 export default useProjectsCreatedSummary;

@@ -7,11 +7,13 @@ import getOceanColors from '../theme/colors';
  */
 // PUBLIC_INTERFACE
 export function projectCreateT0000Series(buckets = []) {
-  if (!Array.isArray(buckets)) return [];
+  // Support being called with either an array or an object { buckets: [...] }
+  const src = Array.isArray(buckets) ? buckets : Array.isArray(buckets?.buckets) ? buckets.buckets : [];
+  if (!Array.isArray(src)) return [];
   const colors = getOceanColors?.() || {};
   const color = colors.primary || '#2563EB';
 
-  return buckets
+  return src
     .filter(Boolean)
     .map((b, idx) => {
       const name = b.organization_id || b.key || b.label || `Org #${idx + 1}`;

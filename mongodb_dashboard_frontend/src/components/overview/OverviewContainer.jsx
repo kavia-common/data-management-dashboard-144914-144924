@@ -14,36 +14,49 @@ import './overview.css';
  * PUBLIC_INTERFACE
  * OverviewContainer
  * Preserves all existing overview sections and charts.
- * Appends a T0000-specific horizontal bar chart panel when organization_id === 'T0000' and data exists.
- * Does not alter styling, props, or behavior of existing charts. Keeps single in-flight request behavior.
+ * Appends a T0000-specific horizontal bar chart panel when organization_id === 'T0000'.
+ * Adds minimal diagnostics for fetch lifecycle.
+ * Keeps existing charts intact for non-T0000 flows.
  */
 export default function OverviewContainer() {
   // Use the existing hook to fetch overview projects summary.
-  // This hook is assumed to handle request lifecycles correctly (single in-flight, abort on unmount).
-  const { data, loading, error, orgId } = useProjectsCreatedSummary();
+  const { data, loading, error, organization_id, t0000Series: hookSeries } = useProjectsCreatedSummary();
 
-  const effectiveOrg = useMemo(() => orgId || getOrgIdFromContext() || '', [orgId]);
+  const effectiveOrg = useMemo(() => organization_id || getOrgIdFromContext() || '', [organization_id]);
   const isT0000 = String(effectiveOrg).toUpperCase() === 'T0000';
+
+  // Diagnostics: fetch start/end and params/response length get logged by the hook.
+  // Log only lightweight derived info here.
+  if (process.env.NODE_ENV !== 'test') {
+    // eslint-disable-next-line no-console
+    console.debug('[OverviewContainer] state', {
+      org: effectiveOrg,
+      loading,
+      hasError: !!error,
+      buckets: Array.isArray(data?.buckets) ? data.buckets.length : 0,
+      t0000SeriesLen: Array.isArray(hookSeries) ? hookSeries.length : 0,
+    });
+  }
 
   if (loading) {
     return <OverviewEmptyState message="Loading overview..." />;
   }
   if (error) {
+    if (process.env.NODE_ENV !== 'test') {
+      // eslint-disable-next-line no-console
+      console.debug('[OverviewContainer] fetch error', { organization_id: effectiveOrg, error: String(error) });
+    }
     return <OverviewEmptyState message="Failed to load overview." />;
   }
 
   const hasData = Array.isArray(data?.buckets) && data.buckets.length > 0;
 
-  // Build series for T0000 chart only when org is T0000 and source data available.
+  // Build series for T0000 chart; if hook already produced a series, prefer it.
   const t0000Series = useMemo(() => {
-    if (!isT0000 || !hasData) return [];
-    return projectCreateT0000Series({
-      buckets: data?.buckets || [],
-      range: data?.range,
-      start_date: data?.start_date,
-      end_date: data?.end_date,
-    });
-  }, [isT0000, hasData, data]);
+    if (!isT0000) return [];
+    if (Array.isArray(hookSeries)) return hookSeries;
+    return projectCreateT0000Series(data?.buckets || []);
+  }, [isT0000, hookSeries, data]);
 
   return (
     <div className="overview-container">
@@ -59,10 +72,18 @@ export default function OverviewContainer() {
         </div>
       )}
 
-      {/* Append-only: T0000 horizontal bar chart as its own panel, conditionally rendered */}
-      {isT0000 && Array.isArray(t0000Series) && t0000Series.length > 0 && (
+      {/* Append-only: T0000 horizontal bar chart panel; keep skeleton mounted even if empty */}
+      {isT0000 && (
         <div style={{ marginTop: 24 }}>
-          <T0000OrgHorizontalBarChart series={t0000Series} title="Projects Created (T0000)" />
+          {Array.isArray(t0000Series) && t0000Series.length > 0 ? (
+            <T0000OrgHorizontalBarChart series={t0000Series} title="Projects Created (T0000)" />
+          ) : (
+            // Keep placeholder but mount the chart shell to force layout reservation and visibility
+            <div>
+              <T0000OrgHorizontalBarChart series={[]} title="Projects Created (T0000)" />
+              <OverviewEmptyState message="No data yet" />
+            </div>
+          )}
         </div>
       )}
     </div>
