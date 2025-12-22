@@ -7,30 +7,19 @@ import { Skeleton } from '../../components/ui/Skeleton';
 /**
  * PUBLIC_INTERFACE
  * UserProjectsView
- * A simple, paginated view over a user's projects using the optimized single-call + cancellation hook.
+ * Paginated list of a user's projects. Ensures only one initial fetch and subsequent requests are driven by pagination.
  *
  * Props:
  *  - userId: string (required)
  *  - tenantId: string (required)
  *  - pageSize?: number (default 10)
- *
- * TEMP DEV-ONLY LOGS:
- *  - Guarded with NODE_ENV === 'development'
- *  - Prefixed with [TEMP][Users/UserProjectsView]
- *  - Verifies pagination-driven triggers and render lifecycle
  */
 export default function UserProjectsView({ userId, tenantId, pageSize = 10 }) {
   const isDev = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'development';
 
-  // Stabilize incoming identifiers in case parent re-renders change referential identity
-  const stableIds = React.useMemo(
-    () => ({ userId, tenantId }),
-    [userId, tenantId]
-  );
-  const stableOptions = React.useMemo(
-    () => ({ page: 1, limit: pageSize, immediate: true }),
-    [pageSize]
-  );
+  // Stabilize input ids
+  const stableIds = React.useMemo(() => ({ userId, tenantId }), [userId, tenantId]);
+  const stableOptions = React.useMemo(() => ({ page: 1, pageSize, immediate: true }), [pageSize]);
 
   const {
     data,
@@ -46,32 +35,21 @@ export default function UserProjectsView({ userId, tenantId, pageSize = 10 }) {
 
   const projects = data?.projects || [];
 
+  // Handlers are memoized to avoid identity churn
   const handlePrev = React.useCallback(() => setPage((p) => Math.max(1, p - 1)), [setPage]);
   const handleNext = React.useCallback(() => setPage((p) => p + 1), [setPage]);
   const handlePageSize = React.useCallback((e) => setLimit(Number(e.target.value)), [setLimit]);
+  const handleRefresh = React.useCallback(() => refresh(), [refresh]);
 
   // Trigger fetch when page/limit change only
   React.useEffect(() => {
     if (isDev) {
       // eslint-disable-next-line no-console
-      console.debug('[TEMP][Users/UserProjectsView] PAGE/LIMIT change -> refresh()', { page, limit, userId, tenantId });
+      console.debug('[Users/UserProjectsView] page/limit changed -> refresh()', { page, limit });
     }
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit]);
-
-  // Render diagnostics
-  React.useEffect(() => {
-    if (!isDev) return;
-    // eslint-disable-next-line no-console
-    console.debug('[TEMP][Users/UserProjectsView] RENDER', {
-      loading,
-      error: error ? String(error.message || error) : null,
-      count: projects.length,
-      page,
-      limit,
-    });
-  }, [isDev, loading, error, projects.length, page, limit]);
 
   return (
     <div className="user-projects-view">
@@ -93,7 +71,7 @@ export default function UserProjectsView({ userId, tenantId, pageSize = 10 }) {
             ))}
           </select>
         </label>
-        <Button onClick={refresh} disabled={loading} size="sm">
+        <Button onClick={handleRefresh} disabled={loading} size="sm">
           Refresh
         </Button>
       </div>
@@ -107,9 +85,7 @@ export default function UserProjectsView({ userId, tenantId, pageSize = 10 }) {
       )}
 
       {error && (
-        <div style={{ color: '#EF4444', fontSize: 12 }}>
-          Failed to load user projects: {String(error.message || error)}
-        </div>
+        <div style={{ color: '#EF4444', fontSize: 12 }}>Failed to load user projects: {String(error.message || error)}</div>
       )}
 
       {!loading && !error && (
