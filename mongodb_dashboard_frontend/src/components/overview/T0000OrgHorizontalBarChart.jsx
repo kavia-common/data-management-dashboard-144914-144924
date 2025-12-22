@@ -5,6 +5,8 @@ import PropTypes from 'prop-types';
  * PUBLIC_INTERFACE
  * T0000OrgHorizontalBarChart
  * Simple horizontal bar chart for T0000 series: [{ name, value }]
+ * Renders nothing when no data is present to avoid empty placeholders.
+ * Styling and composition remain isolated so existing charts are unaffected.
  */
 // PUBLIC_INTERFACE
 export default function T0000OrgHorizontalBarChart({ series, title = 'Organization Projects (T0000)' }) {
