@@ -7,7 +7,7 @@ import Modal from '../ui/Modal.jsx';
 // Shared components/utilities
 import DataTable from '../DataTable.jsx';
 
-import { listSessions, listLlmCosts } from '../../api/baseClient';
+import { listSessions, listLlmCostsUnderscore } from '../../api/baseClient';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
 import ProjectDetails from './ProjectDetails.jsx';
@@ -623,7 +623,9 @@ export default function TabbedUserModal({
       setLoading(true);
       setError('');
       try {
-        const res = await listLlmCosts({ page: 1, limit: 100, sort: '-timestamp' });
+        // Credits Consumed tab should now use /api/llm_costs
+        // Keep pagination wiring; switch to page=1, limit=10 as requested
+        const res = await listLlmCostsUnderscore({ page: 1, limit: 10 });
         let items = Array.isArray(res?.items) ? res.items : [];
         const normalizedUserId = String(userId);
         items = items.filter((row) => {
