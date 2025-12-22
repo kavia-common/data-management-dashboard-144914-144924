@@ -9,10 +9,6 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-
-  PieChart,
-  Pie,
-  Cell,
 } from "recharts";
 import { useUsers } from "../../hooks/useUsers";
 import { getApiClient } from "../../api";
@@ -23,8 +19,7 @@ import Skeleton from "../../components/ui/Skeleton";
  * PUBLIC_INTERFACE
  * UsersAnalyticsPanel
  * A charts/analytics panel for the Users page, with independent filters.
- * - Projects by User (bar)
- * - Projects by Department (pie/donut)
+ * - Activity by User (bar)
  *
  * Data source:
  * - Reuses /api/users to get users, then uses /api/users/:userId/projects
@@ -44,7 +39,6 @@ export default function UsersAnalyticsPanel({
   defaultDays = 30,
 }) {
   // Filter state (independent from Overview)
-  // Aggregation removed: charts render unbucketed timeline based on raw activity dates
   const [days, setDays] = useState(defaultDays);
   const [customStart, setCustomStart] = useState(null);
   const [customEnd, setCustomEnd] = useState(null);
@@ -156,80 +150,40 @@ export default function UsersAnalyticsPanel({
     };
   }, [users, activeTenantId, startISO, endISO]);
 
-  // Aggregations
+  // Aggregations (department distribution removed)
   const aggregates = useMemo(() => {
-    // Projects by user count
+    // Projects by user count only
     const projectsCountByUser = [];
-    // Projects by department (from users)
-    const projectsByDepartment = new Map();
 
-    const departmentOf = (u) =>
-      u?.department ||
-      u?.profile?.department ||
-      u?.metadata?.department ||
-      u?.details?.department ||
-      "Unknown";
-
-    // Iterate users
     for (const u of users || []) {
       const uid = String(u?._id || u?.id || "");
-      const dept = String(departmentOf(u) || "Unknown");
       const projs = projectsByUser[uid];
 
       if (Array.isArray(projs)) {
-        // Projects by User count
         projectsCountByUser.push({
           user: u?.name || u?.full_name || u?.email || uid,
           user_id: uid,
           count: projs.length,
         });
-
-        // Department contribution: number of projects for user's department
-        const prev = projectsByDepartment.get(dept) || 0;
-        projectsByDepartment.set(dept, prev + projs.length);
       } else {
-        // No project list; fall back to user presence (count 0 projects)
         projectsCountByUser.push({
           user: u?.name || u?.full_name || u?.email || uid,
           user_id: uid,
           count: 0,
         });
-        const prev = projectsByDepartment.get(dept) || 0;
-        projectsByDepartment.set(dept, prev);
       }
     }
-
-    // Normalize department pie data
-    const departmentData = Array.from(projectsByDepartment.entries())
-      .map(([department, count]) => ({ department, count }))
-      .filter(
-        (d) =>
-          d.department &&
-          String(d.department).trim().toLowerCase() !== "unknown"
-      );
 
     // Sort projectsCountByUser desc
     projectsCountByUser.sort((a, b) => b.count - a.count);
 
-    return { projectsCountByUser, departmentData };
+    return { projectsCountByUser };
   }, [users, projectsByUser, startISO, endISO]);
 
   // Theme colors
   const primary = "#2563EB";
   const grid = "#E5E7EB";
   const subtle = "#6B7280";
-  const palette = [
-    "#2563EB",
-    "#F59E0B",
-    "#10B981",
-    "#EF4444",
-    "#6366F1",
-    "#14B8A6",
-    "#F97316",
-    "#84CC16",
-    "#06B6D4",
-    "#A855F7",
-  ];
 
   const ariaDateId = "users-analytics-date-label";
 
@@ -314,11 +268,11 @@ export default function UsersAnalyticsPanel({
           <div
             style={{
               display: "grid",
-              gridTemplateColumns: "1.2fr 1fr",
+              gridTemplateColumns: "1fr",
               gap: 12,
             }}
           >
-            {/* Projects by User */}
+            {/* Activity by User */}
             <div className="card" aria-label="Activity by User">
               <div className="card-header" style={{ paddingBottom: 0 }}>
                 <h4 className="card-title">Activity by User</h4>
@@ -374,70 +328,6 @@ export default function UsersAnalyticsPanel({
                 )}
               </div>
             </div>
-
-            {/* Projects by Department */}
-            <div className="card" aria-label="Activity by Department">
-              <div className="card-header" style={{ paddingBottom: 0 }}>
-                <h4 className="card-title">Activity by Department</h4>
-                <div className="card-subtitle">
-                  Distribution by department
-                </div>
-              </div>
-              <div className="card-content" style={{ height: 340 }}>
-                {usersLoading || projectsLoading ? (
-                  <div aria-busy="true">
-                    <div
-                      className="skeleton"
-                      style={{ height: 14, width: "60%", marginBottom: 8 }}
-                    />
-                    <div
-                      className="skeleton"
-                      style={{ height: 12, width: "50%", marginBottom: 8 }}
-                    />
-                    <div
-                      className="skeleton"
-                      style={{ height: 260, width: "100%" }}
-                    />
-                  </div>
-                ) : usersError ? (
-                  <div className="error" role="alert">
-                    {usersError.message || "Failed to load users"}
-                  </div>
-                ) : projectsError ? (
-                  <div className="error" role="alert">
-                    {projectsError}
-                  </div>
-                ) : aggregates.departmentData.length === 0 ? (
-                  <div className="screen-center">No department project data</div>
-                ) : (
-                  <ResponsiveContainer>
-                    <PieChart>
-                      <Tooltip />
-                      <Legend />
-                      <Pie
-                        data={aggregates.departmentData}
-                        dataKey="count"
-                        nameKey="department"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius="80%"
-                        paddingAngle={2}
-                      >
-                        {aggregates.departmentData.map((entry, idx) => (
-                          <Cell
-                            key={entry.department}
-                            fill={palette[idx % palette.length]}
-                            stroke={palette[idx % palette.length]}
-                          />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
-
-
           </div>
         </div>
       </div>
