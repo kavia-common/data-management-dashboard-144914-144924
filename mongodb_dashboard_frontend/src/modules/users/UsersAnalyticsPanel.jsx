@@ -10,9 +10,6 @@ import {
   Tooltip,
   Legend,
 
-  PieChart,
-  Pie,
-  Cell,
 } from "recharts";
 import { useUsers } from "../../hooks/useUsers";
 import { getApiClient } from "../../api";
@@ -160,20 +157,10 @@ export default function UsersAnalyticsPanel({
   const aggregates = useMemo(() => {
     // Projects by user count
     const projectsCountByUser = [];
-    // Projects by department (from users)
-    const projectsByDepartment = new Map();
-
-    const departmentOf = (u) =>
-      u?.department ||
-      u?.profile?.department ||
-      u?.metadata?.department ||
-      u?.details?.department ||
-      "Unknown";
 
     // Iterate users
     for (const u of users || []) {
       const uid = String(u?._id || u?.id || "");
-      const dept = String(departmentOf(u) || "Unknown");
       const projs = projectsByUser[uid];
 
       if (Array.isArray(projs)) {
@@ -183,10 +170,6 @@ export default function UsersAnalyticsPanel({
           user_id: uid,
           count: projs.length,
         });
-
-        // Department contribution: number of projects for user's department
-        const prev = projectsByDepartment.get(dept) || 0;
-        projectsByDepartment.set(dept, prev + projs.length);
       } else {
         // No project list; fall back to user presence (count 0 projects)
         projectsCountByUser.push({
@@ -194,42 +177,20 @@ export default function UsersAnalyticsPanel({
           user_id: uid,
           count: 0,
         });
-        const prev = projectsByDepartment.get(dept) || 0;
-        projectsByDepartment.set(dept, prev);
       }
     }
-
-    // Normalize department pie data
-    const departmentData = Array.from(projectsByDepartment.entries())
-      .map(([department, count]) => ({ department, count }))
-      .filter(
-        (d) =>
-          d.department &&
-          String(d.department).trim().toLowerCase() !== "unknown"
-      );
 
     // Sort projectsCountByUser desc
     projectsCountByUser.sort((a, b) => b.count - a.count);
 
-    return { projectsCountByUser, departmentData };
+    return { projectsCountByUser };
   }, [users, projectsByUser, startISO, endISO]);
 
   // Theme colors
   const primary = "#2563EB";
   const grid = "#E5E7EB";
   const subtle = "#6B7280";
-  const palette = [
-    "#2563EB",
-    "#F59E0B",
-    "#10B981",
-    "#EF4444",
-    "#6366F1",
-    "#14B8A6",
-    "#F97316",
-    "#84CC16",
-    "#06B6D4",
-    "#A855F7",
-  ];
+
 
   const ariaDateId = "users-analytics-date-label";
 
@@ -375,67 +336,7 @@ export default function UsersAnalyticsPanel({
               </div>
             </div>
 
-            {/* Projects by Department */}
-            <div className="card" aria-label="Activity by Department">
-              <div className="card-header" style={{ paddingBottom: 0 }}>
-                <h4 className="card-title">Activity by Department</h4>
-                <div className="card-subtitle">
-                  Distribution by department
-                </div>
-              </div>
-              <div className="card-content" style={{ height: 340 }}>
-                {usersLoading || projectsLoading ? (
-                  <div aria-busy="true">
-                    <div
-                      className="skeleton"
-                      style={{ height: 14, width: "60%", marginBottom: 8 }}
-                    />
-                    <div
-                      className="skeleton"
-                      style={{ height: 12, width: "50%", marginBottom: 8 }}
-                    />
-                    <div
-                      className="skeleton"
-                      style={{ height: 260, width: "100%" }}
-                    />
-                  </div>
-                ) : usersError ? (
-                  <div className="error" role="alert">
-                    {usersError.message || "Failed to load users"}
-                  </div>
-                ) : projectsError ? (
-                  <div className="error" role="alert">
-                    {projectsError}
-                  </div>
-                ) : aggregates.departmentData.length === 0 ? (
-                  <div className="screen-center">No department project data</div>
-                ) : (
-                  <ResponsiveContainer>
-                    <PieChart>
-                      <Tooltip />
-                      <Legend />
-                      <Pie
-                        data={aggregates.departmentData}
-                        dataKey="count"
-                        nameKey="department"
-                        cx="50%"
-                        cy="50%"
-                        outerRadius="80%"
-                        paddingAngle={2}
-                      >
-                        {aggregates.departmentData.map((entry, idx) => (
-                          <Cell
-                            key={entry.department}
-                            fill={palette[idx % palette.length]}
-                            stroke={palette[idx % palette.length]}
-                          />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
+
 
 
           </div>
