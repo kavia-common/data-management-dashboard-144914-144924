@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
-import UsersDepartmentChart from "../../modules/users/UsersDepartmentChart.jsx";
 import UsersAnalyticsPanel from "../../modules/users/UsersAnalyticsPanel.jsx";
 
 export default function Users() {
@@ -45,18 +44,7 @@ export default function Users() {
       {/* Users Analytics Panel */}
       <UsersAnalyticsPanel style={{ marginBottom: 12 }} />
 
-      {/* Users by Department Chart */}
-      <div style={{ marginBottom: 12 }}>
-        <div className="card">
-          <div className="card-header" style={{ paddingBottom: 0 }}>
-            <h3 className="card-title">Users by Department</h3>
-            <div className="card-subtitle">Count of users per department</div>
-          </div>
-          <div className="card-content">
-            <UsersDepartmentChart variant="bar" height={340} />
-          </div>
-        </div>
-      </div>
+
 
       {/* Users List */}
       <UsersList
