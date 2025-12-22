@@ -10,17 +10,33 @@ import { useAuth } from '../../context/AuthContext';
  * It attempts to read project details (project_id, project_name) from the selectedUser object when available.
  * If not present, it will fetch from the backend using the /api/users/{userId}/projects endpoint,
  * requiring tenant/organization scoping taken from auth context when available.
+ *
+ * Change log:
+ * - Adds explicit pagination (page/limit) so only a single network request is made per pagination/filter change.
+ * - Guards against duplicate concurrent fetches by using a single effect driven by [userId, orgId, page, limit, from, to].
  */
 export default function ProjectDetails({ selectedUser }) {
   const { organizationId: authOrgId } = useAuth?.() || {};
   const [loading, setLoading] = useState(false);
-  const [projects, setProjects] = useState(null);
+  const [projects, setProjects] = useState([]);
   const [error, setError] = useState(null);
+
+  // Local pagination state to drive a single request per change.
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+
+  // Optional time filters if present on the selected user context; kept stable to avoid duplicate fetches.
+  const from = selectedUser?.from ?? null;
+  const to = selectedUser?.to ?? null;
 
   const userId = useMemo(() => {
     if (!selectedUser) return null;
     return selectedUser._id || selectedUser.id || selectedUser.user_id || null;
   }, [selectedUser]);
+
+  const orgId = useMemo(() => {
+    return authOrgId || selectedUser?.organization_id || selectedUser?.tenant_id || selectedUser?.tenantId || null;
+  }, [authOrgId, selectedUser]);
 
   const preloadedProjects = useMemo(() => {
     if (!selectedUser) return null;
@@ -54,29 +70,43 @@ export default function ProjectDetails({ selectedUser }) {
 
   useEffect(() => {
     let cancelled = false;
-    async function fetchProjects() {
+
+    async function fetchProjectsOnce() {
+      // No user: reset with no fetch
       if (!userId) {
         setProjects([]);
         return;
       }
-      // Use preloaded when available
+
+      // Use preloaded when available to avoid any network call
       if (preloadedProjects) {
         setProjects(preloadedProjects);
+        return;
+      }
+
+      // Require org context for backend per OpenAPI; if missing, set error and skip network.
+      if (!orgId) {
+        setProjects([]);
+        setError('Missing organization/tenant to load projects');
         return;
       }
 
       setLoading(true);
       setError(null);
       try {
-        // The backend requires organization_id/tenant_id
-        // Prefer organization from auth context when present
+        // pagination & filters => single request per change
         const query = {
-          organization_id: authOrgId || selectedUser?.organization_id || selectedUser?.tenant_id || selectedUser?.tenantId,
+          organization_id: orgId,
+          page,
+          limit,
         };
-        // If organization is unavailable, we still attempt (backend may enforce). Gracefully handle 400.
+        if (from) query.from = from;
+        if (to) query.to = to;
+
         const res = await getUserProjects(userId, query);
         if (!cancelled) {
-          const list = Array.isArray(res?.projects) ? res.projects : [];
+          const payload = res?.data ?? res;
+          const list = Array.isArray(payload?.projects) ? payload.projects : Array.isArray(payload) ? payload : [];
           setProjects(
             list.map((p) => ({
               project_id: p.project_id || p.projectId || p.id || null,
@@ -94,11 +124,12 @@ export default function ProjectDetails({ selectedUser }) {
         if (!cancelled) setLoading(false);
       }
     }
-    fetchProjects();
+
+    fetchProjectsOnce();
     return () => {
       cancelled = true;
     };
-  }, [userId, preloadedProjects, authOrgId, selectedUser]);
+  }, [userId, orgId, preloadedProjects, page, limit, from, to]);
 
   if (!selectedUser) {
     return (
@@ -108,69 +139,94 @@ export default function ProjectDetails({ selectedUser }) {
     );
   }
 
-  if (loading) {
-    return (
-      <div className="p-4 text-sm">
-        Loading project details...
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="p-4 text-sm text-red-600">
-        {error}
-      </div>
-    );
-  }
-
-  if (!projects || projects.length === 0) {
-    return (
-      <div className="p-4 text-sm ">
-        No project details available for this user.
-      </div>
-    );
-  }
-
   return (
     <div className="p-4">
-      <ul className="space-y-2">
-        {projects.map((p, idx) => (
-          <li
-            key={`${p.project_id || 'unknown'}-${idx}`}
-            className="rounded-md border border-gray-700 bg-gray-900 p-3 shadow-sm"
-          >
-            <div className="text-sm space-y-1">
+      {/* Simple pagination controls to drive a single fetch per change */}
+      {!preloadedProjects && (
+        <div className="mb-3 flex items-center gap-2">
+          <label className="text-xs text-gray-300">
+            Page:
+            <input
+              aria-label="Projects page"
+              type="number"
+              min={1}
+              value={page}
+              onChange={(e) => setPage(Math.max(1, Number(e.target.value) || 1))}
+              className="ml-1 rounded bg-gray-800 text-white px-2 py-1 w-20"
+            />
+          </label>
+          <label className="text-xs text-gray-300">
+            Limit:
+            <input
+              aria-label="Projects page size"
+              type="number"
+              min={1}
+              max={200}
+              value={limit}
+              onChange={(e) => {
+                const n = Number(e.target.value) || 10;
+                setLimit(Math.min(200, Math.max(1, n)));
+                setPage(1); // reset to first page when limit changes
+              }}
+              className="ml-1 rounded bg-gray-800 text-white px-2 py-1 w-24"
+            />
+          </label>
+          {from && to && (
+            <span className="text-xs text-gray-400 ml-2">
+              Range: {new Date(from).toLocaleDateString()} – {new Date(to).toLocaleDateString()}
+            </span>
+          )}
+        </div>
+      )}
 
-              {/* Project Name */}
-              <div className="font-medium text-white">
-                <span className="font-semibold">Project Name:</span>
-                <span className="font-mono ml-1"> {p.project_name || '—'}</span>
+      {loading && (
+        <div className="p-2 text-sm">
+          Loading project details...
+        </div>
+      )}
 
-              </div>
+      {!loading && error && (
+        <div className="p-2 text-sm text-red-500">{error}</div>
+      )}
 
-              {/* Project ID */}
-              <div className="text-white">
-                <span className="font-semibold">Project ID:</span>
-                <span className="font-mono ml-1">{p.project_id || '—'}</span>
-              </div>
+      {!loading && !error && (!projects || projects.length === 0) && (
+        <div className="p-2 text-sm">No project details available for this user.</div>
+      )}
 
-              {/* Last Activity */}
-              {p.last_activity && (
-                <div className="text-xs text-gray-300">
-                  <span className="font-semibold">Last activity:</span>
-                  <span className="ml-1">
-                    {new Date(p.last_activity).toLocaleString()}
-                  </span>
+      {!loading && !error && Array.isArray(projects) && projects.length > 0 && (
+        <ul className="space-y-2">
+          {projects.map((p, idx) => (
+            <li
+              key={`${p.project_id || 'unknown'}-${idx}`}
+              className="rounded-md border border-gray-700 bg-gray-900 p-3 shadow-sm"
+            >
+              <div className="text-sm space-y-1">
+                {/* Project Name */}
+                <div className="font-medium text-white">
+                  <span className="font-semibold">Project Name:</span>
+                  <span className="font-mono ml-1"> {p.project_name || '—'}</span>
                 </div>
-              )}
 
-            </div>
-          </li>
+                {/* Project ID */}
+                <div className="text-white">
+                  <span className="font-semibold">Project ID:</span>
+                  <span className="font-mono ml-1">{p.project_id || '—'}</span>
+                </div>
 
-
-        ))}
-      </ul>
+                {/* Last Activity */}
+                {p.last_activity && (
+                  <div className="text-xs text-gray-300">
+                    <span className="font-semibold">Last activity:</span>
+                    <span className="ml-1">
+                      {new Date(p.last_activity).toLocaleString()}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

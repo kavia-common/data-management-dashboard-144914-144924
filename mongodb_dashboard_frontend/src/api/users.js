@@ -17,8 +17,9 @@ export async function getUserBasic(userId, params = {}) {
  * PUBLIC_INTERFACE
  * getUserProjects
  * Fetch distinct projects for a given user from session tracking aggregation.
- * Accepts a params object that can carry tenant scoping and optional time range:
- * { organization_id?: string, tenant_id?: string, from?: string, to?: string }
+ * Accepts a params object that can carry tenant scoping, pagination and optional time range:
+ * { organization_id?: string, tenant_id?: string, from?: string, to?: string, page?: number, limit?: number }
+ * Only one request should be issued per change in these parameters.
  */
 export async function getUserProjects(userId, params = {}) {
   if (!userId) throw new Error('userId is required');

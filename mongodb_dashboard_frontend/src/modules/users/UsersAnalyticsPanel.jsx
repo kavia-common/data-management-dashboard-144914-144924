@@ -11,7 +11,6 @@ import {
   Legend,
 } from "recharts";
 import { useUsers } from "../../hooks/useUsers";
-import { getApiClient } from "../../api";
 import { getActiveTenant } from "../../utils/tenantClient";
 import Skeleton from "../../components/ui/Skeleton";
 
@@ -279,7 +278,7 @@ export default function UsersAnalyticsPanel({
                 <div className="card-subtitle">Counts derived from associated activity</div>
               </div>
               <div className="card-content" style={{ height: 340 }}>
-                {usersLoading || projectsLoading ? (
+                {usersLoading ? (
                   <div aria-busy="true">
                     <Skeleton width="60%" height={14} className="mb-2" />
                     <Skeleton width="50%" height={12} className="mb-2" />
@@ -288,10 +287,6 @@ export default function UsersAnalyticsPanel({
                 ) : usersError ? (
                   <div className="error" role="alert">
                     {usersError.message || "Failed to load users"}
-                  </div>
-                ) : projectsError ? (
-                  <div className="error" role="alert">
-                    {projectsError}
                   </div>
                 ) : aggregates.projectsCountByUser.length === 0 ? (
                   <div className="screen-center">No project data</div>
