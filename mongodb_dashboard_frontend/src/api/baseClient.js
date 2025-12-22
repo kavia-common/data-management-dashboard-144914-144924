@@ -319,12 +319,8 @@ export async function listUsers(params = {}) {
 export async function listSessions(params = {}) {
   /** Lists session tracking records normalized to { items, total, meta }.
    * Tenant scoping is enforced via tenant_id in the query.
-   * Allows both userId and user_id param naming; forwards both when provided for backend compatibility.
    */
-  const forward = { ...(params || {}) };
-  if (forward.userId && !forward.user_id) forward.user_id = forward.userId;
-  if (forward.user_id && !forward.userId) forward.userId = forward.user_id;
-  const res = await httpGet("/api/session-tracking", { params: forward });
+  const res = await httpGet("/api/session-tracking", { params });
   return normalizeListPayload(res.data);
 }
 

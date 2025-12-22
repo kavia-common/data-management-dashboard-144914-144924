@@ -5,23 +5,22 @@ import { buildQueryString } from './util';
  * PUBLIC_INTERFACE
  * fetchSessionTracking
  * Fetch session tracking records with pagination, sorting, and optional text search.
- * The single source of truth for search is the 'q' parameter which performs a global text match on backend
- * across task_id, tenant_id, organization_name, user_name, project_id, container_id, service_type, status,
- * and session_data fields (session_name, description, llm_model). Avoid client-only filters for correctness.
+ * Note: Backend no longer accepts or applies a 'filter' parameter or date-range compound filters.
  * Tenant scoping is enforced via tenant_id only (handled by baseClient).
+ * Supports lightweight text search via ?q which includes service_type field on backend.
  *
  * @param {Object} params
  * @param {number} [params.page]
  * @param {number} [params.limit]
  * @param {string} [params.tenant_id] Active tenant scope (alias: organization_id on server)
  * @param {string} [params.sort]
- * @param {string} [params.q] Text search query
- * @param {string} [params.user_id] Optional explicit user filter (forwarded to backend if supported)
+ * @param {string} [params.q] Text search query (applies to service_type and other fields)
  * @returns {Promise<{ items: Array<any>, total: number, meta: any }>}
  */
 export async function fetchSessionTracking(params = {}) {
   const {
-    page, limit, tenant_id, sort, q, user_id,
+    page, limit, tenant_id, sort, q,
+    // ignore any deprecated params that callers might send
   } = params || {};
 
   const safeParams = {};
@@ -30,7 +29,6 @@ export async function fetchSessionTracking(params = {}) {
   if (tenant_id !== undefined) safeParams.tenant_id = tenant_id;
   if (sort !== undefined) safeParams.sort = sort;
   if (q !== undefined) safeParams.q = q;
-  if (user_id !== undefined) safeParams.user_id = user_id;
 
   const qs = buildQueryString(safeParams);
   const url = `/api/session-tracking${qs}`;
