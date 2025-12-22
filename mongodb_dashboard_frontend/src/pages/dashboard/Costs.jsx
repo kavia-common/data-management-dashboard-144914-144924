@@ -113,6 +113,15 @@ export default function Costs() {
       ),
     },
     {
+      key: "agents", // NEW COLUMN
+      label: "Agents",
+      render: (v) => (
+        <span>
+          {Array.isArray(v) ? v.join(", ") : v || "—"}
+        </span>
+      ),
+    },
+    {
       key: "__actions",
       label: "",
       render: (_, row) => (
