@@ -17,6 +17,44 @@
   box-shadow: 0 4px 10px rgba(0,0,0,0.08);
 }
 
+/* KPI grid and tiles */
+.overview-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.overview-kpi-card {
+  background: #ffffff;
+  border-radius: 10px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.06);
+  border: 1px solid rgba(37, 99, 235, 0.06);
+}
+
+.overview-kpi-card.ocean-card {
+  background: linear-gradient(180deg, rgba(37, 99, 235, 0.06), rgba(249, 250, 251, 0.7));
+}
+
+.overview-kpi-card.skeleton {
+  opacity: 0.7;
+}
+
+.overview-kpi-card.error {
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.overview-kpi-label {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.overview-kpi-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #111827;
+}
+
 /* T0000 Horizontal Bar styles */
 .t0000-hbar-container {
   display: flex;
@@ -52,4 +90,13 @@
   font-variant-numeric: tabular-nums;
   color: #111827;
   min-width: 2rem;
+}
+
+/* Ocean theme utilities */
+.ocean-background {
+  background: #f9fafb;
+}
+
+.ocean-surface {
+  background: transparent;
 }

@@ -1,4 +1,4 @@
-import { getApiBaseUrl } from "./util";
+import { getApiBaseUrl } from "./config";
 
 /**
  * PUBLIC_INTERFACE (Deprecated)
