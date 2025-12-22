@@ -5,9 +5,8 @@ import { listUsers } from "../api";
  * getUsers
  * Retrieves users from the backend with support for filter, page, limit, and sort.
  */
-// PUBLIC_INTERFACE
 export async function getUsers(options = {}) {
-  const { filter, page, limit, sort, search, signal } = options || {};
+  const { filter, page, limit, sort, search } = options || {};
   const params = {};
   if (page != null) params.page = page;
   if (limit != null) params.limit = limit;
@@ -16,7 +15,6 @@ export async function getUsers(options = {}) {
   if (filter) {
     params.filter = typeof filter === "string" ? filter : JSON.stringify(filter);
   }
-  // Pass AbortController signal through to underlying fetch layer if provided.
-  const res = await listUsers(params, { signal });
+  const res = await listUsers(params);
   return res;
 }

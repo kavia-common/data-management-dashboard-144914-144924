@@ -2,13 +2,13 @@ import React, { useEffect, useMemo, useState } from "react";
 import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
-import { useUsers } from "../hooks/useUsers";
+import { listUsers } from "../api";
 
 /**
  * PUBLIC_INTERFACE
  * UsersList
  * Displays users with filters: search and tenant.
- * Fetches data from API driven strictly by pagination (single call on mount).
+ * Fetches data from API without date range filters.
  */
 export default function UsersList({
   title = "Users",
@@ -17,20 +17,15 @@ export default function UsersList({
   onUserSelect,
   onUserRowClick,
 }) {
+  const [allItems, setAllItems] = useState([]);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(null);
   const [query, setQuery] = useState("");
   const [organizationFilter, setOrganizationFilter] = useState("");
+  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // Use the optimized hook: pagination is the sole trigger for fetching.
-  const {
-    users,
-    loading,
-    error,
-    page,
-    setPage,
-    total,
-  } = useUsers({ initialPage: 1 });
-
-  // Local client-side filtering; does NOT trigger additional API calls.
   const allowedFields = useMemo(
     () => [
       "name",
@@ -44,9 +39,54 @@ export default function UsersList({
     []
   );
 
-  const filteredItems = useMemo(() => {
+  const columns = useMemo(() => {
+    const renderTenant = (v, row) =>
+      row?.tenant_id ||
+      row?.organization_name ||
+      row?.organization ||
+      row?.organization_id ||
+      "—";
+    return [
+      { key: "name", label: "Name", priority: 1 },
+      { key: "__tenant", label: "Tenant Id", render: renderTenant, priority: 2 },
+      { key: "email", label: "Mail", priority: 2 },
+      { key: "department", label: "Department", priority: 3 },
+    ];
+  }, []);
+
+  // PUBLIC_INTERFACE
+  async function load() {
+    setLoading(true);
+    setError("");
+    try {
+      // listUsers routes through shared client enforcing /api/users?organization_id=<ORG_ID> only.
+      const res = await listUsers({});
+      const arr = res?.items ?? (Array.isArray(res) ? res : []);
+      setAllItems(arr);
+      setItems(arr);
+      setMeta((prev) => ({
+        page: 1,
+        limit: prev.limit || 10,
+        total: arr.length,
+      }));
+    } catch (e) {
+      setAllItems([]);
+      setItems([]);
+      setMeta({ page: 1, limit: 10, total: 0 });
+      setError(e?.response?.data?.message || e?.message || "Failed to load users.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     const q = (query || "").trim().toLowerCase();
-    let filtered = users || [];
+    let filtered = allItems || [];
 
     if (q) {
       filtered = filtered.filter((u) => {
@@ -66,53 +106,16 @@ export default function UsersList({
       });
     }
 
-    return filtered;
-  }, [users, query, allowedFields, organizationFilter]);
-
-  const [pageSize] = useState(10);
-  // DataTable pagination controls
-  const handlePageChange = (nextPage) => {
-    // Only pagination change should trigger fetch
-    if (typeof nextPage === "number" && nextPage > 0 && nextPage !== page) {
-      setPage(nextPage);
-    }
-  };
-
-  // Derive tenant options from the current page's items
-  const tenantOptions = useMemo(
-    () =>
-      [...new Set(
-        (users || []).map(
-          (u) =>
-            u?.tenant_id ??
-            u?.organization_name ??
-            u?.organization ??
-            u?.organization_id
-        )
-      )]
-        .filter(Boolean)
-        .sort(),
-    [users]
-  );
-
-  const columns = useMemo(() => {
-    const renderTenant = (v, row) =>
-      row?.tenant_id ||
-      row?.organization_name ||
-      row?.organization ||
-      row?.organization_id ||
-      "—";
-    return [
-      { key: "name", label: "Name", priority: 1 },
-      { key: "__tenant", label: "Tenant Id", render: renderTenant, priority: 2 },
-      { key: "email", label: "Mail", priority: 2 },
-      { key: "department", label: "Department", priority: 3 },
-    ];
-  }, []);
+    setItems(filtered);
+    setMeta((m) => ({ ...m, total: filtered.length, page: 1 }));
+  }, [query, allItems, allowedFields, organizationFilter]);
 
   function resetFilters() {
     setQuery("");
     setOrganizationFilter("");
+    setItems(allItems);
+    setMeta((m) => ({ ...m, total: allItems.length, page: 1 }));
+    load();
   }
 
   function handleRowClick(user) {
@@ -125,14 +128,9 @@ export default function UsersList({
   }
 
   const tableKey = useMemo(
-    () => `${(query || "").trim().toLowerCase()}|${organizationFilter}|${filteredItems.length}`,
-    [query, organizationFilter, filteredItems.length]
+    () => `${(query || "").trim().toLowerCase()}|${organizationFilter}|${items.length}`,
+    [query, organizationFilter, items.length]
   );
-
-  // Keep focus/ARIA nuances same as before where applicable
-  useEffect(() => {
-    // no-op placeholder to preserve side-effect hook ordering if needed in future
-  }, []);
 
   return (
     <div>
@@ -160,11 +158,22 @@ export default function UsersList({
             style={{ width: 200 }}
           >
             <option value="">All Tenant</option>
-            {tenantOptions.map((org) => (
-              <option key={org} value={org}>
-                {org}
-              </option>
-            ))}
+            {[...new Set(
+              allItems.map(
+                (u) =>
+                  u?.tenant_id ??
+                  u?.organization_name ??
+                  u?.organization ??
+                  u?.organization_id
+              )
+            )]
+              .filter(Boolean)
+              .sort()
+              .map((org) => (
+                <option key={org} value={org}>
+                  {org}
+                </option>
+              ))}
           </select>
 
           {/* 🔁 Reset Button */}
@@ -181,7 +190,7 @@ export default function UsersList({
         {/* ⚠️ Error Message */}
         {error && (
           <div className="error" role="alert" style={{ marginBottom: 12 }}>
-            {error.message || String(error)}
+            {error}
           </div>
         )}
 
@@ -189,17 +198,37 @@ export default function UsersList({
         <DataTable
           key={tableKey}
           columns={columns}
-          data={filteredItems}
+          data={items}
           loading={loading}
-          onDelete={showActions ? () => {} : undefined}
+          onDelete={showActions ? (row) => setConfirmDelete(row) : undefined}
           onRowClick={handleRowClick}
-          pageSize={pageSize}
-          initialPage={page}
+          pageSize={meta.limit || 10}
+          initialPage={1}
           paginationTitle="Users pages"
-          onPageChange={handlePageChange}
-          totalItems={total}
         />
       </Card>
+
+      {/* 🗑️ Delete Modal */}
+      {confirmDelete && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Delete user">
+          <div className="modal-card">
+            <div className="modal-header">
+              <h3>Delete user</h3>
+              <Button variant="ghost" aria-label="Close" onClick={() => setConfirmDelete(null)}>
+                ✕
+              </Button>
+            </div>
+            <div className="modal-body">
+              <p>This is a placeholder delete dialog. Actual deletion logic goes in the parent page.</p>
+            </div>
+            <div className="modal-footer">
+              <Button variant="ghost" onClick={() => setConfirmDelete(null)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
