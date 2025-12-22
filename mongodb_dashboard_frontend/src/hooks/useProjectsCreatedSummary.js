@@ -7,11 +7,11 @@ import { getOrgIdFromContext } from '../utils/orgContext';
  * PUBLIC_INTERFACE
  * useProjectsCreatedSummary
  * Stable return shape and minimal diagnostics for Overview/Summary panels.
- * - Ensures only a single in-flight request (guarded by ref)
- * - Always passes organization_id via query and x-organization-id header (handled by api client)
- * - Uses AbortController that aborts only on unmount (no mid-flight cancels causing double-fetch)
- * - Adapts T0000 data to [{ name, value }] series for horizontal bar chart
- * - Keeps placeholder / empty-state for T0000 when data is empty
+ * - Issues exactly one request per stable param set (guarded by ref)
+ * - Always passes organization_id via query and x-organization-id header (api client)
+ * - Uses AbortController that aborts only on unmount (no mid-flight cancels)
+ * - Adapts T0000 array/object response to [{ name, value }]
+ * - Placeholder preserved and console.debug logs for start/end + response lengths
  */
 // PUBLIC_INTERFACE
 export function useProjectsCreatedSummary(options = {}) {
@@ -26,7 +26,7 @@ export function useProjectsCreatedSummary(options = {}) {
     [options.organization_id]
   );
 
-  // Abort controller: only abort on unmount
+  // Abort controller: only abort on unmount to avoid double fetch
   const abortRef = useRef(null);
   useEffect(() => {
     abortRef.current = new AbortController();
@@ -74,11 +74,13 @@ export function useProjectsCreatedSummary(options = {}) {
     setLoading(true);
     setError(null);
 
+    // Internal activity flag: do not abort fetch mid-flight on dependency changes
+    // to avoid triggering extra requests; only abort on unmount via abortRef.
     let isActive = true;
 
     if (process.env.NODE_ENV !== 'test') {
       // eslint-disable-next-line no-console
-      console.debug('[useProjectsCreatedSummary] request', {
+      console.debug('[useProjectsCreatedSummary] fetch start', {
         organization_id,
         params,
       });
@@ -93,12 +95,10 @@ export function useProjectsCreatedSummary(options = {}) {
         if (!isActive) return;
         setData(payload || null);
 
-        const isT0000 = organization_id === 'T0000';
+        const isT0000 = String(organization_id).toUpperCase() === 'T0000';
         // For T0000, adapt to horizontal bar chart series
         if (isT0000) {
           try {
-            // Backend may return { buckets: [...] } or array for T0000 mode;
-            // projectCreateT0000Series is defensive and accepts both.
             const src = Array.isArray(payload) ? payload : payload?.buckets || [];
             const series = projectCreateT0000Series(src);
             setT0000Series(Array.isArray(series) ? series : []);
@@ -115,7 +115,7 @@ export function useProjectsCreatedSummary(options = {}) {
 
         if (process.env.NODE_ENV !== 'test') {
           // eslint-disable-next-line no-console
-          console.debug('[useProjectsCreatedSummary] response', {
+          console.debug('[useProjectsCreatedSummary] fetch response', {
             isT0000,
             buckets: Array.isArray(payload?.buckets) ? payload.buckets.length : (Array.isArray(payload) ? payload.length : 0),
             t0000SeriesLen: isT0000 ? (Array.isArray(t0000Series) ? t0000Series.length : 0) : 0,

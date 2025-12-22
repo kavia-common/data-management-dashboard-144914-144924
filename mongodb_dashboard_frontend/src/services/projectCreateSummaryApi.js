@@ -8,6 +8,7 @@
  * - Accepts range, custom dates, optional project_id.
  * - Supports AbortController via signal param.
  * - Returns parsed JSON.
+ * - Console.debug logs for fetch start/end and response length for diagnostics.
  */
 // PUBLIC_INTERFACE
 export async function fetchProjectCreateSummary({
@@ -41,6 +42,14 @@ export async function fetchProjectCreateSummary({
     headers.set('x-organization-id', String(organization_id));
   }
 
+  if (process.env.NODE_ENV !== 'test') {
+    // eslint-disable-next-line no-console
+    console.debug('[projectCreateSummaryApi] fetch start', {
+      url: url.toString(),
+      organization_id,
+    });
+  }
+
   const res = await fetch(url.toString(), {
     method: 'GET',
     headers,
@@ -54,5 +63,13 @@ export async function fetchProjectCreateSummary({
     err.status = res.status;
     throw err;
   }
-  return res.json();
+
+  const json = await res.json();
+  if (process.env.NODE_ENV !== 'test') {
+    // eslint-disable-next-line no-console
+    console.debug('[projectCreateSummaryApi] fetch end', {
+      buckets: Array.isArray(json?.buckets) ? json.buckets.length : (Array.isArray(json) ? json.length : 0),
+    });
+  }
+  return json;
 }

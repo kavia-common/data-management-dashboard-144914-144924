@@ -78,7 +78,7 @@ export default function OverviewContainer() {
           {Array.isArray(t0000Series) && t0000Series.length > 0 ? (
             <T0000OrgHorizontalBarChart series={t0000Series} title="Projects Created (T0000)" />
           ) : (
-            // Keep placeholder but mount the chart shell to force layout reservation and visibility
+            // Keep placeholder rendering and mount the chart shell for layout stability
             <div>
               <T0000OrgHorizontalBarChart series={[]} title="Projects Created (T0000)" />
               <OverviewEmptyState message="No data yet" />
