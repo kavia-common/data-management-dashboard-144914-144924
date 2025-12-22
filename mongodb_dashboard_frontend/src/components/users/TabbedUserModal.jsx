@@ -615,17 +615,93 @@ export default function TabbedUserModal({
 
   // Credits Consumed Tab
   function CreditsConsumedTab({ userId }) {
-    // NOTE: /api/llm-costs backend endpoint has been removed.
-    // This tab now shows a documented empty state while preserving pagination UI structure.
-    const [rows] = useState([]); // intentionally empty
-    const loading = false;
-    const error = '';
+    const [rows, setRows] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [page, setPage] = useState(1);
+    const pageSize = 10;
+    const [total, setTotal] = useState(0);
 
-    const totalCost = useMemo(() => 0, []);
+    // Avoid duplicate requests: track an AbortController and in-flight flag
+    const [inFlight, setInFlight] = useState(false);
+    const abortRef = React.useRef(null);
+
+    // Compute total cost from page rows (server total may not be provided per sum)
+    const totalCost = useMemo(() => {
+      if (!Array.isArray(rows)) return 0;
+      return rows.reduce((sum, r) => {
+        const v = r?.total_cost ?? r?.cost_usd ?? r?.cost ?? r?.amount;
+        const num = typeof v === 'number' ? v : Number(String(v ?? '').replace(/[$,]/g, ''));
+        return Number.isFinite(num) ? sum + num : sum;
+      }, 0);
+    }, [rows]);
+
+    // Fetch function (called when tab is active only)
+    async function load(pageToLoad = 1) {
+      if (!userId) return;
+      if (inFlight) return; // prevent duplicate while loading
+      setInFlight(true);
+      setLoading(true);
+      setError('');
+
+      // Clean up previous in-flight if any
+      try {
+        if (abortRef.current) abortRef.current.abort();
+      } catch {}
+      abortRef.current = new AbortController();
+
+      try {
+        // organization_id is appended by apiGet automatically; tenantId is available at modal prop level
+        const orgId =
+          user?.tenant_id ??
+          user?.organization_id ??
+          user?.organization_name ??
+          tenantId ??
+          undefined;
+
+        const { fetchLlmCosts } = require('../../api/llmCosts.js'); // dynamic require to avoid cycle
+        const resp = await fetchLlmCosts({
+          organization_id: orgId,
+          user_id: String(userId),
+          page: pageToLoad,
+          limit: pageSize,
+          sort: '-_id',
+          signal: abortRef.current.signal,
+        });
+
+        const data = Array.isArray(resp?.data) ? resp.data : [];
+        const meta = resp?.meta || {};
+        setRows(data);
+        setTotal(Number.isFinite(meta.total) ? meta.total : data.length);
+      } catch (e) {
+        if (e?.name === 'AbortError') return;
+        setRows([]);
+        setTotal(0);
+        setError(e?.message || 'Failed to load credits.');
+      } finally {
+        setLoading(false);
+        setInFlight(false);
+      }
+    }
+
+    // Trigger load on activation of tab and when user changes
+    useEffect(() => {
+      if (activeTab === 'credits' && userId) {
+        setPage(1);
+        load(1);
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab, userId]);
+
+    // Page change handler for server-mode DataTable
+    const fetchPage = async (nextPage /*, _size, _sortKey, _sortDir */) => {
+      setPage(nextPage);
+      await load(nextPage);
+    };
 
     return (
       <div data-testid="credits-consumed-tab">
-        {/* Summary header (kept for layout consistency) */}
+        {/* Summary header */}
         <div
           className="card"
           style={{
@@ -637,29 +713,30 @@ export default function TabbedUserModal({
           }}
         >
           <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)', fontWeight: 700, letterSpacing: '.02em' }}>
-            Total Cost
+            Total Cost (current page)
           </div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>
             {formatUsdUpToSixDecimals(totalCost)}
           </div>
         </div>
 
-        {!loading && !error && (
-          Array.isArray(rows) && rows.length > 0 ? (
-            <DataTable
-              data={rows}
-              loading={false}
-              pageSize={10}
-              initialPage={1}
-              paginationTitle="Costs pages"
-              maxBodyHeight={360}
-              forceHorizontalScroll
-            />
-          ) : (
-            <div className="table-empty">
-              Credits data has been removed along with /api/llm-costs. No cost records to display.
-            </div>
-          )
+        {error ? (
+          <div role="alert" className="table-empty">
+            {error}
+          </div>
+        ) : (
+          <DataTable
+            data={rows}
+            loading={loading}
+            pageSize={pageSize}
+            initialPage={page}
+            paginationTitle="Costs pages"
+            maxBodyHeight={360}
+            forceHorizontalScroll
+            // Enable server mode by providing total and fetchPage
+            serverTotal={total}
+            fetchPage={fetchPage}
+          />
         )}
       </div>
     );
