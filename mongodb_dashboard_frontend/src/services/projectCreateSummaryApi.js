@@ -4,8 +4,9 @@
  * PUBLIC_INTERFACE
  * fetchProjectCreateSummary
  * Client for GET /api/project-create/summary:
- * - Sends organization_id via x-organization-id header and as query param (compat).
+ * - Sends organization_id via x-organization-id header and as query param.
  * - Accepts range, custom dates, optional project_id.
+ * - Supports AbortController via signal param.
  * - Returns parsed JSON.
  */
 // PUBLIC_INTERFACE
@@ -17,7 +18,10 @@ export async function fetchProjectCreateSummary({
   project_id,
   signal,
 } = {}) {
-  const base = (process?.env?.REACT_APP_API_BASE_URL || '') + (process?.env?.REACT_APP_API_PREFIX || '/api');
+  // Build base URL via env with fallback to location.origin
+  const base =
+    (process?.env?.REACT_APP_API_BASE_URL || '') +
+    (process?.env?.REACT_APP_API_PREFIX || '/api');
   const url = new URL('/project-create/summary', base || window.location.origin);
 
   if (range) url.searchParams.set('range', String(range));

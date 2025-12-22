@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { fetchProjectsSummary } from '../api/projectsSummary.client';
+import { fetchProjectCreateSummary } from '../services/projectCreateSummaryApi';
 import { projectCreateT0000Series } from '../utils/projectCreateT0000Series';
 import { getOrgIdFromContext } from '../utils/orgContext';
 
@@ -7,6 +7,11 @@ import { getOrgIdFromContext } from '../utils/orgContext';
  * PUBLIC_INTERFACE
  * useProjectsCreatedSummary
  * Stable return shape and minimal diagnostics for Overview/Summary panels.
+ * - Ensures only a single in-flight request (guarded by ref)
+ * - Always passes organization_id via query and x-organization-id header (handled by api client)
+ * - Uses AbortController that aborts only on unmount (no mid-flight cancels causing double-fetch)
+ * - Adapts T0000 data to [{ name, value }] series for horizontal bar chart
+ * - Keeps placeholder / empty-state for T0000 when data is empty
  */
 // PUBLIC_INTERFACE
 export function useProjectsCreatedSummary(options = {}) {
@@ -15,11 +20,13 @@ export function useProjectsCreatedSummary(options = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  // Resolve organization_id from options or context; memoized for stability
   const organization_id = useMemo(
     () => (options.organization_id || getOrgIdFromContext() || '').trim(),
     [options.organization_id]
   );
 
+  // Abort controller: only abort on unmount
   const abortRef = useRef(null);
   useEffect(() => {
     abortRef.current = new AbortController();
@@ -32,6 +39,7 @@ export function useProjectsCreatedSummary(options = {}) {
     };
   }, []);
 
+  // Memoize request params to avoid unnecessary re-renders/fetches
   const stableOptions = useMemo(() => {
     const { range, start_date, end_date, project_id } = options || {};
     return { range, start_date, end_date, project_id };
@@ -42,6 +50,7 @@ export function useProjectsCreatedSummary(options = {}) {
     [stableOptions, organization_id]
   );
 
+  // Guard to ensure a single in-flight request
   const inFlightRef = useRef(false);
 
   useEffect(() => {
@@ -69,23 +78,30 @@ export function useProjectsCreatedSummary(options = {}) {
 
     if (process.env.NODE_ENV !== 'test') {
       // eslint-disable-next-line no-console
-      console.debug('[useProjectsCreatedSummary] fetch start', {
+      console.debug('[useProjectsCreatedSummary] request', {
         organization_id,
         params,
       });
     }
 
-    fetchProjectsSummary(params, organization_id)
+    fetchProjectCreateSummary({
+      ...params,
+      organization_id,
+      signal: abortRef.current?.signal,
+    })
       .then((payload) => {
         if (!isActive) return;
         setData(payload || null);
 
-        const bucketsLen = Array.isArray(payload?.buckets) ? payload.buckets.length : 0;
         const isT0000 = organization_id === 'T0000';
-
-        if (isT0000 && bucketsLen > 0) {
+        // For T0000, adapt to horizontal bar chart series
+        if (isT0000) {
           try {
-            setT0000Series(projectCreateT0000Series(payload.buckets));
+            // Backend may return { buckets: [...] } or array for T0000 mode;
+            // projectCreateT0000Series is defensive and accepts both.
+            const src = Array.isArray(payload) ? payload : payload?.buckets || [];
+            const series = projectCreateT0000Series(src);
+            setT0000Series(Array.isArray(series) ? series : []);
           } catch (e) {
             setT0000Series([]);
             if (process.env.NODE_ENV !== 'test') {
@@ -99,10 +115,10 @@ export function useProjectsCreatedSummary(options = {}) {
 
         if (process.env.NODE_ENV !== 'test') {
           // eslint-disable-next-line no-console
-          console.debug('[useProjectsCreatedSummary] fetch ok', {
-            buckets: bucketsLen,
+          console.debug('[useProjectsCreatedSummary] response', {
             isT0000,
-            t0000SeriesLen: isT0000 ? (Array.isArray(payload?.buckets) ? payload.buckets.length : 0) : 0,
+            buckets: Array.isArray(payload?.buckets) ? payload.buckets.length : (Array.isArray(payload) ? payload.length : 0),
+            t0000SeriesLen: isT0000 ? (Array.isArray(t0000Series) ? t0000Series.length : 0) : 0,
           });
         }
       })

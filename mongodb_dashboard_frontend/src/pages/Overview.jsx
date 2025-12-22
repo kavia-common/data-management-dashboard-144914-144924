@@ -12,7 +12,7 @@ import { getOrgIdFromContext } from '../utils/orgContext';
 // PUBLIC_INTERFACE
 export default function Overview() {
   const organization_id = getOrgIdFromContext();
-  const { data, loading, error } = useProjectsCreatedSummary({ organization_id });
+  const { data, t0000Series, loading, error } = useProjectsCreatedSummary({ organization_id });
 
   if (error) {
     return <div role="alert">Failed to load overview</div>;
@@ -21,7 +21,7 @@ export default function Overview() {
   return (
     <div className="overview-page">
       {organization_id === 'T0000' ? (
-        <T0000OrgHorizontalBarChart data={data} loading={loading} />
+        <T0000OrgHorizontalBarChart series={Array.isArray(t0000Series) ? t0000Series : []} title="Projects Created (T0000)" />
       ) : (
         <ProjectsCreatedBarChart data={data} loading={loading} />
       )}
