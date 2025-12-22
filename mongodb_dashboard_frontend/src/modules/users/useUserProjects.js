@@ -28,6 +28,11 @@ import { getTenantHeaderOrQuery } from '../../api/util';
  *    page, limit, total, setPage, setLimit,
  *    refresh, isCancelled
  *  }
+ *
+ * TEMP DEV-ONLY LOGS:
+ *  - Guarded with NODE_ENV === 'development'
+ *  - Prefixed with [TEMP][Users/useUserProjects]
+ *  - Intended for temporary verification of single-request-per-load behavior
  */
 export function useUserProjects(userId, tenantId, options = {}) {
   const {
@@ -53,6 +58,9 @@ export function useUserProjects(userId, tenantId, options = {}) {
   const cancelledRef = useRef(false);
   // StrictMode mount guard: ensure we only trigger the initial fetch once in dev double-invoke
   const didInitRef = useRef(false);
+  // TEMP-DEV request sequence
+  const seqRef = useRef(0);
+  const isDev = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'development';
 
   const canRequest = Boolean(userId) && Boolean(tenantId);
 
@@ -84,6 +92,10 @@ export function useUserProjects(userId, tenantId, options = {}) {
 
     const nextKey = requestKey;
     if (lastFetchKeyRef.current === nextKey) {
+      if (isDev) {
+        // eslint-disable-next-line no-console
+        console.debug('[TEMP][Users/useUserProjects] SKIP duplicate refresh for same params', { nextKey });
+      }
       // Prevent duplicate network call for the same stable params
       return;
     }
@@ -91,6 +103,10 @@ export function useUserProjects(userId, tenantId, options = {}) {
     // Cancel any in-flight request before starting a new one
     if (abortRef.current) {
       try {
+        if (isDev) {
+          // eslint-disable-next-line no-console
+          console.debug('[TEMP][Users/useUserProjects] Aborting previous in-flight request');
+        }
         abortRef.current.abort();
       } catch (_) {
         // ignore
@@ -100,9 +116,29 @@ export function useUserProjects(userId, tenantId, options = {}) {
     abortRef.current = controller;
     cancelledRef.current = false;
 
+    seqRef.current += 1;
+    const seq = seqRef.current;
+
     const url = buildUrl();
     setLoading(true);
     setError(null);
+
+    if (isDev) {
+      // eslint-disable-next-line no-console
+      console.debug('[TEMP][Users/useUserProjects] BEFORE fetch', {
+        seq,
+        url,
+        params: {
+          userId,
+          tenantId,
+          from,
+          to,
+          page,
+          limit,
+        },
+        aborted: controller.signal.aborted,
+      });
+    }
 
     try {
       const headers = {
@@ -130,15 +166,27 @@ export function useUserProjects(userId, tenantId, options = {}) {
         signal: controller.signal,
       });
 
-      const res = await (timeoutPromise
-        ? Promise.race([fetchPromise, timeoutPromise])
-        : fetchPromise);
+      const res = await (timeoutPromise ? Promise.race([fetchPromise, timeoutPromise]) : fetchPromise);
 
       if (timeoutId) clearTimeout(timeoutId);
+
+      if (isDev) {
+        // eslint-disable-next-line no-console
+        console.debug('[TEMP][Users/useUserProjects] FETCH RESPONSE', {
+          seq,
+          status: res?.status,
+          ok: res?.ok,
+          aborted: controller.signal.aborted,
+        });
+      }
 
       if (!res.ok) {
         if (controller.signal.aborted) {
           cancelledRef.current = true;
+          if (isDev) {
+            // eslint-disable-next-line no-console
+            console.debug('[TEMP][Users/useUserProjects] RESPONSE aborted after non-ok', { seq });
+          }
           return;
         }
         const text = await res.text().catch(() => '');
@@ -147,21 +195,41 @@ export function useUserProjects(userId, tenantId, options = {}) {
 
       const json = await res.json();
       if (!controller.signal.aborted) {
+        if (isDev) {
+          // eslint-disable-next-line no-console
+          console.debug('[TEMP][Users/useUserProjects] SUCCESS', {
+            seq,
+            count: Array.isArray(json?.projects) ? json.projects.length : undefined,
+            meta: { page, limit },
+          });
+        }
         setData(json);
         lastFetchKeyRef.current = nextKey;
       }
     } catch (e) {
       if (e?.name === 'AbortError') {
         cancelledRef.current = true;
+        if (isDev) {
+          // eslint-disable-next-line no-console
+          console.debug('[TEMP][Users/useUserProjects] ABORTED', { seq });
+        }
       } else {
+        if (isDev) {
+          // eslint-disable-next-line no-console
+          console.debug('[TEMP][Users/useUserProjects] ERROR', { seq, message: e?.message });
+        }
         setError(e);
       }
     } finally {
       if (!abortRef.current || abortRef.current === controller) {
         setLoading(false);
+        if (isDev) {
+          // eslint-disable-next-line no-console
+          console.debug('[TEMP][Users/useUserProjects] FINALLY', { seq });
+        }
       }
     }
-  }, [buildUrl, canRequest, requestKey, tenantId]);
+  }, [buildUrl, canRequest, requestKey, tenantId, userId, from, to, page, limit, isDev]);
 
   // PUBLIC_INTERFACE
   const isCancelled = useCallback(() => cancelledRef.current, []);
@@ -175,23 +243,31 @@ export function useUserProjects(userId, tenantId, options = {}) {
     // Ensure we only trigger the initial fetch once.
     if (!didInitRef.current) {
       didInitRef.current = true;
+      if (isDev) {
+        // eslint-disable-next-line no-console
+        console.debug('[TEMP][Users/useUserProjects] INIT refresh() (StrictMode guard)');
+      }
       refresh();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canRequest, immediate, refresh]);
+  }, [canRequest, immediate, refresh, isDev]);
 
   // Cleanup abort on unmount
   useEffect(() => {
     return () => {
       if (abortRef.current) {
         try {
+          if (isDev) {
+            // eslint-disable-next-line no-console
+            console.debug('[TEMP][Users/useUserProjects] CLEANUP aborting');
+          }
           abortRef.current.abort();
         } catch (_) {
           // ignore
         }
       }
     };
-  }, []);
+  }, [isDev]);
 
   return {
     data,

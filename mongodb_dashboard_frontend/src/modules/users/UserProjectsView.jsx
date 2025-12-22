@@ -13,8 +13,15 @@ import { Skeleton } from '../../components/ui/Skeleton';
  *  - userId: string (required)
  *  - tenantId: string (required)
  *  - pageSize?: number (default 10)
+ *
+ * TEMP DEV-ONLY LOGS:
+ *  - Guarded with NODE_ENV === 'development'
+ *  - Prefixed with [TEMP][Users/UserProjectsView]
+ *  - Verifies pagination-driven triggers and render lifecycle
  */
 export default function UserProjectsView({ userId, tenantId, pageSize = 10 }) {
+  const isDev = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'development';
+
   // Stabilize incoming identifiers in case parent re-renders change referential identity
   const stableIds = React.useMemo(
     () => ({ userId, tenantId }),
@@ -45,9 +52,26 @@ export default function UserProjectsView({ userId, tenantId, pageSize = 10 }) {
 
   // Trigger fetch when page/limit change only
   React.useEffect(() => {
+    if (isDev) {
+      // eslint-disable-next-line no-console
+      console.debug('[TEMP][Users/UserProjectsView] PAGE/LIMIT change -> refresh()', { page, limit, userId, tenantId });
+    }
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit]);
+
+  // Render diagnostics
+  React.useEffect(() => {
+    if (!isDev) return;
+    // eslint-disable-next-line no-console
+    console.debug('[TEMP][Users/UserProjectsView] RENDER', {
+      loading,
+      error: error ? String(error.message || error) : null,
+      count: projects.length,
+      page,
+      limit,
+    });
+  }, [isDev, loading, error, projects.length, page, limit]);
 
   return (
     <div className="user-projects-view">
