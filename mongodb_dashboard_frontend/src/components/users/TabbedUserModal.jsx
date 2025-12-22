@@ -7,8 +7,7 @@ import Modal from '../ui/Modal.jsx';
 // Shared components/utilities
 import DataTable from '../DataTable.jsx';
 
-import { listSessions } from '../../api/baseClient';
-// Removed listLlmCosts usage as /api/llm-costs has been removed from backend.
+import { listSessions, listLlmCosts } from '../../api/baseClient';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
 import ProjectDetails from './ProjectDetails.jsx';
@@ -618,86 +617,46 @@ export default function TabbedUserModal({
     const [rows, setRows] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [page, setPage] = useState(1);
-    const pageSize = 10;
-    const [total, setTotal] = useState(0);
 
-    // Avoid duplicate requests: track an AbortController and in-flight flag
-    const [inFlight, setInFlight] = useState(false);
-    const abortRef = React.useRef(null);
-
-    // Compute total cost from page rows (server total may not be provided per sum)
-    const totalCost = useMemo(() => {
-      if (!Array.isArray(rows)) return 0;
-      return rows.reduce((sum, r) => {
-        const v = r?.total_cost ?? r?.cost_usd ?? r?.cost ?? r?.amount;
-        const num = typeof v === 'number' ? v : Number(String(v ?? '').replace(/[$,]/g, ''));
-        return Number.isFinite(num) ? sum + num : sum;
-      }, 0);
-    }, [rows]);
-
-    // Fetch function (called when tab is active only)
-    async function load(pageToLoad = 1) {
+    async function load() {
       if (!userId) return;
-      if (inFlight) return; // prevent duplicate while loading
-      setInFlight(true);
       setLoading(true);
       setError('');
-
-      // Clean up previous in-flight if any
       try {
-        if (abortRef.current) abortRef.current.abort();
-      } catch {}
-      abortRef.current = new AbortController();
-
-      try {
-        // organization_id is appended by apiGet automatically; tenantId is available at modal prop level
-        const orgId =
-          user?.tenant_id ??
-          user?.organization_id ??
-          user?.organization_name ??
-          tenantId ??
-          undefined;
-
-        const { fetchLlmCosts } = require('../../api/llmCosts.js'); // dynamic require to avoid cycle
-        const resp = await fetchLlmCosts({
-          organization_id: orgId,
-          user_id: String(userId),
-          page: pageToLoad,
-          limit: pageSize,
-          sort: '-_id',
-          signal: abortRef.current.signal,
+        const res = await listLlmCosts({ page: 1, limit: 100, sort: '-timestamp' });
+        let items = Array.isArray(res?.items) ? res.items : [];
+        const normalizedUserId = String(userId);
+        items = items.filter((row) => {
+          const uid =
+            row?.user_id ??
+            row?.userId ??
+            row?.user?.id ??
+            row?.user?._id ??
+            row?.user?.user_id;
+          return uid && String(uid) === normalizedUserId;
         });
-
-        const data = Array.isArray(resp?.data) ? resp.data : [];
-        const meta = resp?.meta || {};
-        setRows(data);
-        setTotal(Number.isFinite(meta.total) ? meta.total : data.length);
+        setRows(items);
       } catch (e) {
-        if (e?.name === 'AbortError') return;
         setRows([]);
-        setTotal(0);
-        setError(e?.message || 'Failed to load credits.');
+        setError(e?.message || 'Failed to load credits consumed.');
       } finally {
         setLoading(false);
-        setInFlight(false);
       }
     }
 
-    // Trigger load on activation of tab and when user changes
     useEffect(() => {
-      if (activeTab === 'credits' && userId) {
-        setPage(1);
-        load(1);
-      }
+      load();
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeTab, userId]);
+    }, [userId]);
 
-    // Page change handler for server-mode DataTable
-    const fetchPage = async (nextPage /*, _size, _sortKey, _sortDir */) => {
-      setPage(nextPage);
-      await load(nextPage);
-    };
+    // compute total cost
+    const totalCost = useMemo(() => {
+      return (rows || []).reduce((acc, r) => {
+        const raw = r?.running_total ?? r?.total_cost ?? r?.cost ?? r?.amount ?? 0;
+        const num = typeof raw === 'number' ? raw : Number(String(raw).replace(/[$,]/g, ''));
+        return acc + (Number.isFinite(num) ? num : 0);
+      }, 0);
+    }, [rows]);
 
     return (
       <div data-testid="credits-consumed-tab">
@@ -713,30 +672,38 @@ export default function TabbedUserModal({
           }}
         >
           <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)', fontWeight: 700, letterSpacing: '.02em' }}>
-            Total Cost (current page)
+            Total Cost
           </div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>
             {formatUsdUpToSixDecimals(totalCost)}
           </div>
         </div>
 
-        {error ? (
-          <div role="alert" className="table-empty">
-            {error}
+        {loading && (
+          <div role="status" aria-live="polite" style={{ minHeight: 160, display: 'grid', placeItems: 'center' }}>
+            Loading credits...
           </div>
-        ) : (
-          <DataTable
-            data={rows}
-            loading={loading}
-            pageSize={pageSize}
-            initialPage={page}
-            paginationTitle="Costs pages"
-            maxBodyHeight={360}
-            forceHorizontalScroll
-            // Enable server mode by providing total and fetchPage
-            serverTotal={total}
-            fetchPage={fetchPage}
-          />
+        )}
+        {!loading && error && (
+          <div>
+            <div role="alert" className="error">{error}</div>
+            <button type="button" onClick={load} className="btn btn-ghost">Retry</button>
+          </div>
+        )}
+        {!loading && !error && (
+          Array.isArray(rows) && rows.length > 0 ? (
+            <DataTable
+              data={rows || []}
+              loading={false}
+              pageSize={10}
+              initialPage={1}
+              paginationTitle="Costs pages"
+              maxBodyHeight={360}
+              forceHorizontalScroll
+            />
+          ) : (
+            <div className="table-empty">No cost records found for this user.</div>
+          )
         )}
       </div>
     );

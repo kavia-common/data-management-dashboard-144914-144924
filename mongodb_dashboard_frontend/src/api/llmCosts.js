@@ -1,35 +1,64 @@
+import client from './client'
+import { getApiBaseUrl } from './config'
+import { buildFilterParam } from './buildFilterParam'
+import urlOverrides from './urlOverrides'
+
 /**
  * PUBLIC_INTERFACE
- * fetchLlmCosts
- * Fetch paginated LLM costs from backend.
- * Supports optional filtering by organization_id (tenant) and user_id via query params.
+ * Fetch paginated LLM costs document list (raw docs, no aggregation).
  * Params:
- *   - organization_id: string (alias tenant_id handled by api utils)
- *   - user_id: string (optional)
- *   - page: number
- *   - limit: number
- *   - sort: string (e.g., "-timestamp")
+ *  - organizationId (alias tenant_id)
+ *  - page (default 1)
+ *  - limit (default 20)
+ *  - sort (optional, e.g., '-timestamp')
+ *  - from, to (ISO strings) optional
+ *  - filter (object) optional
+ * Returns: { success, data: [], meta }
  */
-import { apiGet } from '../utils/api';
+export async function fetchLlmCosts({ organizationId, page = 1, limit = 20, sort, from, to, filter } = {}) {
+  const baseUrl = getApiBaseUrl()
+  const path = urlOverrides?.llmCostsPath || '/api/llm-costs'
+  const url = new URL(path, baseUrl)
 
-// PUBLIC_INTERFACE
-export async function fetchLlmCosts({ organization_id, user_id, page = 1, limit = 10, sort } = {}) {
-  // Build query string
-  const params = new URLSearchParams();
-  if (typeof page === 'number' && page > 0) params.set('page', String(page));
-  if (typeof limit === 'number' && limit > 0) params.set('limit', String(limit));
-  if (sort) params.set('sort', String(sort));
-  if (user_id) params.set('user_id', String(user_id)); // optional user filter
+  if (page) url.searchParams.set('page', String(page))
+  if (limit) url.searchParams.set('limit', String(limit))
+  if (sort) url.searchParams.set('sort', String(sort))
+  if (from) url.searchParams.set('from', String(from))
+  if (to) url.searchParams.set('to', String(to))
 
-  // apiGet will ensure organization_id is appended if not present
-  const path = `/llm_costs?${params.toString()}`;
-  const payload = await apiGet(path, { organization_id });
-  // Normalize shape: { success, data, meta }
-  if (payload && typeof payload === 'object' && Array.isArray(payload.data) && payload.meta) {
-    return payload;
+  // Prefer explicit query param; some environments might use header via client
+  if (organizationId) {
+    url.searchParams.set('organization_id', String(organizationId))
   }
-  // Fallback safety
-  return { success: true, data: Array.isArray(payload) ? payload : [], meta: { page, limit, total: Array.isArray(payload) ? payload.length : 0 } };
+
+  if (filter && typeof filter === 'object') {
+    // Reuse existing filter param builder to safely stringify
+    const filterStr = buildFilterParam(filter)
+    if (filterStr) url.searchParams.set('filter', filterStr)
+  }
+
+  const response = await client.get(url.toString(), {
+    headers: organizationId ? { 'x-organization-id': String(organizationId) } : undefined,
+  })
+
+  // Lightweight verification log: sample record (first item) to ensure nested docs
+  try {
+    const arr = response?.data?.data
+    if (Array.isArray(arr) && arr.length > 0) {
+      // eslint-disable-next-line no-console
+      console.debug('[llmCosts] sample record', arr[0])
+    } else {
+      // eslint-disable-next-line no-console
+      console.debug('[llmCosts] no records found')
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.debug('[llmCosts] sample log failed', e)
+  }
+
+  return response?.data
 }
 
-export default { fetchLlmCosts }
+export default {
+  fetchLlmCosts,
+}
