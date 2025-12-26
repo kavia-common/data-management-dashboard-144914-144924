@@ -321,7 +321,15 @@ export default function Costs() {
             id="costs-pagesize"
             className="input"
             value={limit}
-            onChange={(e) => setLimit(Number(e.target.value) || 10)}
+            onChange={(e) => {
+              const newLimit = Number(e.target.value) || 10;
+              // Update limit, reset to page 1, and immediately refetch using committed filters
+              setLimit(newLimit);
+              // doFetch will run via useEffect [page, limit]; set page=1 first to ensure correct fetch
+              setPage(1);
+              // Explicitly trigger a fetch to avoid waiting for effect; preserves committed org and sort/filter
+              doFetch(1, newLimit);
+            }}
           >
             {[10, 20, 50, 100, 200].map((n) => (
               <option key={n} value={n}>

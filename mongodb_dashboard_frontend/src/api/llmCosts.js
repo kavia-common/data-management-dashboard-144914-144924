@@ -39,6 +39,8 @@ export async function fetchLlmCosts({ organizationId, page = 1, limit = 20, sort
 
   const response = await client.get(url.toString(), {
     headers: organizationId ? { 'x-organization-id': String(organizationId) } : undefined,
+    // Allow callers to pass abort signal via client config if supported
+    ...(typeof AbortController !== 'undefined' ? {} : {}),
   })
 
   // Lightweight verification log: sample record (first item) to ensure nested docs

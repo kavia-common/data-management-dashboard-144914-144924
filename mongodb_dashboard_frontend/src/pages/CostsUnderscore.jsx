@@ -1,11 +1,12 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 
 // PUBLIC_INTERFACE
 export default function CostsUnderscore() {
   /** PUBLIC_INTERFACE
    * Minimal Costs table consuming /api/llm_costs response with fields:
    * organization_id, organization_name, organization_cost, users, projects, cost
-   * Provides an input for organization_id and a Load button to fetch on demand.
+   * Provides an input for organization_id, a Load button, a page-size dropdown, and page controls.
+   * Changing page size triggers a GET /api/llm_costs?organization_id=&page=&limit= refetch.
    */
   const [organizationId, setOrganizationId] = useState('');
   const [rows, setRows] = useState([]);
@@ -16,13 +17,14 @@ export default function CostsUnderscore() {
   function fmtUSD(n) {
     const num = Number(n || 0);
     return num.toLocaleString('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 });
-    }
+  }
   function fmtInt(n) {
     const num = Number(n || 0);
     return num.toLocaleString('en-US', { maximumFractionDigits: 0 });
   }
 
-  const handleLoad = async (page = 1, limit = 10) => {
+  // PUBLIC_INTERFACE
+  const handleLoad = useCallback(async (page = 1, limit = 10) => {
     setLoading(true);
     setError('');
     try {
@@ -45,37 +47,82 @@ export default function CostsUnderscore() {
     } finally {
       setLoading(false);
     }
+  }, [organizationId]);
+
+  // When page size (limit) changes, reset to page=1 and refetch if there is existing data or org filter set
+  useEffect(() => {
+    // Auto-refetch on page size change only after initial load or when an org is provided
+    if (meta.limit && (rows.length > 0 || organizationId.trim())) {
+      handleLoad(1, meta.limit);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [meta.limit]);
+
+  // PUBLIC_INTERFACE
+  const onChangePageSize = (e) => {
+    const next = Number(e.target.value) || 10;
+    setMeta((m) => ({ ...m, page: 1, limit: next }));
+  };
+
+  // PUBLIC_INTERFACE
+  const onPrev = () => {
+    const nextPage = Math.max(1, (meta.page || 1) - 1);
+    handleLoad(nextPage, meta.limit || 10);
+  };
+
+  // PUBLIC_INTERFACE
+  const onNext = () => {
+    // Basic guard: if current page returned fewer than limit, don't go next
+    if (rows.length < (meta.limit || 10)) return;
+    const nextPage = (meta.page || 1) + 1;
+    handleLoad(nextPage, meta.limit || 10);
   };
 
   return (
     <div className="p-4">
       <h2 className="text-xl font-semibold mb-3">Organization LLM Costs</h2>
 
-      <div className="flex gap-2 items-end mb-4">
+      <div className="flex gap-2 items-end mb-4 flex-wrap">
         <div className="flex flex-col">
           <label className="text-sm text-gray-600 mb-1">Organization ID (optional)</label>
           <input
             type="text"
             value={organizationId}
             onChange={(e) => setOrganizationId(e.target.value)}
-            placeholder="e.g., orgA"
+            placeholder="e.g., orgA or b2c"
             className="border rounded px-3 py-2"
           />
         </div>
+
+        <div className="flex flex-col">
+          <label htmlFor="page-size" className="text-sm text-gray-600 mb-1">Page size</label>
+          <select
+            id="page-size"
+            className="border rounded px-3 py-2"
+            value={meta.limit}
+            onChange={onChangePageSize}
+            aria-label="Select page size"
+          >
+            {[10, 20, 50, 100, 200].map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        </div>
+
         <button
-          onClick={() => handleLoad(1, 10)}
+          onClick={() => handleLoad(1, meta.limit || 10)}
           disabled={loading}
           className="bg-blue-600 hover:bg-blue-700 text-white rounded px-4 py-2 transition"
         >
           {loading ? 'Loading...' : 'Load'}
         </button>
-      </div>
 
-      {error && (
-        <div className="bg-red-50 text-red-700 border border-red-200 rounded p-3 mb-3">
-          {error}
-        </div>
-      )}
+        {error && (
+          <div className="bg-red-50 text-red-700 border border-red-200 rounded p-3">
+            {error}
+          </div>
+        )}
+      </div>
 
       <div className="overflow-x-auto">
         <table className="min-w-full bg-white border rounded">
@@ -119,14 +166,14 @@ export default function CostsUnderscore() {
           <div className="flex gap-2">
             <button
               disabled={loading || meta.page <= 1}
-              onClick={() => handleLoad(Math.max(1, (meta.page || 1) - 1), meta.limit || 10)}
+              onClick={onPrev}
               className="border rounded px-3 py-1 disabled:opacity-50"
             >
               Prev
             </button>
             <button
               disabled={loading || (rows.length < (meta.limit || 10))}
-              onClick={() => handleLoad((meta.page || 1) + 1, meta.limit || 10)}
+              onClick={onNext}
               className="border rounded px-3 py-1 disabled:opacity-50"
             >
               Next
