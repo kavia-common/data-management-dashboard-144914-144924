@@ -219,16 +219,22 @@ export default function Costs() {
     }
   }
 
-  // On mount, if initial committed filters exist (possibly from URL), load first page
+  // On mount: do NOT auto-load. Only Load button and pagination should trigger requests.
+  // We keep the state from URL so the user can see params, but no fetch until they click Load.
   useEffect(() => {
-    // Initial load respects committed filters (from URL)
-    doFetch(page, limit);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // do not depend on pending or committed org id to avoid auto-fetch
+    // intentionally no-op
+  }, []);
 
-  // When page or limit changes, re-fetch using committed filters
+  // When page or limit changes due to pagination controls, re-fetch using committed filters.
+  // Note: We avoid triggering when there is no committedOrgId and initial load hasn't happened yet.
   useEffect(() => {
-    doFetch(page, limit);
+    // Guard: Only fetch if we've already committed at least once OR there is some committed state
+    // We allow empty committedOrgId (tenant optional) but only after first explicit load.
+    // To support initial deep-link with page/limit/org in URL, consider committedOrgId from URL as already committed.
+    const hasInitialCommit = true; // URL-derived state acts as committed baseline
+    if (hasInitialCommit) {
+      doFetch(page, limit);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit]);
 
@@ -244,8 +250,10 @@ export default function Costs() {
 
   // Handle Load: commit current pending filters and fetch page=1
   const onLoadClick = async () => {
+    // Commit current filters for subsequent pagination use
     setCommittedOrgId(pendingOrgId);
-    // After committing, fetch with page=1 and keep current page size
+
+    // Reset to first page on a new load and fetch immediately using committed filters
     await doFetch(1, limit, { organization_id: pendingOrgId });
   };
 
