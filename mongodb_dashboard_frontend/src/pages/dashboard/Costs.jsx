@@ -118,22 +118,22 @@ export default function Costs() {
         </span>
       ),
     },
+    // New Agents column from backend response (agents: string[])
     {
       key: "agents",
       label: "Agents",
-      render: (v, row) => {
-        const arr = Array.isArray(row?.agents) ? row.agents : [];
-        if (!arr.length) return <span className="muted">—</span>;
+      // Keep table sort/pagination intact: render only; no client sort on array
+      render: (_v, row) => {
+        const names = Array.isArray(row?.agents) ? row.agents.filter(Boolean) : [];
+        if (!names.length) return <span className="muted">-</span>;
+        // Render as comma-separated list for compactness; badges kept for styling consistency if desired
         return (
-          <div className="flex flex-wrap gap-1" style={{ maxWidth: 260 }}>
-            {arr.map((name, i) => (
-              <span key={`${name}-${i}`} className="badge badge-neutral">
-                {name}
-              </span>
-            ))}
-          </div>
+          <span title={names.join(", ")}>{names.join(", ")}</span>
         );
       },
+      // Slightly wider to accommodate multiple agents
+      minWidth: 140,
+      maxWidth: 320,
     },
     {
       key: "projects",
