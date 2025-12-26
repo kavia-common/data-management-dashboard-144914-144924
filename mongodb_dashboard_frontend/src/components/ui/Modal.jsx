@@ -219,7 +219,7 @@ export default function Modal({
         .modal-footer {
           position: sticky;
           bottom: 0;
-          background: linear-gradient(180deg, rgba(255,255,255,0.9), #ffffff);
+          // background: linear-gradient(180deg, rgba(255,255,255,0.9), #ffffff);
           border-top: 1px solid var(--border-subtle);
           padding: 12px 16px;
           display: flex;

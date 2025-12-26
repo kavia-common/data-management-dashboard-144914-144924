@@ -122,19 +122,27 @@ export default function Costs() {
     {
       key: "agents",
       label: "Agents",
-      // Keep table sort/pagination intact: render only; no client sort on array
       render: (_v, row) => {
         const names = Array.isArray(row?.agents) ? row.agents.filter(Boolean) : [];
         if (!names.length) return <span className="muted">-</span>;
-        // Render as comma-separated list for compactness; badges kept for styling consistency if desired
+
         return (
-          <span title={names.join(", ")}>{names.join(", ")}</span>
+          <button
+            className="btn btn-link btn-sm"
+            onClick={() =>
+              openInspector(
+                `Agents used by ${row.user_name || "User"}`,
+                names
+              )
+            }
+          >
+            {names.length} Agents
+          </button>
         );
       },
-      // Slightly wider to accommodate multiple agents
-      minWidth: 140,
-      maxWidth: 320,
+      minWidth: 120,
     },
+
     {
       key: "projects",
       label: "Projects",
@@ -166,7 +174,7 @@ export default function Costs() {
   async function doFetch(nextPage = page, nextLimit = limit, opts = {}) {
     // Cancel any in-flight request
     if (abortRef.current) {
-      try { abortRef.current.abort(); } catch {} // ignore
+      try { abortRef.current.abort(); } catch { } // ignore
     }
     const controller = new AbortController();
     abortRef.current = controller;
