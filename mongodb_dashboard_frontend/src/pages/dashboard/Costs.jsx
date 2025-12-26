@@ -3,7 +3,6 @@ import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import { listLlmCostsUnderscore } from "../../api";
-import useDebouncedValue from "../../hooks/useDebouncedValue";
 
 /* =========================
    Formatters
@@ -35,9 +34,9 @@ function formatInt(n) {
  * Costs page (underscore endpoint)
  * - Fetches from GET /api/llm_costs
  * - Server-side pagination
- * - Auto re-fetch when page/limit or filters change (no manual refresh needed)
+ * - Auto re-fetch when page/limit change (committed filters only)
  * - In-flight request cancellation to avoid race conditions
- * - URL query kept in sync with page, limit, and organization_id
+ * - URL query kept in sync with page, limit, and organization_id ONLY when filters are committed (Load)
  */
 export default function Costs() {
   // Derive initial state from URL if available to support deep linking and back/forward navigation
@@ -46,16 +45,18 @@ export default function Costs() {
   const initialLimit = initialSearch?.get("limit") ? Number(initialSearch.get("limit")) || 10 : 10;
   const initialOrgId = initialSearch?.get("organization_id") || "";
 
-  const [organizationId, setOrganizationId] = useState(initialOrgId);
+  // pending UI filters (editable inputs)
+  const [pendingOrgId, setPendingOrgId] = useState(initialOrgId);
+
+  // committed filters (used for fetching and pagination until Load pressed again)
+  const [committedOrgId, setCommittedOrgId] = useState(initialOrgId);
+
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [page, setPage] = useState(initialPage);
   const [limit, setLimit] = useState(initialLimit);
   const [total, setTotal] = useState(0);
-
-  // Keep debounced org id to avoid firing a request on every keystroke
-  const debouncedOrgId = useDebouncedValue(organizationId, 300);
 
   // Track in-flight request for cancellation to avoid race conditions
   const abortRef = useRef(null);
@@ -173,20 +174,19 @@ export default function Costs() {
     setLoading(true);
     setError("");
 
-    // Effective filters (preserve any future additions via opts)
-    const effectiveOrgId = (opts.organization_id ?? debouncedOrgId) || undefined;
+    // Effective filters: always use committed values unless explicitly overridden via opts
+    const effectiveOrgId = (opts.organization_id ?? committedOrgId) || undefined;
 
     // Build params
     const params = {
       organization_id: effectiveOrgId,
       page: nextPage,
       limit: nextLimit,
-      // Note: keep space for other filters like search terms (opts.filter) if provided
       ...(opts.filter ? { filter: opts.filter } : {}),
       ...(opts.sort ? { sort: opts.sort } : {}),
     };
 
-    // Update URL query to reflect current state (page, limit, and org filter)
+    // Update URL query to reflect current committed state (page, limit, and org filter)
     try {
       if (typeof window !== "undefined" && window.history?.replaceState) {
         const usp = new URLSearchParams(window.location.search);
@@ -219,22 +219,34 @@ export default function Costs() {
     }
   }
 
-  // When page or limit changes via URL or controls, re-fetch data automatically
+  // On mount, if initial committed filters exist (possibly from URL), load first page
   useEffect(() => {
-    // Initial and subsequent pagination changes
+    // Initial load respects committed filters (from URL)
     doFetch(page, limit);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [page, limit, debouncedOrgId]);
+  }, []); // do not depend on pending or committed org id to avoid auto-fetch
 
-  // If page size changes via the select, reset to page 1 and refetch
+  // When page or limit changes, re-fetch using committed filters
   useEffect(() => {
-    // when limit changes, reset to first page to avoid out-of-range
+    doFetch(page, limit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, limit]);
+
+  // If page size changes via the select, reset to page 1 (pagination control will trigger fetch effect)
+  useEffect(() => {
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [limit]);
 
   const fetchPage = async (p, l) => {
     await doFetch(p, l);
+  };
+
+  // Handle Load: commit current pending filters and fetch page=1
+  const onLoadClick = async () => {
+    setCommittedOrgId(pendingOrgId);
+    // After committing, fetch with page=1 and keep current page size
+    await doFetch(1, limit, { organization_id: pendingOrgId });
   };
 
   /* =========================
@@ -263,15 +275,15 @@ export default function Costs() {
             className="input"
             placeholder="Filter by Organization ID (optional)"
             aria-label="Organization ID"
-            value={organizationId}
-            onChange={(e) => setOrganizationId(e.target.value)}
+            value={pendingOrgId}
+            onChange={(e) => setPendingOrgId(e.target.value)}
             style={{ minWidth: 260 }}
           />
 
           <button
             className="btn btn-primary"
             type="button"
-            onClick={() => doFetch(1, limit)}
+            onClick={onLoadClick}
             disabled={loading}
           >
             {loading ? "Loading..." : "Load"}
