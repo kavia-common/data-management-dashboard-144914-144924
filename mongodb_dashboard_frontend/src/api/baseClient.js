@@ -343,9 +343,9 @@ export async function listLlmCosts(params = {}) {
 }
 
 // PUBLIC_INTERFACE
-export async function listLlmCostsUnderscore(params = {}) {
+export async function listLlmCostsUnderscore(params = {}, options = {}) {
   /** Lists aggregated/tabular LLM costs from /api/llm_costs with support for organization_id, page, limit. Returns normalized { items, total, meta } when envelope-like structure is present, else raw array under items. */
-  const res = await httpGet("/api/llm_costs", { params });
+  const res = await httpGet("/api/llm_costs", { params, signal: options.signal });
   const payload = res.data;
   if (payload && typeof payload === "object" && Array.isArray(payload.data)) {
     // Envelope shape from backend controller

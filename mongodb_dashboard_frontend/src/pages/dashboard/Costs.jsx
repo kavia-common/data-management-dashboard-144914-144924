@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import { listLlmCostsUnderscore } from "../../api";
+import useDebouncedValue from "../../hooks/useDebouncedValue";
 
 /* =========================
    Formatters
@@ -34,16 +35,30 @@ function formatInt(n) {
  * Costs page (underscore endpoint)
  * - Fetches from GET /api/llm_costs
  * - Server-side pagination
- * - Improved UI + safe fallbacks
+ * - Auto re-fetch when page/limit or filters change (no manual refresh needed)
+ * - In-flight request cancellation to avoid race conditions
+ * - URL query kept in sync with page, limit, and organization_id
  */
 export default function Costs() {
-  const [organizationId, setOrganizationId] = useState("");
+  // Derive initial state from URL if available to support deep linking and back/forward navigation
+  const initialSearch = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const initialPage = initialSearch?.get("page") ? Number(initialSearch.get("page")) || 1 : 1;
+  const initialLimit = initialSearch?.get("limit") ? Number(initialSearch.get("limit")) || 10 : 10;
+  const initialOrgId = initialSearch?.get("organization_id") || "";
+
+  const [organizationId, setOrganizationId] = useState(initialOrgId);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(10);
+  const [page, setPage] = useState(initialPage);
+  const [limit, setLimit] = useState(initialLimit);
   const [total, setTotal] = useState(0);
+
+  // Keep debounced org id to avoid firing a request on every keystroke
+  const debouncedOrgId = useDebouncedValue(organizationId, 300);
+
+  // Track in-flight request for cancellation to avoid race conditions
+  const abortRef = useRef(null);
 
   // Inspector modal
   const [inspectOpen, setInspectOpen] = useState(false);
@@ -147,17 +162,47 @@ export default function Costs() {
      Data Fetching
   ========================= */
 
-  async function doFetch(nextPage = page, nextLimit = limit) {
+  async function doFetch(nextPage = page, nextLimit = limit, opts = {}) {
+    // Cancel any in-flight request
+    if (abortRef.current) {
+      try { abortRef.current.abort(); } catch {} // ignore
+    }
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
     setError("");
-    try {
-      const params = {
-        organization_id: organizationId || undefined,
-        page: nextPage,
-        limit: nextLimit,
-      };
 
-      const res = await listLlmCostsUnderscore(params);
+    // Effective filters (preserve any future additions via opts)
+    const effectiveOrgId = (opts.organization_id ?? debouncedOrgId) || undefined;
+
+    // Build params
+    const params = {
+      organization_id: effectiveOrgId,
+      page: nextPage,
+      limit: nextLimit,
+      // Note: keep space for other filters like search terms (opts.filter) if provided
+      ...(opts.filter ? { filter: opts.filter } : {}),
+      ...(opts.sort ? { sort: opts.sort } : {}),
+    };
+
+    // Update URL query to reflect current state (page, limit, and org filter)
+    try {
+      if (typeof window !== "undefined" && window.history?.replaceState) {
+        const usp = new URLSearchParams(window.location.search);
+        usp.set("page", String(nextPage));
+        usp.set("limit", String(nextLimit));
+        if (effectiveOrgId) usp.set("organization_id", String(effectiveOrgId));
+        else usp.delete("organization_id");
+        const newUrl = `${window.location.pathname}?${usp.toString()}`;
+        window.history.replaceState({}, "", newUrl);
+      }
+    } catch {
+      // non-critical
+    }
+
+    try {
+      const res = await listLlmCostsUnderscore(params, { signal: controller.signal });
       const rows = Array.isArray(res?.items) ? res.items : [];
 
       setItems(rows);
@@ -165,11 +210,28 @@ export default function Costs() {
       setPage(nextPage);
       setLimit(nextLimit);
     } catch (e) {
+      // Swallow abort errors
+      if (e?.name === "AbortError") return;
       setError(e?.message || "Failed to load cost data");
     } finally {
       setLoading(false);
+      abortRef.current = null;
     }
   }
+
+  // When page or limit changes via URL or controls, re-fetch data automatically
+  useEffect(() => {
+    // Initial and subsequent pagination changes
+    doFetch(page, limit);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, limit, debouncedOrgId]);
+
+  // If page size changes via the select, reset to page 1 and refetch
+  useEffect(() => {
+    // when limit changes, reset to first page to avoid out-of-range
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [limit]);
 
   const fetchPage = async (p, l) => {
     await doFetch(p, l);
