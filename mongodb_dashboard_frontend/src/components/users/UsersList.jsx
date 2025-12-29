@@ -75,6 +75,7 @@ export default function UsersList() {
       {selected ? (
         <SessionDetailsPanel
           user={selected}
+          tenantId={window.localStorage.getItem('active_tenant') || null}
           onClose={() => setSelected(null)}
         />
       ) : null}

@@ -11,6 +11,7 @@ export async function fetchUserSessionDetails({ userId, tenantId, from, to, page
     throw new Error('userId is required');
   }
   const api = getApiClient();
+  // Ensure both identifiers are stringified; tenant_id is optional when backend permits superadmin/all-tenants
   const body = {
     user_id: String(userId),
     ...(tenantId ? { tenant_id: String(tenantId) } : {}),

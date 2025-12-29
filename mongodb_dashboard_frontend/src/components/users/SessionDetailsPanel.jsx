@@ -15,7 +15,14 @@ export default function SessionDetailsPanel({ user, tenantId, onClose }) {
   const [meta, setMeta] = useState({ page: 1, limit: 50, total: 0 });
   const [error, setError] = useState(null);
 
-  const userId = String(user?.user_id || user?._id || user?.id || '').trim();
+  // Derive a stable user id from multiple possible fields
+  const derivedUserId =
+    user?.user_id ??
+    user?._id ??
+    user?.id ??
+    user?.uid ??
+    null;
+  const userId = derivedUserId != null ? String(derivedUserId) : '';
   const effectiveTenant = tenantId || window.localStorage.getItem('active_tenant') || null;
 
   useEffect(() => {
