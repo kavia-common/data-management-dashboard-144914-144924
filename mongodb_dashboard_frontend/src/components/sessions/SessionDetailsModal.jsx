@@ -255,7 +255,6 @@ function SessionDetailsModal({ open, onClose, session }) {
       ? session.session_breakdown
       : (session?.session_breakdown && typeof session.session_breakdown === 'object') ? [session.session_breakdown] : [];
     const numberOfSessions = breakdownArray.length || 0;
-    console.log("NUMBERR",session)
 
     // Sum durations from breakdowns
     const totalSeconds = breakdownArray.reduce((acc, b) => {
