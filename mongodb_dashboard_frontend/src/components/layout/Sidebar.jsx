@@ -118,25 +118,9 @@ export default function Sidebar() {
           <NavLink to="/dashboard/deployments" className="nav-link">
             <span className="nav-label">Project Details</span>
           </NavLink>
-          {(() => {
-            // Determine if the current user is on Super Admin tenant T0000 (org id only).
-            // We normalize across possible field names for compatibility.
-            const orgId =
-              auth?.organizationId ||
-              auth?.tenantId ||
-              auth?.user?.organization_id ||
-              auth?.user?.tenant_id ||
-              null;
-
-            const isSuperAdminOrg =
-              String(orgId || "").trim() === "T0000";
-
-            return isSuperAdminOrg ? (
-              <NavLink to="/dashboard/costs" className="nav-link">
-                <span className="nav-label">Costs</span>
-              </NavLink>
-            ) : null;
-          })()}
+          <NavLink to="/dashboard/costs" className="nav-link">
+            <span className="nav-label">Costs</span>
+          </NavLink>
         </nav>
       </div>
 
