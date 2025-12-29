@@ -28,32 +28,34 @@ export async function getUserSessionCount(userId, extraParams = {}) {
       ...extraParams,
     };
 
-    const resp = await client.get('/session-tracking', { params });
+    const res = await client.get('/session-tracking', { params });
 
-    // Normalize possible response shapes from our client abstraction:
-    // 1) axios-like: { data: { data?:[], items?:[], meta?:{total} } }
-    // 2) already-unwrapped JSON: { data?:[], items?:[], meta?:{total} }
-    // 3) raw array: [] with optional .total
-    const body = resp && typeof resp === 'object' && 'data' in resp ? resp.data : resp;
+    // If response is envelope: { data:[], meta:{ total } }
+    if (res && typeof res === 'object') {
+      const data = res.data ?? res.items ?? res.results ?? res;
+      const meta = res.meta || (res.data && res.data.meta) || null;
 
-    if (body && typeof body === 'object') {
-      // Prefer meta.total from either top-level or nested data
-      if (typeof body.meta?.total === 'number') return body.meta.total;
-      if (body.data && typeof body.data.meta?.total === 'number') return body.data.meta.total;
-
-      // If array-like items exist, use their length (should be <=1 given limit=1)
-      if (Array.isArray(body.items)) return body.items.length;
-      if (Array.isArray(body.data)) return body.data.length;
-      if (Array.isArray(body.results)) return body.results.length;
-    }
-
-    if (Array.isArray(body)) {
-      return (body.total ?? body.length) ?? 0;
+      // Some of our api clients return the raw JSON response directly; others wrap it.
+      // Standardized session-tracking GET supports envelope when page/limit provided.
+      if (res.meta && typeof res.meta.total === 'number') {
+        return res.meta.total;
+      }
+      if (res && res.data && res.data.meta && typeof res.data.meta.total === 'number') {
+        return res.data.meta.total;
+      }
+      // If not envelope, try to infer length of returned items (should be <= 1 given limit=1)
+      if (Array.isArray(res)) {
+        return (res.total ?? res.length) ?? 0;
+      }
+      if (Array.isArray(data)) {
+        return data.length ?? 0;
+      }
     }
 
     return 0;
-  } catch (_err) {
+  } catch (err) {
     // Swallow errors and return 0 so the table stays resilient
+    // Optionally, we could log to a diagnostics channel
     return 0;
   }
 }
