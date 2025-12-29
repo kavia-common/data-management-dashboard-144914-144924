@@ -292,51 +292,47 @@ export default function Sessions() {
     setError("");
     try {
       const sortFieldMap = {
-        // Map UI column keys to backend fields
-        User_name: "user_name", // prefer lowercase field in DB
-        tenant_id: "tenant_id",
+        // Map UI column keys to backend fields (include name-based mappings)
+        User_name: "user_name",
+        user_name: "user_name",
         organization_name: "organization_name",
+        tenant_id: "tenant_id",
         service_type: "service_type",
-        task_id: "task_id", // legacy, not used in current allowedOrdered
+        // If a column is used for session name in UI/back-end, normalize here:
+        session_name: "session_name",
+        "session_data.session_name": "session_data.session_name",
+        task_id: "task_id",
       };
-      // include optional date range as both from/to and start/end
+
       const params = { page, limit, q: qStr };
 
-      // Date range params: ONLY send start/end, never from/to (backend expects only start/end)
-      if (startDate) {
-        params.start = new Date(startDate).toISOString();
-      }
+      // Date range params: ONLY send start/end (if backend supports it), do not send from/to
+      if (startDate) params.start = new Date(startDate).toISOString();
       if (endDate) {
-        // end as end-of-day
         params.end =
           endDate && !/T/.test(endDate)
             ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
             : new Date(endDate).toISOString();
       }
 
-      // Build filter: exact match on tenant_id and case-insensitive match handled server-side for user_name
+      // Build optional exact-match filters passed as single JSON string via base client (it will JSON.stringify)
       const filter = {};
-      if (filterTenantId && filterTenantId.trim()) {
-        filter.tenant_id = filterTenantId.trim();
-      }
-      if (filterUserName && filterUserName.trim()) {
-        filter.user_id = filterUserName.trim();
-      }
-
-      if (Object.keys(filter).length > 0) {
-        params.filter = filter;
-      }
+      if (filterTenantId && filterTenantId.trim()) filter.tenant_id = filterTenantId.trim();
+      if (filterUserName && filterUserName.trim()) filter.user_id = filterUserName.trim();
+      if (Object.keys(filter).length > 0) params.filter = filter;
 
       if (sortKey) {
         const backendField = sortFieldMap[sortKey] || String(sortKey);
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
       }
+
       const res = await listSessions(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
+
       // If a newer request started after this one, ignore late response
       if (requestId !== activeRequestRef.current) return;
 
-      // Client-side fallback date filtering
+      // Client-side fallback date filtering when needed
       let filtered = Array.isArray(arr) ? arr : [];
       if (startDate || endDate) {
         const fromMs = startDate ? new Date(startDate).getTime() : null;
@@ -346,7 +342,6 @@ export default function Sessions() {
               : new Date(new Date(endDate).setHours(23, 59, 59, 999)).getTime())
           : null;
         filtered = filtered.filter((it) => {
-          // derive session start and end
           const s =
             it?.session_start ||
             it?.start_time ||
@@ -364,7 +359,6 @@ export default function Sessions() {
           const sMs = s ? new Date(s).getTime() : null;
           const eMs = e ? new Date(e).getTime() : null;
 
-          // If only start exists, check it against window
           const inFrom = fromMs == null || (sMs != null ? sMs >= fromMs : eMs != null ? eMs >= fromMs : false);
           const inTo = toMs == null || (sMs != null ? sMs <= toMs : eMs != null ? eMs <= toMs : true);
           return inFrom && inTo;
@@ -375,9 +369,8 @@ export default function Sessions() {
       setMeta({
         page: res?.meta?.page || page,
         limit: res?.meta?.limit || limit,
-        total:
-          res?.meta?.total ??
-          (Array.isArray(filtered) ? filtered.length : Array.isArray(arr) ? arr.length : 0),
+        // Make sure serverTotal reflects filtered results from backend when q is applied
+        total: res?.meta?.total ?? (Array.isArray(filtered) ? filtered.length : Array.isArray(arr) ? arr.length : 0),
       });
       // Update columns dynamically based on currently returned data
       setColumns(buildRestrictedColumns(arr));
@@ -401,14 +394,16 @@ export default function Sessions() {
 
   // Debounced server-side search on query change (250ms default)
   const debouncedQuery = useDebouncedValue(query, 250);
-  // Debounced text search only
+  // Debounced text search only - reset to page 1 and keep current page size and sort
   useEffect(() => {
     const q = (debouncedQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+    // Reset to page 1 whenever debouncedQuery changes
     load(1, meta.limit || 10, q, key, dir);
+    // Keep aggregates in sync with the text search (charts ignore dropdown filters)
     loadAggregates(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, startDate, endDate]);
+  }, [debouncedQuery]);
 
   // Immediate refetch when dropdown filters change (no debounce)
   useEffect(() => {
@@ -575,10 +570,9 @@ export default function Sessions() {
           columns={Array.isArray(columns) ? columns : []}
           data={Array.isArray(items) ? items : []}
           loading={!!loading}
-
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
-          serverTotal={meta.total}
+          serverTotal={meta?.total ?? 0}
           fetchPage={async (page, limit, sortKey, sortDir) => {
             // Remember current sort so external triggers (search) keep ordering consistent
             if (sortKey) {
@@ -586,11 +580,12 @@ export default function Sessions() {
             } else if (!lastSortRef.current) {
               lastSortRef.current = { key: "", dir: "asc" };
             }
-            await load(page, limit, (query || "").trim(), sortKey, sortDir);
+            // Always pass debounced query value for server-side consistency while paging/sorting
+            const q = (debouncedQuery || "").trim();
+            await load(page, limit, q, sortKey, sortDir);
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
-
         />
       </Card>
     </div>
