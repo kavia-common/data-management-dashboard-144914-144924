@@ -99,9 +99,18 @@ export default function Login() {
         password,
       });
       // Persist token and any tenant info provided by backend (if present)
-      const maybeTenant = (payload && (payload.tenant_id || payload.tenantId)) || null;
-      const maybeTenantName = (payload && (payload.tenant_name || payload.tenantName || payload.organization_name)) || null;
+      const maybeTenant = (payload && (payload.tenant_id || payload.tenantId || payload.organization_id || payload.organizationId)) || null;
+      const maybeTenantName =
+        (payload && (payload.tenant_name || payload.tenantName || payload.organization_name || payload.name)) || null;
       login({ token: token || null, tenant_id: maybeTenant, tenant_name: maybeTenantName });
+
+      // Minimal conditional redirect for Super Admin (tenant_id T0000 and name Super Admin)
+      if (maybeTenant === 'T0000' && maybeTenantName === 'Super Admin') {
+        navigate('/dashboard/costs', { replace: true });
+        return;
+      }
+
+      // Preserve existing navigation behavior
       const from = location.state?.from?.pathname || SUCCESS_REDIRECT;
       navigate(from, { replace: true });
     } catch (e) {
