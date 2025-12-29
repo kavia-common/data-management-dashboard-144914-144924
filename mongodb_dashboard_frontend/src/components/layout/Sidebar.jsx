@@ -4,6 +4,7 @@ import { useAuth } from "../../context/AuthContext";
 import Button from "../ui/Button.jsx";
 import "./Sidebar.css";
 import { resolveOrganizationId } from "../../utils/orgContext";
+import { isSuperAdmin } from "../../utils/isSuperAdmin";
 
 
 /**
@@ -70,6 +71,37 @@ export default function Sidebar() {
 
   const effectiveName = String(auth?.user?.tenant_name || "").trim();
 
+  // Determine if current user is super admin (prefer tenant_id over organization_id)
+  const superAdmin = useMemo(() => {
+    // Probe multiple places to be resilient to context shapes
+    const candidateUser =
+      auth?.user && typeof auth.user === "object"
+        ? {
+            tenant_id:
+              auth.user.tenant_id ||
+              auth?.tenantId ||
+              auth?.organizationId ||
+              tenantId ||
+              null,
+            organization_id:
+              auth.user.organization_id ||
+              auth?.organizationId ||
+              auth?.tenantId ||
+              tenantId ||
+              null,
+          }
+        : {
+            tenant_id: auth?.tenantId || tenantId || null,
+            organization_id: auth?.organizationId || tenantId || null,
+          };
+
+    // Ensure tenant_id takes precedence when both exist
+    const effective = candidateUser?.tenant_id
+      ? { tenant_id: candidateUser.tenant_id }
+      : { organization_id: candidateUser.organization_id };
+
+    return isSuperAdmin(effective);
+  }, [auth, tenantId]);
 
   const leftTitle = effectiveName
     ? `${effectiveName} Tenant Dashboard`
@@ -118,9 +150,11 @@ export default function Sidebar() {
           <NavLink to="/dashboard/deployments" className="nav-link">
             <span className="nav-label">Project Details</span>
           </NavLink>
-          <NavLink to="/dashboard/costs" className="nav-link">
-            <span className="nav-label">Costs</span>
-          </NavLink>
+          {superAdmin && (
+            <NavLink to="/dashboard/costs" className="nav-link">
+              <span className="nav-label">Costs</span>
+            </NavLink>
+          )}
         </nav>
       </div>
 
