@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import AppLayout from "../components/layout/AppLayout";
 import Skeleton from "../components/ui/Skeleton.jsx";
 import ProtectedRoute from "../components/common/ProtectedRoute";
+import SuperAdminCostsGuard from "../components/common/SuperAdminCostsGuard.jsx";
 
 const Overview = lazy(() => import("../pages/dashboard/Overview"));
 const Users = lazy(() => import("../pages/dashboard/Users"));
@@ -85,9 +86,11 @@ export default function AppRoutes() {
           path="/dashboard/costs"
           element={
             <AppLayout>
-              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
-                <Costs />
-              </Suspense>
+              <SuperAdminCostsGuard>
+                <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
+                  <Costs />
+                </Suspense>
+              </SuperAdminCostsGuard>
             </AppLayout>
           }
         />
