@@ -5,7 +5,6 @@ import Button from "../ui/Button.jsx";
 import "./Sidebar.css";
 import { resolveOrganizationId } from "../../utils/orgContext";
 
-
 /**
  * PUBLIC_INTERFACE
  * clearClientAuthArtifacts
@@ -35,10 +34,10 @@ export function clearClientAuthArtifacts(extraKeys = []) {
     COMMON_KEYS.forEach((k) => {
       try {
         localStorage.removeItem(k);
-      } catch { }
+      } catch {}
       try {
         sessionStorage.removeItem(k);
-      } catch { }
+      } catch {}
     });
   } catch {
     // Swallow errors to avoid blocking logout; nothing critical to do here.
@@ -49,6 +48,7 @@ export function clearClientAuthArtifacts(extraKeys = []) {
  * PUBLIC_INTERFACE
  * Sidebar
  * Static, always-open sidebar for primary navigation with a bottom-aligned Logout control.
+ * Conditionally hides the "Costs" link unless the user is Super Admin with tenant/org id "T0000".
  */
 export default function Sidebar() {
   /** Always-visible sidebar with main navigation links and a pinned Logout button. */
@@ -56,25 +56,43 @@ export default function Sidebar() {
   const auth = useAuth();
 
   // Resolve the active tenant id from shared context/token utils (used for fallback display)
-  const tenantId = useMemo(() => resolveOrganizationId({ auth }), [auth]);
+  const resolvedTenantId = useMemo(() => resolveOrganizationId({ auth }), [auth]);
 
-  const nameFromAuth = auth?.user?.tenant_name || null;
+  // Determine tenant/org name from AuthContext
+  const effectiveTenantName = useMemo(() => {
+    // prefer user.tenant_name as provided by AuthContext
+    const primary = auth?.user?.tenant_name;
+    // fallbacks if available in context
+    const fallbacks =
+      auth?.tenant?.name ||
+      auth?.tenantName ||
+      auth?.organizationName ||
+      auth?.user?.organizationName ||
+      auth?.user?.tenantName ||
+      null;
+    return (primary || fallbacks || "").toString().trim() || null;
+  }, [auth]);
 
-  const localNameHints =
-    auth?.tenant?.name ||
-    auth?.tenantName ||
-    auth?.organizationName ||
-    auth?.user?.organizationName ||
-    auth?.user?.tenantName ||
-    null;
+  // Normalize tenant/org id for Super Admin check
+  const normalizedTenantId = useMemo(() => {
+    // resolved via util first (covers organizationId/tenantId in tokens/localStorage)
+    const viaUtil = resolvedTenantId;
+    // possible direct context props
+    const direct =
+      auth?.organizationId ||
+      auth?.tenantId ||
+      auth?.organization_id ||
+      auth?.tenant_id ||
+      null;
+    return (viaUtil || direct || "").toString().trim() || null;
+  }, [auth, resolvedTenantId]);
 
-  const effectiveName = String(auth?.user?.tenant_name || "").trim();
+  // Allow Costs link only for Super Admin on T0000
+  const showCosts = normalizedTenantId === "T0000" && effectiveTenantName === "Super Admin";
 
-
-  const leftTitle = effectiveName
-    ? `${effectiveName} Tenant Dashboard`
+  const leftTitle = effectiveTenantName
+    ? `${effectiveTenantName} Tenant Dashboard`
     : "Tenant Dashboard";
-
 
   // PUBLIC_INTERFACE
   function handleLogout() {
@@ -118,9 +136,11 @@ export default function Sidebar() {
           <NavLink to="/dashboard/deployments" className="nav-link">
             <span className="nav-label">Project Details</span>
           </NavLink>
-          <NavLink to="/dashboard/costs" className="nav-link">
-            <span className="nav-label">Costs</span>
-          </NavLink>
+          {showCosts && (
+            <NavLink to="/dashboard/costs" className="nav-link">
+              <span className="nav-label">Costs</span>
+            </NavLink>
+          )}
         </nav>
       </div>
 
