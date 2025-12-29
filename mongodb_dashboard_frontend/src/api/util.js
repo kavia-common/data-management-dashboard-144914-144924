@@ -1,9 +1,6 @@
 export function buildQueryString(params = {}) {
   // PUBLIC_INTERFACE
-  /**
-   * Builds query string beginning with '?' or returns empty string when no params.
-   * Note: preserves q unmodified; no trimming or removal occurs here.
-   */
+  /** Builds query string beginning with '?' or returns empty string when no params. */
   const entries = Object.entries(params).filter(
     ([, v]) => v !== undefined && v !== null && v !== ""
   );
