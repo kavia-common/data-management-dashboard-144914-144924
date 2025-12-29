@@ -124,53 +124,61 @@ export default function ProjectDetails({ selectedUser }) {
     );
   }
 
-  if (!projects || projects.length === 0) {
-    return (
-      <div className="p-4 text-sm ">
-        No project details available for this user.
-      </div>
-    );
-  }
+  // Compute total from the same dataset used for rendering
+  const totalProjects = Array.isArray(projects) ? projects.length : 0;
 
   return (
     <div className="p-4">
-      <ul className="space-y-2">
-        {projects.map((p, idx) => (
-          <li
-            key={`${p.project_id || 'unknown'}-${idx}`}
-            className="rounded-md border border-gray-700 bg-gray-900 p-3 shadow-sm"
-          >
-            <div className="text-sm space-y-1">
+      {/* Total count header */}
+      <section aria-labelledby="user-projects-total" className="mb-3">
+        <h3
+          id="user-projects-total"
+          className="text-sm font-medium"
+          style={{ color: 'var(--text-secondary, #374151)', margin: 0 }}
+        >
+          <span className="sr-only">User projects total</span>
+          <span aria-label={`Total Projects: ${totalProjects}`}>
+            Total Projects:{' '}
+            <strong style={{ color: 'var(--primary, #2563EB)' }}>{totalProjects}</strong>
+          </span>
+        </h3>
+      </section>
 
-              {/* Project Name */}
-              <div className="font-medium text-white">
-                <span className="font-semibold">Project Name:</span>
-                <span className="font-mono ml-1"> {p.project_name || '—'}</span>
-
-              </div>
-
-              {/* Project ID */}
-              <div className="text-white">
-                <span className="font-semibold">Project ID:</span>
-                <span className="font-mono ml-1">{p.project_id || '—'}</span>
-              </div>
-
-              {/* Last Activity */}
-              {p.last_activity && (
-                <div className="text-xs text-gray-300">
-                  <span className="font-semibold">Last activity:</span>
-                  <span className="ml-1">
-                    {new Date(p.last_activity).toLocaleString()}
-                  </span>
+      {/* Empty state still shows count above */}
+      {totalProjects === 0 ? (
+        <div className="text-sm">No project details available for this user.</div>
+      ) : (
+        <ul className="space-y-2">
+          {projects.map((p, idx) => (
+            <li
+              key={`${p.project_id || 'unknown'}-${idx}`}
+              className="rounded-md border border-gray-200 bg-white p-3 shadow-sm"
+            >
+              <div className="text-sm space-y-1">
+                {/* Project Name */}
+                <div className="font-medium text-gray-900">
+                  <span className="font-semibold">Project Name:</span>
+                  <span className="font-mono ml-1"> {p.project_name || '—'}</span>
                 </div>
-              )}
 
-            </div>
-          </li>
+                {/* Project ID */}
+                <div className="text-gray-900">
+                  <span className="font-semibold">Project ID:</span>
+                  <span className="font-mono ml-1">{p.project_id || '—'}</span>
+                </div>
 
-
-        ))}
-      </ul>
+                {/* Last Activity */}
+                {p.last_activity && (
+                  <div className="text-xs text-gray-500">
+                    <span className="font-semibold">Last activity:</span>
+                    <span className="ml-1">{new Date(p.last_activity).toLocaleString()}</span>
+                  </div>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
