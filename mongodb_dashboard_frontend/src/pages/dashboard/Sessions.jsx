@@ -5,7 +5,7 @@ import { listSessions } from "../../api";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
-import useDebouncedValue from "../../hooks/useDebouncedValue";
+
 
 
 
@@ -22,9 +22,9 @@ function distinctSorted(arr) {
 // PUBLIC_INTERFACE
 export default function Sessions() {
   /**
-   * Sessions page with server-side search and pagination.
-   * - Debounced search (300ms) across the entire dataset via backend query param `q`.
-   * - Keeps existing pagination using server-provided meta.total and page/limit.
+   * Sessions page with client-side text search and server-side pagination.
+   * - Typing in the search input filters the currently loaded items on the frontend (case-insensitive by user name).
+   * - When search is empty, normal server-side pagination remains (fetchPage + serverTotal).
    * - Minimal loading and error states shown within the table and above toolbar.
    */
   const [items, setItems] = useState([]);
@@ -388,31 +388,43 @@ export default function Sessions() {
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, "", key, dir);
+    // Keep aggregates as initial/base load; not tied to typing search anymore
     loadAggregates("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
-  // Debounced server-side search on query change (250ms default)
-  const debouncedQuery = useDebouncedValue(query, 250);
-  // Debounced text search only - reset to page 1 and keep current page size and sort
-  useEffect(() => {
-    const q = (debouncedQuery || "").trim();
-    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    // Reset to page 1 whenever debouncedQuery changes
-    load(1, meta.limit || 10, q, key, dir);
-    // Keep aggregates in sync with the text search (charts ignore dropdown filters)
-    loadAggregates(q);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery]);
+
 
   // Immediate refetch when dropdown filters change (no debounce)
   useEffect(() => {
-    const q = (query || "").trim();
+    // Query is client-side only; server load should ignore q now.
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, q, key, dir);
-    // Do not reload aggregates on dropdown change to keep options broad; charts are based on search/date only
+    load(1, meta.limit || 10, "", key, dir);
+    // Do not reload aggregates on dropdown change to keep options broad; charts are based on date only
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterUserName, filterTenantId, startDate, endDate]);
+
+  // Client-side filtering by user name over currently loaded items
+  const filteredItems = useMemo(() => {
+    const q = (query || "").trim().toLowerCase();
+    if (!q) return Array.isArray(items) ? items : [];
+    const arr = Array.isArray(items) ? items : [];
+    return arr.filter((it) => {
+      // Check common user name fields safely
+      const name =
+        it?.User_name ??
+        it?.user_name ??
+        it?.user?.name ??
+        it?.username ??
+        it?.email ??
+        "";
+      try {
+        return String(name || "").toLowerCase().includes(q);
+      } catch {
+        return false;
+      }
+    });
+  }, [items, query]);
 
 
 
@@ -568,22 +580,25 @@ export default function Sessions() {
         )}
         <DataTable
           columns={Array.isArray(columns) ? columns : []}
-          data={Array.isArray(items) ? items : []}
+          data={(query || "").trim() ? filteredItems : Array.isArray(items) ? items : []}
           loading={!!loading}
           pageSize={meta.limit || 10}
-          initialPage={meta.page || 1}
-          serverTotal={meta?.total ?? 0}
-          fetchPage={async (page, limit, sortKey, sortDir) => {
-            // Remember current sort so external triggers (search) keep ordering consistent
-            if (sortKey) {
-              lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
-            } else if (!lastSortRef.current) {
-              lastSortRef.current = { key: "", dir: "asc" };
-            }
-            // Always pass debounced query value for server-side consistency while paging/sorting
-            const q = (debouncedQuery || "").trim();
-            await load(page, limit, q, sortKey, sortDir);
-          }}
+          initialPage={(query || "").trim() ? 1 : (meta.page || 1)}
+          {...(((query || "").trim())
+            ? {} // Client-side mode: no serverTotal/fetchPage to avoid server calls
+            : {
+                serverTotal: meta?.total ?? 0,
+                fetchPage: async (page, limit, sortKey, sortDir) => {
+                  // Remember current sort so external triggers keep ordering consistent
+                  if (sortKey) {
+                    lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
+                  } else if (!lastSortRef.current) {
+                    lastSortRef.current = { key: "", dir: "asc" };
+                  }
+                  // In server mode while query is empty, do not include q (client-side only now)
+                  await load(page, limit, "", sortKey, sortDir);
+                },
+              })}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
         />
