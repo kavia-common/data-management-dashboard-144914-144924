@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
 import { listUsers } from "../api";
+import { getUserSessionCount } from "../api/sessionCounts";
 
 /**
  * PUBLIC_INTERFACE
@@ -10,6 +11,56 @@ import { listUsers } from "../api";
  * Displays users with filters: search and tenant.
  * Fetches data from API without date range filters.
  */
+/**
+ * Small per-row component to fetch and display the total sessions count for a user.
+ * Uses a shared cache map to avoid duplicate requests during the current page's lifecycle.
+ */
+const sessionCountCache = new Map();
+
+function PerUserSessionCount({ user }) {
+  const [count, setCount] = useState(() => {
+    const id = user?._id || user?.id || user?.user_id;
+    const k = id ? String(id) : "";
+    return k && sessionCountCache.has(k) ? sessionCountCache.get(k) : null;
+  });
+  const pendingRef = useRef(false);
+
+  useEffect(() => {
+    const id = user?._id || user?.id || user?.user_id;
+    const key = id ? String(id) : "";
+    if (!key) {
+      setCount(0);
+      return;
+    }
+    if (sessionCountCache.has(key)) {
+      const cached = sessionCountCache.get(key);
+      if (cached !== count) setCount(cached);
+      return;
+    }
+    if (pendingRef.current) return;
+    pendingRef.current = true;
+    getUserSessionCount(key)
+      .then((c) => {
+        const v = Number.isFinite(c) ? c : 0;
+        sessionCountCache.set(key, v);
+        setCount(v);
+      })
+      .catch(() => {
+        sessionCountCache.set(key, 0);
+        setCount(0);
+      })
+      .finally(() => {
+        pendingRef.current = false;
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?._id, user?.id, user?.user_id]);
+
+  if (count === null || count === undefined) {
+    return <span style={{ opacity: 0.6 }}>…</span>;
+  }
+  return <span>{count}</span>;
+}
+
 export default function UsersList({
   title = "Users",
   subtitle = "All users",
@@ -46,11 +97,20 @@ export default function UsersList({
       row?.organization ||
       row?.organization_id ||
       "—";
+
+    // Lazy import to avoid cyclic deps in some bundlers; we import top-level instead for clarity.
+    // We'll render Total Sessions via a small inline component that triggers a per-row fetch.
     return [
       { key: "name", label: "Name", priority: 1 },
       { key: "__tenant", label: "Tenant Id", render: renderTenant, priority: 2 },
       { key: "email", label: "Mail", priority: 2 },
       { key: "department", label: "Department", priority: 3 },
+      {
+        key: "__total_sessions",
+        label: "Total Sessions",
+        priority: 3,
+        render: (_v, row) => <PerUserSessionCount user={row} />,
+      },
     ];
   }, []);
 
