@@ -722,7 +722,7 @@ export default function TabbedUserModal({
         <div style={{ padding: 20 }}>
           {activeTab === 'details' && <UserDetailsView user={user} />}
           {activeTab === 'projects' && <ProjectDetails selectedUser={user || null} />}
-          {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
+          {activeTab === 'sessions' && <SessionDetailsTab userId={userId} organizationId={tenantId} active />}
           {activeTab === 'credits' && <CreditsConsumedTab userId={userId} />}
           {activeTab === 'analytics' && (
             <UsersAnalyticsPanelModal
