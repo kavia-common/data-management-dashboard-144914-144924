@@ -118,9 +118,34 @@ export default function Sidebar() {
           <NavLink to="/dashboard/deployments" className="nav-link">
             <span className="nav-label">Project Details</span>
           </NavLink>
-          <NavLink to="/dashboard/costs" className="nav-link">
-            <span className="nav-label">Costs</span>
-          </NavLink>
+          {(() => {
+            // Determine if the current user is Super Admin on tenant T0000.
+            // We normalize across possible field names for compatibility.
+            const orgId =
+              auth?.organizationId ||
+              auth?.tenantId ||
+              auth?.user?.organization_id ||
+              auth?.user?.tenant_id ||
+              null;
+
+            const orgName =
+              auth?.user?.tenant_name ||
+              auth?.user?.organization_name ||
+              auth?.tenant?.name ||
+              auth?.tenantName ||
+              auth?.organizationName ||
+              null;
+
+            const isSuperAdmin =
+              String(orgId || "").trim() === "T0000" &&
+              String(orgName || "").trim() === "Super Admin";
+
+            return isSuperAdmin ? (
+              <NavLink to="/dashboard/costs" className="nav-link">
+                <span className="nav-label">Costs</span>
+              </NavLink>
+            ) : null;
+          })()}
         </nav>
       </div>
 
