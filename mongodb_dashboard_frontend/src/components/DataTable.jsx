@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Skeleton from "./ui/Skeleton.jsx";
 
 /**
@@ -20,9 +20,11 @@ function measureTextWidth(text, font = "14px Helvetica, Arial, sans-serif") {
 /**
  * PUBLIC_INTERFACE
  * DataTable
- * Basic table with sticky header and pagination.
+ * Presentational, controlled table. It does NOT fetch by itself.
+ * - Displays provided data
+ * - Emits onPageChange/onSortChange when user interacts
+ * - No initial event is fired when suppressInitialEvent is true (default)
  */
-// PUBLIC_INTERFACE
 export default function DataTable({
   columns = [],
   data = [],
@@ -33,6 +35,7 @@ export default function DataTable({
   pageSize = 10,
   initialPage = 1,
   onPageChange,
+  onSortChange,
   autoWidth = true,
   minColWidth = 56,
   maxColWidth = 420,
@@ -44,18 +47,18 @@ export default function DataTable({
   // PUBLIC_INTERFACE
   serverTotal, // optional: pass total item count from server to compute total pages in server mode
   // PUBLIC_INTERFACE
-  fetchPage, // optional: async function (page, pageSize, sortKey, sortDir) => void to load data from server on page change
+  fetchPage, // optional legacy prop: async function (page, pageSize, sortKey, sortDir) => void; allowed but never called automatically
   // PUBLIC_INTERFACE
   paginationTitle = "Pages", // optional title beside pagination controls to improve visibility
+  // PUBLIC_INTERFACE
+  suppressInitialEvent = true, // when true, do NOT emit initial onPageChange on mount
 }) {
   /**
    * DataTable with sticky header and always-visible pagination.
    * Body is contained in a scrollable region with vertical and horizontal scroll as needed.
    * Improvements in this version:
-   * - Ensures horizontal scroll is always available when columns exceed wrapper width or when forceHorizontalScroll is true.
-   * - Pagination area is outside of the scrollable body and remains visible regardless of scroll position.
-   * - Slight visual affordances (shadow) appear on the header when the body content is scrolled.
-
+   * - Controlled component: no self-fetch and no automatic initial event unless explicitly allowed.
+   * - Keeps sticky header, scroll shadows, and skeleton states.
    */
   const [sortKey, setSortKey] = useState("");
   const [sortDir, setSortDir] = useState("asc");
@@ -65,7 +68,7 @@ export default function DataTable({
   const headerRef = useRef(null);
 
   // Determine server mode up-front so we can control sorting and pagination behavior consistently.
-  const isServerMode = typeof fetchPage === "function" && typeof serverTotal === "number";
+  const isServerMode = typeof serverTotal === "number";
 
   function getValue(row, path) {
     if (!row || !path) return undefined;
@@ -112,27 +115,25 @@ export default function DataTable({
   const end = start + Math.max(1, pageSize);
   const pageRows = isServerMode ? (data || []) : sorted.slice(start, end);
 
-  async function setPageAndNotify(p) {
+  // Do not emit initial event by default; respect suppressInitialEvent
+  useEffect(() => {
+    if (!suppressInitialEvent && typeof onPageChange === "function") {
+      onPageChange(currentPage, pageSize);
+    }
+    // We intentionally do not include onPageChange or pageSize to avoid re-emits
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suppressInitialEvent]);
+
+  function setPageAndNotify(p) {
     const next = Math.min(Math.max(1, p), totalPages);
     setPage(next);
-    if (typeof onPageChange === "function") onPageChange(next);
-
-    // If in server mode, ask parent to load data for the new page
-    if (typeof fetchPage === "function") {
-      try {
-        await fetchPage(next, Math.max(1, pageSize), sortKey, sortDir);
-      } catch {
-        // swallow; parent can own error UI
-      }
-    }
+    if (typeof onPageChange === "function") onPageChange(next, pageSize);
     if (bodyRef.current) {
       bodyRef.current.scrollTop = 0;
-      // Keep pagination visible; do not auto-reset horizontal scroll as users may be inspecting right-most columns.
-      // bodyRef.current.scrollLeft = 0;
     }
   }
 
-  async function toggleSort(key) {
+  function toggleSort(key) {
     let nextDir = "asc";
     if (sortKey === key) {
       nextDir = sortDir === "asc" ? "desc" : "asc";
@@ -142,19 +143,8 @@ export default function DataTable({
       nextDir = "asc";
       setSortDir("asc");
     }
-    // Reset to first page; in server mode fetch the page once here (avoid double fetch)
-    if (typeof fetchPage === "function") {
-      try {
-        await fetchPage(1, Math.max(1, pageSize), key, nextDir);
-      } catch {
-        // ignore errors; parent handles UI
-      }
-      setPage(1);
-      if (typeof onPageChange === "function") onPageChange(1);
-      if (bodyRef.current) bodyRef.current.scrollTop = 0;
-      return;
-    }
-    // Client mode: just update to first page; slicing/sorting handled locally
+    // Reset to first page
+    if (typeof onSortChange === "function") onSortChange(key === sortKey ? nextDir === "asc" ? key : `-${key}` : key);
     setPageAndNotify(1);
   }
 

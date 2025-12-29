@@ -1,14 +1,15 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Card from "./ui/Card.jsx";
 import DataTable from "./DataTable.jsx";
 import Button from "./ui/Button.jsx";
 import { listUsers } from "../api";
+import { debounce } from "../utils/debounce";
 
 /**
  * PUBLIC_INTERFACE
  * UsersList
- * Displays users with filters: search and tenant.
- * Fetches data from API without date range filters.
+ * Displays users in a controlled table. Single source of fetching with pagination/sorting/filter.
+ * Ensures only one API call per page by suppressing DataTable initial events and cancelling in-flight requests.
  */
 export default function UsersList({
   title = "Users",
@@ -17,28 +18,26 @@ export default function UsersList({
   onUserSelect,
   onUserRowClick,
 }) {
-  const [allItems, setAllItems] = useState([]);
-  const [items, setItems] = useState([]);
+  // Controlled table state
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
+
+  // Query/filter primitives
   const [query, setQuery] = useState("");
   const [organizationFilter, setOrganizationFilter] = useState("");
-  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  const allowedFields = useMemo(
-    () => [
-      "name",
-      "email",
-      "department",
-      "tenant_id",
-      "organization_name",
-      "organization",
-      "organization_id",
-    ],
-    []
-  );
+  // Pagination/sort meta
+  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0, sort: undefined });
 
+  // Ref to prevent duplicate initial load when table emits initial page event
+  const mountedRef = useRef(false);
+
+  // Abort controller for cancelling in-flight requests
+  const currentAbortRef = useRef(null);
+
+  // Memoized columns definition
   const columns = useMemo(() => {
     const renderTenant = (v, row) =>
       row?.tenant_id ||
@@ -55,81 +54,122 @@ export default function UsersList({
   }, []);
 
   // PUBLIC_INTERFACE
-  async function load() {
-    setLoading(true);
-    setError("");
-    try {
-      // listUsers routes through shared client enforcing /api/users?organization_id=<ORG_ID> only.
-      const res = await listUsers({});
-      const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      setAllItems(arr);
-      setItems(arr);
-      setMeta((prev) => ({
-        page: 1,
-        limit: prev.limit || 10,
-        total: arr.length,
-      }));
-    } catch (e) {
-      setAllItems([]);
-      setItems([]);
-      setMeta({ page: 1, limit: 10, total: 0 });
-      setError(e?.response?.data?.message || e?.message || "Failed to load users.");
-    } finally {
-      setLoading(false);
-    }
-  }
+  const loadUsers = useCallback(
+    async ({ page, limit, sort } = {}) => {
+      // build stable primitives for filter params
+      const q = (query || "").trim();
+      const org = (organizationFilter || "").trim();
+      const nextPage = page ?? meta.page ?? 1;
+      const nextLimit = limit ?? meta.limit ?? 10;
+      const nextSort = sort ?? meta.sort;
 
+      // Cancel any in-flight request
+      if (currentAbortRef.current) {
+        currentAbortRef.current.abort();
+      }
+      const controller = new AbortController();
+      currentAbortRef.current = controller;
+
+      setLoading(true);
+      setError("");
+
+      try {
+        const filterPayload = {};
+        if (q) {
+          // Backend does not support 'q' across fields for /api/users by default;
+          // we pass it as filter hint when supported, otherwise server will ignore.
+          filterPayload.q = q;
+        }
+        if (org) {
+          filterPayload.organization_id = org;
+          filterPayload.tenant_id = org;
+        }
+
+        const params = {
+          page: nextPage,
+          limit: nextLimit,
+          sort: nextSort,
+          filter: Object.keys(filterPayload).length ? JSON.stringify(filterPayload) : undefined,
+        };
+
+        const res = await listUsers(params, { signal: controller.signal });
+        // normalize envelope/array
+        const data =
+          res?.items ??
+          res?.data ??
+          (Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : []);
+        const total =
+          res?.total ??
+          res?.meta?.total ??
+          (Array.isArray(data) ? data.length : 0);
+
+        setRows(Array.isArray(data) ? data : []);
+        setMeta({
+          page: nextPage,
+          limit: nextLimit,
+          sort: nextSort,
+          total: typeof total === "number" ? total : 0,
+        });
+      } catch (e) {
+        if (e?.name === "AbortError") return; // ignore aborted
+        setRows([]);
+        setError(e?.response?.data?.message || e?.message || "Failed to load users.");
+      } finally {
+        setLoading(false);
+        // clear current if still this controller
+        if (currentAbortRef.current === controller) {
+          currentAbortRef.current = null;
+        }
+      }
+    },
+    [query, organizationFilter, meta.page, meta.limit, meta.sort]
+  );
+
+  // Debounced pagination to avoid rapid multiple requests
+  const debouncedLoadUsers = useMemo(() => debounce(loadUsers, 150), [loadUsers]);
+
+  // Initial load on mount - only once
   useEffect(() => {
-    load();
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      loadUsers({ page: 1, limit: meta.limit });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // When query or organization filter changes, reset to page 1 and refetch
   useEffect(() => {
-    const q = (query || "").trim().toLowerCase();
-    let filtered = allItems || [];
+    if (!mountedRef.current) return;
+    // Debounce to avoid too frequent typing-triggered queries
+    debouncedLoadUsers({ page: 1, limit: meta.limit, sort: meta.sort });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, organizationFilter]);
 
-    if (q) {
-      filtered = filtered.filter((u) => {
-        const vals = allowedFields
-          .map((f) => u?.[f])
-          .filter((v) => v !== undefined && v !== null)
-          .map((v) => String(v).toLowerCase());
-        return vals.some((v) => v.includes(q));
-      });
-    }
+  const handleRowClick = useCallback(
+    (user) => {
+      try {
+        if (typeof onUserRowClick === "function") return onUserRowClick(user);
+        if (typeof onUserSelect === "function") onUserSelect(user);
+      } catch {
+        // ignore callback errors
+      }
+    },
+    [onUserRowClick, onUserSelect]
+  );
 
-    if (organizationFilter) {
-      filtered = filtered.filter((u) => {
-        const org =
-          u?.tenant_id ?? u?.organization_name ?? u?.organization ?? u?.organization_id;
-        return String(org ?? "").trim() === organizationFilter;
-      });
-    }
-
-    setItems(filtered);
-    setMeta((m) => ({ ...m, total: filtered.length, page: 1 }));
-  }, [query, allItems, allowedFields, organizationFilter]);
-
-  function resetFilters() {
+  const resetFilters = useCallback(() => {
     setQuery("");
     setOrganizationFilter("");
-    setItems(allItems);
-    setMeta((m) => ({ ...m, total: allItems.length, page: 1 }));
-    load();
-  }
+    // trigger reload on effect
+  }, []);
 
-  function handleRowClick(user) {
-    try {
-      if (typeof onUserRowClick === "function") return onUserRowClick(user);
-      if (typeof onUserSelect === "function") onUserSelect(user);
-    } catch {
-      // ignore callback errors
-    }
-  }
-
+  // Stable key to avoid unnecessary remounts and keep table controlled
   const tableKey = useMemo(
-    () => `${(query || "").trim().toLowerCase()}|${organizationFilter}|${items.length}`,
-    [query, organizationFilter, items.length]
+    () =>
+      `${(query || "").trim().toLowerCase()}|${(organizationFilter || "")
+        .trim()
+        .toLowerCase()}|${meta.page}|${meta.limit}|${meta.sort || ""}`,
+    [query, organizationFilter, meta.page, meta.limit, meta.sort]
   );
 
   return (
@@ -157,9 +197,10 @@ export default function UsersList({
             onChange={(e) => setOrganizationFilter(e.target.value)}
             style={{ width: 200 }}
           >
+            {/* Build list from current rows (fallback); could be enriched via a separate endpoint if needed */}
             <option value="">All Tenant</option>
             {[...new Set(
-              allItems.map(
+              (rows || []).map(
                 (u) =>
                   u?.tenant_id ??
                   u?.organization_name ??
@@ -194,17 +235,25 @@ export default function UsersList({
           </div>
         )}
 
-        {/* 📋 Data Table */}
+        {/* 📋 Data Table - presentational, controlled by UsersList */}
         <DataTable
           key={tableKey}
           columns={columns}
-          data={items}
+          data={rows}
           loading={loading}
           onDelete={showActions ? (row) => setConfirmDelete(row) : undefined}
           onRowClick={handleRowClick}
           pageSize={meta.limit || 10}
-          initialPage={1}
+          initialPage={meta.page || 1}
           paginationTitle="Users pages"
+          suppressInitialEvent
+          onPageChange={(nextPage, nextPageSize) =>
+            loadUsers({ page: nextPage, limit: nextPageSize ?? meta.limit, sort: meta.sort })
+          }
+          onSortChange={(nextSort) =>
+            loadUsers({ page: 1, limit: meta.limit, sort: nextSort })
+          }
+          totalItems={meta.total ?? rows.length}
         />
       </Card>
 
