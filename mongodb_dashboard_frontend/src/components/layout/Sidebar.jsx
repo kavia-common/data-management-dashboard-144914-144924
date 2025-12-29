@@ -4,6 +4,7 @@ import { useAuth } from "../../context/AuthContext";
 import Button from "../ui/Button.jsx";
 import "./Sidebar.css";
 import { resolveOrganizationId } from "../../utils/orgContext";
+import { isSuperAdmin } from "../../utils/isSuperAdmin";
 
 
 /**
@@ -70,11 +71,11 @@ export default function Sidebar() {
 
   const effectiveName = String(auth?.user?.tenant_name || "").trim();
 
+  const showCosts = isSuperAdmin(auth?.user);
 
   const leftTitle = effectiveName
     ? `${effectiveName} Tenant Dashboard`
     : "Tenant Dashboard";
-
 
   // PUBLIC_INTERFACE
   function handleLogout() {
@@ -118,9 +119,11 @@ export default function Sidebar() {
           <NavLink to="/dashboard/deployments" className="nav-link">
             <span className="nav-label">Project Details</span>
           </NavLink>
-          <NavLink to="/dashboard/costs" className="nav-link">
-            <span className="nav-label">Costs</span>
-          </NavLink>
+          {showCosts && (
+            <NavLink to="/dashboard/costs" className="nav-link">
+              <span className="nav-label">Costs</span>
+            </NavLink>
+          )}
         </nav>
       </div>
 

@@ -81,28 +81,29 @@ export default function AppRoutes() {
             </AppLayout>
           }
         />
-        <Route
-          path="/dashboard/costs"
-          element={
-            <AppLayout>
-              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
-                <Costs />
-              </Suspense>
-            </AppLayout>
-          }
-        />
-        <Route
-          path="/dashboard/costs-underscore"
-          element={
-            <AppLayout>
-              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
-                <CostsUnderscore />
-              </Suspense>
-            </AppLayout>
-          }
-        />
-
-
+        {/* Costs is super-admin only (organization_id === 'T0000') */}
+        <Route element={<ProtectedRoute superAdminOnly />}>
+          <Route
+            path="/dashboard/costs"
+            element={
+              <AppLayout>
+                <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
+                  <Costs />
+                </Suspense>
+              </AppLayout>
+            }
+          />
+          <Route
+            path="/dashboard/costs-underscore"
+            element={
+              <AppLayout>
+                <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
+                  <CostsUnderscore />
+                </Suspense>
+              </AppLayout>
+            }
+          />
+        </Route>
       </Route>
 
       {/* Fallback */}
