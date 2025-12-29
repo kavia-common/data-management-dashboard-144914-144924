@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
-import { getUserProjects } from '../../api/users';
+import { getUserProjects, cancelUserProjectsRequest } from '../../api/users';
 import { useAuth } from '../../context/AuthContext';
 
 /**
@@ -10,8 +10,13 @@ import { useAuth } from '../../context/AuthContext';
  * It attempts to read project details (project_id, project_name) from the selectedUser object when available.
  * If not present, it will fetch from the backend using the /api/users/{userId}/projects endpoint,
  * requiring tenant/organization scoping taken from auth context when available.
+ *
+ * Changes in this version:
+ * - Adds request de-duplication and cancellation via api/users getUserProjects inflight map.
+ * - Cancels stale in-flight request when user selection changes.
+ * - Supports receiving pre-fetched project data via prop to avoid nested duplicate fetches.
  */
-export default function ProjectDetails({ selectedUser }) {
+export default function ProjectDetails({ selectedUser, prefetchedProjects }) {
   const { organizationId: authOrgId } = useAuth?.() || {};
   const [loading, setLoading] = useState(false);
   const [projects, setProjects] = useState(null);
@@ -22,12 +27,14 @@ export default function ProjectDetails({ selectedUser }) {
     return selectedUser._id || selectedUser.id || selectedUser.user_id || null;
   }, [selectedUser]);
 
+  // Prefer projects provided from container
   const preloadedProjects = useMemo(() => {
+    if (Array.isArray(prefetchedProjects) && prefetchedProjects.length > 0) {
+      return prefetchedProjects;
+    }
     if (!selectedUser) return null;
     // Try common shapes possibly embedded on user object
-    // Accept: selectedUser.projects (array), or single project fields at root
     if (Array.isArray(selectedUser.projects) && selectedUser.projects.length > 0) {
-      // Normalize map to { project_id, project_name }
       return selectedUser.projects
         .map((p) => ({
           project_id: p.project_id || p.projectId || p.id || null,
@@ -50,16 +57,19 @@ export default function ProjectDetails({ selectedUser }) {
       return [single];
     }
     return null;
-  }, [selectedUser]);
+  }, [prefetchedProjects, selectedUser]);
+
+  // Track the last request params for targeted cancellation on unmount/change.
+  const lastReqRef = useRef({ userId: null, params: null });
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
+
     async function fetchProjects() {
       if (!userId) {
         setProjects([]);
         return;
       }
-      // Use preloaded when available
       if (preloadedProjects) {
         setProjects(preloadedProjects);
         return;
@@ -67,38 +77,48 @@ export default function ProjectDetails({ selectedUser }) {
 
       setLoading(true);
       setError(null);
+      const params = {
+        organization_id:
+          authOrgId ||
+          selectedUser?.organization_id ||
+          selectedUser?.tenant_id ||
+          selectedUser?.tenantId,
+      };
+
       try {
-        // The backend requires organization_id/tenant_id
-        // Prefer organization from auth context when present
-        const query = {
-          organization_id: authOrgId || selectedUser?.organization_id || selectedUser?.tenant_id || selectedUser?.tenantId,
-        };
-        // If organization is unavailable, we still attempt (backend may enforce). Gracefully handle 400.
-        const res = await getUserProjects(userId, query);
-        if (!cancelled) {
-          const list = Array.isArray(res?.projects) ? res.projects : [];
-          setProjects(
-            list.map((p) => ({
-              project_id: p.project_id || p.projectId || p.id || null,
-              project_name: p.project_name || p.projectName || p.name || null,
-              last_activity: p.last_activity || p.lastActivity || null,
-            }))
-          );
-        }
+        lastReqRef.current = { userId, params };
+        const res = await getUserProjects(userId, params, {
+          signal: controller.signal,
+          // Guard against overlapping identical requests
+          cancelPrevious: true,
+        });
+        const list = Array.isArray(res?.projects) ? res.projects : [];
+        setProjects(
+          list.map((p) => ({
+            project_id: p.project_id || p.projectId || p.id || null,
+            project_name: p.project_name || p.projectName || p.name || null,
+            last_activity: p.last_activity || p.lastActivity || null,
+          }))
+        );
       } catch (e) {
-        if (!cancelled) {
-          setError(e?.message || 'Failed to load project details');
-          setProjects([]);
-        }
+        if (e?.name === 'AbortError') return;
+        setError(e?.message || 'Failed to load project details');
+        setProjects([]);
       } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       }
     }
+
     fetchProjects();
+
+    // Cleanup on param change/unmount: abort the specific in-flight request
     return () => {
-      cancelled = true;
+      controller.abort();
+      const { userId: uid, params } = lastReqRef.current || {};
+      if (uid) cancelUserProjectsRequest(uid, params || {});
     };
-  }, [userId, preloadedProjects, authOrgId, selectedUser]);
+    // Include only dependencies that change the identity of the request
+  }, [userId, preloadedProjects, authOrgId, selectedUser?.organization_id, selectedUser?.tenant_id, selectedUser?.tenantId]);
 
   if (!selectedUser) {
     return (
@@ -177,4 +197,6 @@ export default function ProjectDetails({ selectedUser }) {
 
 ProjectDetails.propTypes = {
   selectedUser: PropTypes.object,
+  // PUBLIC_INTERFACE: allows avoiding re-fetch when parent fetched already
+  prefetchedProjects: PropTypes.array,
 };

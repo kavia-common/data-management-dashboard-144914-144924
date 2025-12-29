@@ -209,6 +209,56 @@ export default function TabbedUserModal({
 
   const title = useMemo(() => user?.name || user?.full_name || user?.email || 'User', [user]);
 
+  // Single-source fetch state for user projects (used by Projects tab)
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState('');
+  const [projectsData, setProjectsData] = useState(null);
+
+  useEffect(() => {
+    // Reset when user or modal open state changes
+    setProjectsLoading(false);
+    setProjectsError('');
+    setProjectsData(null);
+  }, [userId, open]);
+
+  useEffect(() => {
+    // Only fetch when Projects tab is active and we don't yet have data
+    if (!open || activeTab !== 'projects' || projectsData) return;
+    if (!userId) return;
+
+    const controller = new AbortController();
+    async function loadProjectsOnce() {
+      try {
+        setProjectsLoading(true);
+        setProjectsError('');
+        // Build params using passed tenantId when available
+        const { getUserProjects } = await import('../../api/users');
+        const params = {
+          organization_id: tenantId || user?.organization_id || user?.tenant_id || user?.tenantId,
+          from,
+          to,
+        };
+        const res = await getUserProjects(userId, params, { signal: controller.signal, cancelPrevious: true });
+        const list = Array.isArray(res?.projects) ? res.projects : [];
+        const normalized = list.map((p) => ({
+          project_id: p.project_id || p.projectId || p.id || null,
+          project_name: p.project_name || p.projectName || p.name || null,
+          last_activity: p.last_activity || p.lastActivity || null,
+        }));
+        setProjectsData(normalized);
+      } catch (e) {
+        if (e?.name === 'AbortError') return;
+        setProjectsError(e?.message || 'Failed to load user projects');
+        setProjectsData([]);
+      } finally {
+        setProjectsLoading(false);
+      }
+    }
+    loadProjectsOnce();
+
+    return () => controller.abort();
+  }, [open, activeTab, userId, tenantId, from, to, projectsData, user]);
+
   function ThemedTabs({ activeKey, onChange }) {
     return (
       <div role="tablist" style={{ display: "flex", gap: 8, borderBottom: "1px solid var(--border-subtle)" }}>
@@ -721,7 +771,24 @@ export default function TabbedUserModal({
       <div role="region" style={{ flex: 1, overflow: "auto", background: "var(--bg-canvas, #f9fafb)" }}>
         <div style={{ padding: 20 }}>
           {activeTab === 'details' && <UserDetailsView user={user} />}
-          {activeTab === 'projects' && <ProjectDetails selectedUser={user || null} />}
+          {activeTab === 'projects' && (
+            <div>
+              {projectsLoading && (
+                <div role="status" aria-live="polite" style={{ minHeight: 80, display: 'grid', placeItems: 'center' }}>
+                  Loading projects...
+                </div>
+              )}
+              {!projectsLoading && projectsError && (
+                <div role="alert" className="error" style={{ marginBottom: 8 }}>
+                  {projectsError}
+                </div>
+              )}
+              <ProjectDetails
+                selectedUser={user || null}
+                prefetchedProjects={projectsData || undefined}
+              />
+            </div>
+          )}
           {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
           {activeTab === 'credits' && <CreditsConsumedTab userId={userId} />}
           {activeTab === 'analytics' && (
