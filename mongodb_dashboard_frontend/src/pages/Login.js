@@ -99,13 +99,31 @@ export default function Login() {
         password,
       });
       // Persist token and any tenant info provided by backend (if present)
-      const maybeTenant = (payload && (payload.tenant_id || payload.tenantId || payload.organization_id || payload.organizationId)) || null;
+      // Normalize fields from payload (handles both snake_case and camelCase)
+      const maybeTenant =
+        (payload &&
+          (payload.tenant_id ||
+            payload.tenantId ||
+            payload.organization_id ||
+            payload.organizationId)) || null;
       const maybeTenantName =
-        (payload && (payload.tenant_name || payload.tenantName || payload.organization_name || payload.name)) || null;
-      login({ token: token || null, tenant_id: maybeTenant, tenant_name: maybeTenantName });
+        (payload &&
+          (payload.tenant_name ||
+            payload.tenantName ||
+            payload.organization_name ||
+            payload.name)) || null;
 
-      // Minimal conditional redirect for Super Admin (tenant_id T0000 and name Super Admin)
-      if (maybeTenant === 'T0000' && maybeTenantName === 'Super Admin') {
+      // Trim and normalize for safe comparison
+      const normTenant = typeof maybeTenant === 'string' ? maybeTenant.trim() : null;
+      const normName = typeof maybeTenantName === 'string' ? maybeTenantName.trim() : null;
+
+      // Persist to context
+      login({ token: token || null, tenant_id: normTenant, tenant_name: normName });
+
+      // Strict conditional redirect for Super Admin:
+      // Only redirect when BOTH are true: (tenant/org id) === 'T0000' AND (tenant/org name) === 'Super Admin'
+      const isSuperAdmin = normTenant === 'T0000' && normName === 'Super Admin';
+      if (isSuperAdmin) {
         navigate('/dashboard/costs', { replace: true });
         return;
       }

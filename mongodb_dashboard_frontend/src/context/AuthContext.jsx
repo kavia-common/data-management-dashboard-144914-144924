@@ -38,6 +38,8 @@ export function AuthProvider({ children }) {
   const value = useMemo(() => {
     const user = {
       tenant_name: getActiveTenantName() || auth?.user?.tenant_name || null,
+      // Note: When testing login redirects, verify user.tenant_name === 'Super Admin'
+      // and organizationId/tenantId === 'T0000' for the Super Admin path.
     };
     return {
       isAuthenticated: isAuthed(),

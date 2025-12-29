@@ -42,15 +42,28 @@ export default function Login() {
       // Perform login using auth client (throws on non-2xx)
       const { token, payload } = await loginWithOrgEmailPassword(form);
       // Persist session via context, include tenant_id and tenant_name when present
-      const tid =
-        (payload && (payload.tenant_id || payload.tenantId || payload.organization_id || payload.organizationId)) ||
-        null;
-      const tname =
-        (payload && (payload.tenant_name || payload.tenantName || payload.organization_name || payload.name)) || null;
+      const rawTid =
+        (payload &&
+          (payload.tenant_id ||
+            payload.tenantId ||
+            payload.organization_id ||
+            payload.organizationId)) || null;
+      const rawTname =
+        (payload &&
+          (payload.tenant_name ||
+            payload.tenantName ||
+            payload.organization_name ||
+            payload.name)) || null;
+
+      const tid = typeof rawTid === 'string' ? rawTid.trim() : null;
+      const tname = typeof rawTname === 'string' ? rawTname.trim() : null;
+
       login({ token: token || null, tenant_id: tid, tenant_name: tname });
 
-      // Minimal conditional redirect for Super Admin
-      if (tid === 'T0000' && tname === 'Super Admin') {
+      // Strict Super Admin redirect guard:
+      // Require BOTH tid === 'T0000' AND tname === 'Super Admin'
+      const isSuperAdmin = tid === 'T0000' && tname === 'Super Admin';
+      if (isSuperAdmin) {
         navigate('/dashboard/costs', { replace: true });
         return;
       }
