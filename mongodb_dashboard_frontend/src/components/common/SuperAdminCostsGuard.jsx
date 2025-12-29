@@ -6,17 +6,16 @@ import { useAuth } from '../../context/AuthContext';
  * PUBLIC_INTERFACE
  * SuperAdminCostsGuard
  * A minimal route guard for the Costs module.
- * Allows access only when both:
- *  - active tenant/organization id === "T0000"
- *  - active tenant/organization name === "Super Admin"
+ * Allows access only when active tenant/organization id === "T0000".
+ * Name is NOT required.
  *
  * Otherwise, redirects to /dashboard/overview.
  */
 export default function SuperAdminCostsGuard({ children }) {
   const location = useLocation();
-  const { activeOrganization, activeTenant, user, getActiveOrganization, getActiveTenantName } = useAuth?.() || {};
+  const { activeOrganization, activeTenant, user, getActiveOrganization } = useAuth?.() || {};
 
-  // Try to derive org id and name from multiple possible sources
+  // Derive org/tenant id from multiple possible sources
   const orgId =
     (activeOrganization && (activeOrganization.id || activeOrganization.organization_id || activeOrganization.tenant_id)) ||
     (activeTenant && (activeTenant.id || activeTenant.organization_id || activeTenant.tenant_id)) ||
@@ -24,16 +23,9 @@ export default function SuperAdminCostsGuard({ children }) {
     (user && (user.organization_id || user.tenant_id)) ||
     null;
 
-  const orgName =
-    (activeOrganization && (activeOrganization.name || activeOrganization.tenant_name)) ||
-    (activeTenant && (activeTenant.name || activeTenant.tenant_name)) ||
-    (typeof getActiveTenantName === 'function' ? getActiveTenantName() : null) ||
-    (user && (user.tenant_name || user.organization_name || user.tenant?.name)) ||
-    null;
+  const isSuperAdminOrg = String(orgId || '').trim() === 'T0000';
 
-  const isSuperAdmin = orgId === 'T0000' && orgName === 'Super Admin';
-
-  if (!isSuperAdmin) {
+  if (!isSuperAdminOrg) {
     // Redirect non-authorized users to the overview
     return <Navigate to="/dashboard/overview" state={{ from: location }} replace />;
   }
