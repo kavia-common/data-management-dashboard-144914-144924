@@ -201,7 +201,7 @@ export default function Sessions() {
               : new Date(endDate).toISOString();
         }
         // Do NOT pass text query for local-only search
-      const res = await listSessions(params);
+        const res = await listSessions(params);
         const arr = Array.isArray(res?.items) ? res.items : [];
         all.push(...arr);
         if (arr.length < limit) break;
@@ -376,21 +376,15 @@ export default function Sessions() {
       // Save full dataset only on first page load
       if (page === 1) {
         setAllItems(filtered);
-        setItems(filtered);
-        setMeta({
-          page: 1,
-          limit,
-          total: filtered.length,
-        });
       } else {
-        // pagination still works normally
-        setItems(filtered);
-        setMeta({
-          page: res?.meta?.page || page,
-          limit: res?.meta?.limit || limit,
-          total: res?.meta?.total ?? filtered.length,
+        setAllItems((prev) => {
+          const map = new Map(prev.map((i) => [i.id || i._id, i]));
+          filtered.forEach((i) => map.set(i.id || i._id, i));
+          return Array.from(map.values());
         });
+
       }
+
 
       // Update columns dynamically based on currently returned data
       setColumns(buildRestrictedColumns(arr));
@@ -476,12 +470,12 @@ export default function Sessions() {
 
   // Immediate refetch when dropdown filters change (no debounce)
   useEffect(() => {
-    const q = (query || "").trim();
+    if (query.trim()) return; // 🔒 frontend search active
+
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, q, key, dir);
-    // Do not reload aggregates on dropdown change to keep options broad; charts are based on search/date only
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    load(1, meta.limit || 10, "", key, dir);
   }, [filterUserName, filterTenantId, startDate, endDate]);
+
 
 
 
@@ -646,16 +640,16 @@ export default function Sessions() {
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
-          fetchPage={async (page, limit, sortKey, sortDir) => {
-            // Remember current sort so external triggers (search) keep ordering consistent
-            if (sortKey) {
-              lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
-            } else if (!lastSortRef.current) {
-              lastSortRef.current = { key: "", dir: "asc" };
-            }
-            // Do not pass query for client-only search
-            await load(page, limit, "", sortKey, sortDir);
+          fetchPage={(page, limit) => {
+            const start = (page - 1) * limit;
+            const end = start + limit;
+
+            const source = query.trim() ? items : allItems;
+            setItems(source.slice(start, end));
+
+            setMeta((m) => ({ ...m, page }));
           }}
+
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
 
