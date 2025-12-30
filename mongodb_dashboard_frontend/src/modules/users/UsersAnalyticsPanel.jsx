@@ -14,7 +14,7 @@ import { useUsers } from "../../hooks/useUsers";
 import { getUserProjects } from "../../api/users";
 import { getActiveTenant } from "../../utils/tenantClient";
 import Skeleton from "../../components/ui/Skeleton";
- 
+
 /**
  * PUBLIC_INTERFACE
  * UsersAnalyticsPanel
@@ -38,106 +38,39 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   const [customStart, setCustomStart] = useState(null);
   const [customEnd, setCustomEnd] = useState(null);
   const [dateLiveLabel, setDateLiveLabel] = useState("");
- 
+
   // Active tenant (scoped by client too, but visible here for explicit query params when needed)
   const activeTenantId = getActiveTenant?.() || null;
- 
+
   /**
    * Compute date range ISO strings for API query params.
    * IMPORTANT: Avoid local timezone when deriving these bounds. We construct
    * dates using UTC components via Date.UTC(...).
    */
-  // const { startISO, endISO } = useMemo(() => {
-  //   const utcStartOfDay = (year, monthIndex0, day) =>
-  //     new Date(Date.UTC(year, monthIndex0, day, 0, 0, 0, 0));
- 
-  //   const utcEndOfDay = (year, monthIndex0, day) =>
-  //     new Date(Date.UTC(year, monthIndex0, day, 23, 59, 59, 999));
- 
-  //   const parseYMD = (ymd) => {
-  //     if (!ymd || typeof ymd !== "string") return null;
-  //     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
-  //     if (!m) return null;
-  //     return { y: Number(m[1]), m0: Number(m[2]) - 1, d: Number(m[3]) };
-  //   };
- 
-  //   let start;
-  //   let end;
- 
-  //   if (customStart && customEnd) {
-  //     // Custom inputs are YYYY-MM-DD; interpret them as UTC calendar dates.
-  //     const s = parseYMD(customStart);
-  //     const e = parseYMD(customEnd);
- 
-  //     if (s && e) {
-  //       start = utcStartOfDay(s.y, s.m0, s.d);
-  //       end = utcEndOfDay(e.y, e.m0, e.d);
-  //     } else {
-  //       // Defensive fallback (shouldn't happen with <input type="date">).
-  //       const now = new Date();
-  //       start = utcStartOfDay(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  //       end = utcEndOfDay(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  //     }
-  //   } else {
-  //     // For presets, define days based on UTC "today" to avoid local timezone drift.
-  //     const now = new Date();
-  //     const todayUtcStart = utcStartOfDay(
-  //       now.getUTCFullYear(),
-  //       now.getUTCMonth(),
-  //       now.getUTCDate()
-  //     );
- 
-  //     if (days === 0) {
-  //       // Today (UTC): full UTC day bounds (not "through now").
-  //       start = todayUtcStart;
-  //       end = utcEndOfDay(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  //     } else if (days === -1) {
-  //       // Yesterday (UTC): full previous UTC calendar day.
-  //       const y = new Date(todayUtcStart);
-  //       y.setUTCDate(y.getUTCDate() - 1);
-  //       start = utcStartOfDay(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate());
-  //       end = utcEndOfDay(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate());
-  //     } else {
-  //       // Last N days (UTC, inclusive):
-  //       // end = end-of-today UTC
-  //       // start = start-of-(today - (N-1)) UTC
-  //       end = utcEndOfDay(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  //       const s = new Date(todayUtcStart);
-  //       s.setUTCDate(s.getUTCDate() - (Number(days) - 1));
-  //       start = utcStartOfDay(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate());
-  //     }
-  //   }
- 
-  //   return { startISO: start.toISOString(), endISO: end.toISOString() };
-  // }, [customStart, customEnd, days]);
- 
   const { startISO, endISO } = useMemo(() => {
-    const utcStartOfDay = (y, m, d) =>
-      new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
- 
-    const utcEndOfDay = (y, m, d) =>
-      new Date(Date.UTC(y, m, d, 23, 59, 59, 999));
- 
+    const utcStartOfDay = (y, m, d) => new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
+    const utcEndOfDay = (y, m, d) => new Date(Date.UTC(y, m, d, 23, 59, 59, 999));
+
     const parseYMD = (ymd) => {
       if (!ymd) return null;
       const [y, m, d] = ymd.split("-").map(Number);
       return { y, m0: m - 1, d };
     };
- 
+
     let start;
     let end;
- 
+
     /** -------------------------
      * CUSTOM DATE RANGE
      * ------------------------*/
     if (customStart && customEnd) {
       const s = parseYMD(customStart);
       const e = parseYMD(customEnd);
- 
+
       start = utcStartOfDay(s.y, s.m0, s.d);
       end = utcEndOfDay(e.y, e.m0, e.d);
     }
- 
+
     /** -------------------------
      * QUICK RANGE PRESETS
      * ------------------------*/
@@ -146,53 +79,37 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       const y = now.getUTCFullYear();
       const m = now.getUTCMonth();
       const d = now.getUTCDate();
- 
+
       // Today
       if (days === 0) {
         start = utcStartOfDay(y, m, d);
         end = utcEndOfDay(y, m, d);
       }
- 
+
       // Yesterday
       else if (days === -1) {
         const yd = new Date(Date.UTC(y, m, d - 1));
-        start = utcStartOfDay(
-          yd.getUTCFullYear(),
-          yd.getUTCMonth(),
-          yd.getUTCDate()
-        );
-        end = utcEndOfDay(
-          yd.getUTCFullYear(),
-          yd.getUTCMonth(),
-          yd.getUTCDate()
-        );
+        start = utcStartOfDay(yd.getUTCFullYear(), yd.getUTCMonth(), yd.getUTCDate());
+        end = utcEndOfDay(yd.getUTCFullYear(), yd.getUTCMonth(), yd.getUTCDate());
       }
- 
+
       // Last N days (inclusive)
       else {
         end = utcEndOfDay(y, m, d);
- 
+
         const sd = new Date(Date.UTC(y, m, d));
         sd.setUTCDate(sd.getUTCDate() - (days - 1));
- 
-        start = utcStartOfDay(
-          sd.getUTCFullYear(),
-          sd.getUTCMonth(),
-          sd.getUTCDate()
-        );
+
+        start = utcStartOfDay(sd.getUTCFullYear(), sd.getUTCMonth(), sd.getUTCDate());
       }
     }
- 
+
     // Safety guard
     if (start > end) [start, end] = [end, start];
- 
-    return {
-      startISO: start.toISOString(),
-      endISO: end.toISOString(),
-    };
+
+    return { startISO: start.toISOString(), endISO: end.toISOString() };
   }, [customStart, customEnd, days]);
- 
- 
+
   // Live label for date range for accessibility
   useEffect(() => {
     const start = new Date(startISO);
@@ -205,39 +122,39 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       });
     setDateLiveLabel(`${fmt(start)} \u2013 ${fmt(end)}`);
   }, [startISO, endISO]);
- 
+
   // Fetch users; table is unchanged elsewhere
   const { users, loading: usersLoading, error: usersError } = useUsers({ limit: 200 });
- 
+
   // Fetch projects per user when needed
   const [projectsByUser, setProjectsByUser] = useState({});
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState("");
- 
+
   useEffect(() => {
     let cancelled = false;
- 
+
     async function run() {
       if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
         setProjectsByUser({});
         return;
       }
- 
+
       setProjectsLoading(true);
       setProjectsError("");
       const acc = {};
- 
+
       try {
         // Fetch in small batches to avoid overloading backend
         const batchSize = 8;
- 
+
         for (let i = 0; i < users.length; i += batchSize) {
           const slice = users.slice(i, i + batchSize);
- 
+
           await Promise.all(
             slice.map(async (u) => {
               if (!u?._id) return;
- 
+
               try {
                 // IMPORTANT: startISO/endISO are full-day UTC bounds by construction.
                 // Use shared API helper so ISODate wrapping stays consistent.
@@ -246,18 +163,21 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                   from: startISO,
                   to: endISO,
                 });
- 
-                const list = Array.isArray(res?.projects) ? res.projects : [];
-                acc[String(u._id)] = list;
+
+                // Preserve full response so we can access:
+                // - res.projects (distinct projects)
+                // - res.total_count (sessions count)
+                acc[String(u._id)] = res || { projects: [] };
               } catch {
-                acc[String(u._id)] = acc[String(u._id)] || [];
+                // Preserve prior behavior: user still exists, but no projects response.
+                acc[String(u._id)] = acc[String(u._id)] || { projects: [] };
               }
             })
           );
- 
+
           if (cancelled) return;
         }
- 
+
         if (!cancelled) setProjectsByUser(acc);
       } catch (e) {
         if (!cancelled) {
@@ -268,47 +188,63 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
         if (!cancelled) setProjectsLoading(false);
       }
     }
- 
+
     run();
     return () => {
       cancelled = true;
     };
   }, [users, activeTenantId, startISO, endISO]);
- 
+
   const aggregates = useMemo(() => {
     const projectsCountByUser = [];
- 
+
     for (const u of users || []) {
       const uid = String(u?._id || u?.id || "");
-      const projs = projectsByUser[uid];
- 
+      const res = projectsByUser[uid];
+
+      // Existing behavior (Projects): derived from distinct projects list length
+      const projectsCount = Array.isArray(res?.projects)
+        ? res.projects.length
+        : Array.isArray(res)
+          ? res.length
+          : 0;
+
+      // New behavior (Sessions): derived from backend total_count
+      const sessionsCount =
+        typeof res?.total_count === "number"
+          ? res.total_count
+          : Number.isFinite(Number(res?.total_count))
+            ? Number(res.total_count)
+            : 0;
+
       projectsCountByUser.push({
         user: u?.name || u?.full_name || u?.email || uid,
         user_id: uid,
-        count: Array.isArray(projs) ? projs.length : 0,
+        count: projectsCount,
+        total_count: sessionsCount,
       });
     }
- 
+
     projectsCountByUser.sort((a, b) => b.count - a.count);
     return { projectsCountByUser };
   }, [users, projectsByUser]);
- 
+
   // Theme colors
   const primary = "#2563EB";
   const grid = "#E5E7EB";
-  const subtle = "#6B7280";
- 
+  const subtle = "#e2750eff";
+
   const ariaDateId = "users-analytics-date-label";
- 
+
   const handlePreset = (d) => {
     setCustomStart(null);
     setCustomEnd(null);
     setDays(d);
   };
- 
+
   const onCustomStartChange = (e) => setCustomStart(e.target.value || null);
   const onCustomEndChange = (e) => setCustomEnd(e.target.value || null);
- 
+
   return (
     <div className={className} style={{ ...style }}>
       <div className="card" style={{ marginBottom: 12 }}>
@@ -317,7 +253,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
             <h3 className="card-title">Users Analytics</h3>
             <div className="card-subtitle">User activity distribution</div>
           </div>
- 
+
           <div className="card-actions" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 12, color: subtle }}>Quick range</span>
@@ -343,7 +279,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 <option value="custom">Custom...</option>
               </select>
             </label>
- 
+
             <div
               role="group"
               aria-label="Custom date range"
@@ -367,7 +303,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
             </div>
           </div>
         </div>
- 
+
         <div className="card-content" style={{ paddingTop: 8 }}>
           <div
             id={ariaDateId}
@@ -376,14 +312,14 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
           >
             {dateLiveLabel}
           </div>
- 
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
             <div className="card" aria-label="Activity by User">
               <div className="card-header" style={{ paddingBottom: 0 }}>
                 <h4 className="card-title">Activity by User</h4>
                 <div className="card-subtitle">Counts derived from associated activity</div>
               </div>
- 
+
               <div className="card-content" style={{ height: 340 }}>
                 {usersLoading || projectsLoading ? (
                   <div aria-busy="true">
@@ -417,11 +353,55 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                         height={50}
                       />
                       <YAxis tick={{ fill: subtle, fontSize: 12 }} allowDecimals={false} />
-                      <Tooltip />
+                      <Tooltip
+                        content={({ active, payload, label }) => {
+                          if (!active || !Array.isArray(payload) || payload.length === 0) return null;
+
+                          const row = payload?.[0]?.payload || {};
+                          const projectsCount = Number.isFinite(Number(row?.count)) ? Number(row.count) : 0;
+                          const sessionsCount = Number.isFinite(Number(row?.total_count))
+                            ? Number(row.total_count)
+                            : 0;
+
+                          return (
+                            <div
+                              style={{
+                                background: "#ffffff",
+                                border: "1px solid #E5E7EB",
+                                borderRadius: 8,
+                                padding: "10px 12px",
+                                boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+                                color: "#111827",
+                                fontSize: 12,
+                                lineHeight: 1.35,
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
+
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                                <span style={{ color: "#6B7280" }}>Projects:</span>
+                                <span style={{ fontWeight: 600 }}>{projectsCount}</span>
+                              </div>
+
+                              <div
+                                style={{
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  gap: 12,
+                                  marginTop: 4,
+                                }}
+                              >
+                                <span style={{ color: "#6B7280" }}>Sessions:</span>
+                                <span style={{ fontWeight: 600 }}>{sessionsCount}</span>
+                              </div>
+                            </div>
+                          );
+                        }}
+                      />
                       <Legend />
                       <Bar
                         dataKey="count"
-                        name="Count"
+                        name="Projects:"
                         fill={primary}
                         stroke={primary}
                         radius={[6, 6, 0, 0]}
@@ -437,10 +417,9 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     </div>
   );
 }
- 
+
 UsersAnalyticsPanel.propTypes = {
   style: PropTypes.object,
   className: PropTypes.string,
   defaultDays: PropTypes.number,
 };
- 
