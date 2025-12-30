@@ -5,18 +5,19 @@ import { buildQueryString } from './util';
  * PUBLIC_INTERFACE
  * fetchSessionTracking
  * Fetch session tracking records with pagination, sorting, and optional text search.
- * Note: Backend no longer accepts or applies a 'filter' parameter or date-range compound filters.
+ * Date range parameters (start/end or from/to) are no longer used by the frontend.
  * Tenant scoping is enforced via tenant_id only (handled by baseClient).
- * Supports lightweight text search via ?q which includes service_type field on backend.
+ * Supports lightweight text search via ?q which includes multiple fields on backend.
  *
  * @param {Object} params
  * @param {number} [params.page]
  * @param {number} [params.limit]
  * @param {string} [params.tenant_id] Active tenant scope (alias: organization_id on server)
  * @param {string} [params.sort]
- * @param {string} [params.q] Text search query (applies to service_type and other fields)
+ * @param {string} [params.q] Text search query
  * @returns {Promise<{ items: Array<any>, total: number, meta: any }>}
  */
+// PUBLIC_INTERFACE
 export async function fetchSessionTracking(params = {}) {
   const {
     page, limit, tenant_id, sort, q,
