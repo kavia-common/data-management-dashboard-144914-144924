@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
-import { listSessions } from "../../api";
+import { listSessions, listUsers } from "../../api";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
+
 // Simple helper to get distinct, sorted, non-empty values
 function distinctSorted(arr) {
   const set = new Set();
@@ -16,30 +17,43 @@ function distinctSorted(arr) {
   return Array.from(set).sort((a, b) => a.localeCompare(b));
 }
 
+// Normalize user identity from various shapes
+function normalizeUserFromItem(it) {
+  const id = it?.user_id ?? it?.user?.id ?? it?._user_id ?? null;
+  const name =
+    it?.User_name ??
+    it?.user_name ??
+    it?.user?.name ??
+    it?.username ??
+    it?.email ??
+    "";
+  return { id, name: String(name || "").trim() };
+}
+
 // PUBLIC_INTERFACE
 export default function Sessions() {
   /**
    * Sessions page with server-side search and pagination.
-   * - Debounced search (300ms) across the entire dataset via backend query param `q`.
-   * - Keeps existing pagination using server-provided meta.total and page/limit.
-   * - Minimal loading and error states shown within the table and above toolbar.
+   * - Debounced search across dataset via backend query param `q` (includes user filter).
+   * - Keep pagination using server-provided meta.total and page/limit.
+   * - Maintain a stable, full user dropdown independent of filtered results.
    */
   const [items, setItems] = useState([]);
-
-
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
-  // New UI filters
+  // UI filters
   const [filterUserName, setFilterUserName] = useState("");
   const [filterTenantId, setFilterTenantId] = useState("");
 
-  // Dropdown options populated from fetched session data (distinct lists)
-  const [userNameOptions, setUserNameOptions] = useState([]);
+  // Dropdown options: stable full list (primary) and tenant list
+  const [fullUserNameOptions, setFullUserNameOptions] = useState([]); // [{ id, name }]
   const [tenantIdOptions, setTenantIdOptions] = useState([]);
+
+  // Internal: map for quick user id->name merge and to avoid shrinking
+  const userIdToNameRef = useRef(new Map());
 
   // Keep URL query params in sync for dropdowns (so back/forward works)
   useEffect(() => {
@@ -62,17 +76,15 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Details modal state (session details; unrelated to deprecated "View All" costs modal)
+  // Details modal state
   const [selectedSession, setSelectedSession] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
-  // Lock to prevent race conditions when multiple loads are inflight (e.g., debounce vs pagination)
+  // Concurrency + sort memory
   const activeRequestRef = useRef(0);
-  // Remember the last known sort so search/debounced reloads preserve sort order across pages
   const lastSortRef = useRef({ key: "", dir: "asc" });
 
   // Allowed and ordered fields (column visibility)
-  // Replace Task Id column with User name per requirements
   const allowedOrdered = useMemo(
     () => ["User_name", "tenant_id", "organization_name", "service_type"],
     []
@@ -92,36 +104,6 @@ export default function Sessions() {
     const presentKeys = new Set();
     (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
 
-    function formatLocal(val) {
-      if (!val) return "—";
-      try {
-        const d = new Date(val);
-        if (isNaN(d.getTime())) return "—";
-        return d.toLocaleString();
-      } catch {
-        return "—";
-      }
-    }
-    function toHms(seconds) {
-      const secs = Math.max(0, Math.floor(Number(seconds) || 0));
-      const h = String(Math.floor(secs / 3600)).padStart(2, "0");
-      const m = String(Math.floor((secs % 3600) / 60)).padStart(2, "0");
-      const sRem = String(secs % 60).padStart(2, "0");
-      return `${h}:${m}:${sRem}`;
-    }
-    function computeDuration(start, end) {
-      if (!start || !end) return null;
-      try {
-        const s = new Date(start).getTime();
-        const e = new Date(end).getTime();
-        if (isNaN(s) || isNaN(e)) return null;
-        const secs = Math.max(0, Math.floor((e - s) / 1000));
-        return toHms(secs);
-      } catch {
-        return null;
-      }
-    }
-
     return allowedOrdered.map((k) => {
       const label = k === "User_name" ? "User name" : toLabel(k);
 
@@ -136,7 +118,6 @@ export default function Sessions() {
             v;
           return val == null || val === "" ? "—" : String(val);
         }
-
         return v == null || v === "" ? "—" : String(v);
       };
 
@@ -145,8 +126,6 @@ export default function Sessions() {
         label,
         render,
         priority: 2,
-        // Slightly widen column if session list is present
-
       };
     });
   }
@@ -159,10 +138,34 @@ export default function Sessions() {
   const [byOrg, setByOrg] = useState([]);   // [{ organization_name, session_count }]
   const [byType, setByType] = useState([]); // [{ session_type, session_count }]
 
+  // Merge users discovered from any array of session-like items into cache and full list
+  function mergeDiscoveredUsers(itemsArr = []) {
+    const map = userIdToNameRef.current;
+    let changed = false;
+    (itemsArr || []).forEach((it) => {
+      const { id, name } = normalizeUserFromItem(it);
+      if (!id) return;
+      const current = map.get(id);
+      const nextName = name || current || "";
+      if (!current || (nextName && current !== nextName)) {
+        map.set(id, nextName);
+        changed = true;
+      }
+    });
+    if (changed) {
+      // Rebuild stable options array sorted by name, with fallback label if empty
+      const arr = Array.from(map.entries())
+        .map(([id, nm]) => ({ id, name: nm || String(id) }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      setFullUserNameOptions(arr);
+    }
+  }
+
   async function loadAggregates(qStr = "") {
     /**
-     * Fetch sessions data across multiple pages (capped) and build client-side aggregates
-     * for charts: by organization_name and by session_type.
+     * Fetch sessions across multiple pages (capped) and build client-side aggregates
+     * for charts: by organization_name and by session_type. Also merge-in discovered users
+     * and tenant ids without shrinking options when filters change.
      */
     setAggLoading(true);
     setAggError("");
@@ -211,40 +214,16 @@ export default function Sessions() {
       setByOrg(orgArr);
       setByType(typeArr);
 
-      // Build distinct options for dropdowns from the aggregated dataset (all collected pages)
-      // Keep pairs of { id, name } for filtering
-      // ✅ Build distinct options for dropdowns from the aggregated dataset (all collected pages)
+      // Merge discovered users from aggregate fetch (broad set)
+      mergeDiscoveredUsers(all);
 
-      // Build unique user list with IDs and names
-      const userPairs = all
-        .map((it) => ({
-          id: it?.user_id,
-          name:
-            it?.User_name ??
-            it?.user_name ??
-            it?.user?.name ??
-            it?.username ??
-            it?.email ??
-            "",
-        }))
-        .filter((u) => u.id && u.name);
-
-      const uniqueUsers = [];
-      const seen = new Set();
-      userPairs.forEach((u) => {
-        if (!seen.has(u.id)) {
-          seen.add(u.id);
-          uniqueUsers.push(u);
-        }
+      // Merge tenant IDs (union)
+      const tenantIds = new Set(tenantIdOptions);
+      (all || []).forEach((it) => {
+        const t = String(it?.tenant_id ?? "").trim();
+        if (t) tenantIds.add(t);
       });
-
-      // Build distinct tenant IDs
-      const tenantIds = distinctSorted(all.map((it) => it?.tenant_id ?? ""));
-
-      // Update dropdown options
-      setUserNameOptions(uniqueUsers);
-      setTenantIdOptions(tenantIds);
-
+      setTenantIdOptions(Array.from(tenantIds).sort((a, b) => a.localeCompare(b)));
     } catch (e) {
       setByOrg([]);
       setByType([]);
@@ -254,40 +233,69 @@ export default function Sessions() {
     }
   }
 
+  // Try to pre-populate full user list from dedicated users endpoint (if available)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await listUsers({}); // baseClient will ensure organization_id scope
+        const items = Array.isArray(res?.items) ? res.items : [];
+        // Normalize users to { id, name }
+        const preUsers = items
+          .map((u) => {
+            const id = u?._id ?? u?.id ?? u?.user_id ?? null;
+            const name =
+              u?.name ??
+              u?.full_name ??
+              u?.username ??
+              u?.email ??
+              "";
+            return { id, name: String(name || "").trim() };
+          })
+          .filter((u) => u.id);
+        // Fill map first to avoid flicker
+        const map = userIdToNameRef.current;
+        preUsers.forEach((u) => {
+          if (!map.has(u.id)) map.set(u.id, u.name || String(u.id));
+        });
+        if (!cancelled) {
+          const arr = Array.from(map.entries())
+            .map(([id, nm]) => ({ id, name: nm || String(id) }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+          setFullUserNameOptions(arr);
+        }
+      } catch {
+        // If listUsers is not available or fails, ignore; we'll progressively build from sessions
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // PUBLIC_INTERFACE
   async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
     /**
-     * Load sessions from server with pagination, optional query string, and server-driven sorting.
-     * When sortKey is provided, pass `sort` using:
-     *  - asc: field
-     *  - desc: -field
+     * Load sessions with pagination, q param (includes dropdown user filter), and sorting.
+     * Does not rebuild user options from filtered data; only merges-in newly discovered users.
      */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError("");
     try {
       const sortFieldMap = {
-        // Map UI column keys to backend fields
-        User_name: "user_name", // prefer lowercase field in DB
+        User_name: "user_name",
         tenant_id: "tenant_id",
         organization_name: "organization_name",
         service_type: "service_type",
-        task_id: "task_id", // legacy, not used in current allowedOrdered
       };
       const params = { page, limit, q: qStr };
 
-      // Build parameters:
-      // - tenant_id is sent as part of params to be appended by baseClient ensureScopedQueryParams (it already enforces tenant_id).
-      // - IMPORTANT: Do NOT send params.filter for /api/session-tracking (baseClient strips it and backend ignores it).
-      //   Instead, when user dropdown has a value we pass it via 'q' which backend uses for search (and now exact match id).
       if (filterTenantId && filterTenantId.trim()) {
-        // keep as plain param in case baseClient wants to propagate or ensure scope;
-        // baseClient will enforce tenant_id anyway if missing.
         params.tenant_id = filterTenantId.trim();
       }
       if (filterUserName && filterUserName.trim()) {
-        // Send selected user id through 'q' so backend can exact-match user_id and also match user_name text.
-        params.q = filterUserName.trim();
+        params.q = filterUserName.trim() + (qStr && qStr !== filterUserName.trim() ? ` ${qStr}` : "");
       }
 
       if (sortKey) {
@@ -296,19 +304,26 @@ export default function Sessions() {
       }
       const res = await listSessions(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
-      // If a newer request started after this one, ignore late response
       if (requestId !== activeRequestRef.current) return;
 
       setItems(Array.isArray(arr) ? arr : []);
       setMeta({
         page: res?.meta?.page || page,
         limit: res?.meta?.limit || limit,
-        total:
-          res?.meta?.total ??
-          (Array.isArray(arr) ? arr.length : 0),
+        total: res?.meta?.total ?? (Array.isArray(arr) ? arr.length : 0),
       });
-      // Update columns dynamically based on currently returned data
       setColumns(buildRestrictedColumns(arr));
+
+      // Merge-in any new users from this page (do not shrink options)
+      mergeDiscoveredUsers(arr);
+
+      // Merge-in tenant IDs seen on this page as well
+      const tenants = new Set(tenantIdOptions);
+      (arr || []).forEach((it) => {
+        const t = String(it?.tenant_id ?? "").trim();
+        if (t) tenants.add(t);
+      });
+      setTenantIdOptions(Array.from(tenants).sort((a, b) => a.localeCompare(b)));
     } catch (e) {
       if (requestId !== activeRequestRef.current) return;
       setItems([]);
@@ -329,10 +344,7 @@ export default function Sessions() {
 
   // Debounced server-side search on query change (250ms default)
   const debouncedQuery = useDebouncedValue(query, 250);
-  // Debounced text search only
   useEffect(() => {
-    // Combine free text with dropdown user filter by prioritizing dropdown when present.
-    // If both are present, prepend user id so backend matches exact user and free-text too.
     const baseQ = (debouncedQuery || "").trim();
     const userQ = (filterUserName || "").trim();
     const combinedQ = userQ ? (baseQ ? `${userQ} ${baseQ}` : userQ) : baseQ;
@@ -343,7 +355,7 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery, filterUserName]);
 
-  // Immediate refetch when dropdown filters change (no debounce)
+  // Immediate refetch when tenant filter changes (do not rebuild options from filtered data)
   useEffect(() => {
     const baseQ = (query || "").trim();
     const userQ = (filterUserName || "").trim();
@@ -351,13 +363,11 @@ export default function Sessions() {
 
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, combinedQ, key, dir);
-    // Do not reload aggregates on dropdown change to keep options broad; charts are based on search/date only
+    // Keep aggregates broad and independent of dropdown changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterUserName, filterTenantId]);
+  }, [filterTenantId]);
 
-
-
-  // Toggle global dimming class while modal is open (align with user modal UX)
+  // Toggle global dimming class while modal is open
   useEffect(() => {
     if (detailsOpen) {
       document.body.classList.add("modal-open");
@@ -394,7 +404,7 @@ export default function Sessions() {
         session={selectedSession}
       />
 
-      {/* Charts stacked vertically (normal flow, with spacing below so table doesn't overlap) */}
+      {/* Charts */}
       <div
         className="sessions-charts"
         role="region"
@@ -403,7 +413,7 @@ export default function Sessions() {
           display: "flex",
           flexDirection: "column",
           gap: 24,
-          marginBottom: 32, // ensure spacing before the table card
+          marginBottom: 32,
         }}
       >
         <Card
@@ -425,7 +435,6 @@ export default function Sessions() {
           title="Sessions by Type"
           subtitle="Count of sessions per type"
         >
-          {/* Wrapper participates in normal flow; no absolute positioning */}
           <div className="chart-wrapper" style={{ minHeight: 320 }}>
             <SessionsByType
               data={byType}
@@ -437,7 +446,7 @@ export default function Sessions() {
         </Card>
       </div>
 
-      {/* Existing table card remains below charts */}
+      {/* Table */}
       <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
         <div className="toolbar" aria-label="Sessions toolbar" style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <input
@@ -458,8 +467,8 @@ export default function Sessions() {
             style={{ minWidth: 220 }}
           >
             <option value="">All users</option>
-            {userNameOptions.map((u) => (
-              <option key={u.id} value={u.id}>{u.name}</option>
+            {fullUserNameOptions.map((u) => (
+              <option key={u.id ?? u.name} value={u.id ?? u.name}>{u.name || String(u.id)}</option>
             ))}
           </select>
 
@@ -490,12 +499,10 @@ export default function Sessions() {
           columns={Array.isArray(columns) ? columns : []}
           data={Array.isArray(items) ? items : []}
           loading={!!loading}
-
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
           fetchPage={async (page, limit, sortKey, sortDir) => {
-            // Remember current sort so external triggers (search) keep ordering consistent
             if (sortKey) {
               lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
             } else if (!lastSortRef.current) {
@@ -505,7 +512,6 @@ export default function Sessions() {
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
-
         />
       </Card>
     </div>
