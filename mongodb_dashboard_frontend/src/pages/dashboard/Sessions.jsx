@@ -1,4 +1,4 @@
-// import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import { listSessions } from "../../api";
@@ -6,9 +6,6 @@ import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
-
-
-
 // Simple helper to get distinct, sorted, non-empty values
 function distinctSorted(arr) {
   const set = new Set();
@@ -40,10 +37,6 @@ export default function Sessions() {
   const [filterUserName, setFilterUserName] = useState("");
   const [filterTenantId, setFilterTenantId] = useState("");
 
-  // Date filters: start date and optional end date (range)
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
-
   // Dropdown options populated from fetched session data (distinct lists)
   const [userNameOptions, setUserNameOptions] = useState([]);
   const [tenantIdOptions, setTenantIdOptions] = useState([]);
@@ -55,25 +48,17 @@ export default function Sessions() {
     else usp.delete("user_name");
     if (filterTenantId) usp.set("tenant_id", filterTenantId);
     else usp.delete("tenant_id");
-    if (startDate) usp.set("from", startDate);
-    else usp.delete("from");
-    if (endDate) usp.set("to", endDate);
-    else usp.delete("to");
     const next = `${window.location.pathname}?${usp.toString()}`;
     window.history.replaceState({}, "", next);
-  }, [filterUserName, filterTenantId, startDate, endDate]);
+  }, [filterUserName, filterTenantId]);
 
   // Initialize dropdown selections from URL on first mount
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
     const initialUser = usp.get("user_name") || "";
     const initialTenant = usp.get("tenant_id") || "";
-    const urlFrom = usp.get("from") || "";
-    const urlTo = usp.get("to") || "";
     if (initialUser) setFilterUserName(initialUser);
     if (initialTenant) setFilterTenantId(initialTenant);
-    if (urlFrom) setStartDate(urlFrom);
-    if (urlTo) setEndDate(urlTo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -188,16 +173,6 @@ export default function Sessions() {
       const all = [];
       while (page <= maxPages) {
         const params = { page, limit, q: qStr };
-        // Use ONLY start/end for date range API request
-        if (startDate) {
-          params.start = new Date(startDate).toISOString();
-        }
-        if (endDate) {
-          params.end =
-            endDate && !/T/.test(endDate)
-              ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
-              : new Date(endDate).toISOString();
-        }
         const res = await listSessions(params);
         const arr = Array.isArray(res?.items) ? res.items : [];
         all.push(...arr);
@@ -299,20 +274,7 @@ export default function Sessions() {
         service_type: "service_type",
         task_id: "task_id", // legacy, not used in current allowedOrdered
       };
-      // include optional date range as both from/to and start/end
       const params = { page, limit, q: qStr };
-
-      // Date range params: ONLY send start/end, never from/to (backend expects only start/end)
-      if (startDate) {
-        params.start = new Date(startDate).toISOString();
-      }
-      if (endDate) {
-        // end as end-of-day
-        params.end =
-          endDate && !/T/.test(endDate)
-            ? new Date(new Date(endDate).setHours(23, 59, 59, 999)).toISOString()
-            : new Date(endDate).toISOString();
-      }
 
       // Build parameters:
       // - tenant_id is sent as part of params to be appended by baseClient ensureScopedQueryParams (it already enforces tenant_id).
@@ -337,48 +299,13 @@ export default function Sessions() {
       // If a newer request started after this one, ignore late response
       if (requestId !== activeRequestRef.current) return;
 
-      // Client-side fallback date filtering
-      let filtered = Array.isArray(arr) ? arr : [];
-      if (startDate || endDate) {
-        const fromMs = startDate ? new Date(startDate).getTime() : null;
-        const toMs = endDate
-          ? (/T/.test(endDate)
-              ? new Date(endDate).getTime()
-              : new Date(new Date(endDate).setHours(23, 59, 59, 999)).getTime())
-          : null;
-        filtered = filtered.filter((it) => {
-          // derive session start and end
-          const s =
-            it?.session_start ||
-            it?.start_time ||
-            it?.started_at ||
-            it?.created_at ||
-            it?.timestamp ||
-            null;
-          const e =
-            it?.session_end ||
-            it?.end_time ||
-            it?.completed_at ||
-            it?.last_updated ||
-            null;
-
-          const sMs = s ? new Date(s).getTime() : null;
-          const eMs = e ? new Date(e).getTime() : null;
-
-          // If only start exists, check it against window
-          const inFrom = fromMs == null || (sMs != null ? sMs >= fromMs : eMs != null ? eMs >= fromMs : false);
-          const inTo = toMs == null || (sMs != null ? sMs <= toMs : eMs != null ? eMs <= toMs : true);
-          return inFrom && inTo;
-        });
-      }
-
-      setItems(filtered);
+      setItems(Array.isArray(arr) ? arr : []);
       setMeta({
         page: res?.meta?.page || page,
         limit: res?.meta?.limit || limit,
         total:
           res?.meta?.total ??
-          (Array.isArray(filtered) ? filtered.length : Array.isArray(arr) ? arr.length : 0),
+          (Array.isArray(arr) ? arr.length : 0),
       });
       // Update columns dynamically based on currently returned data
       setColumns(buildRestrictedColumns(arr));
@@ -414,7 +341,7 @@ export default function Sessions() {
     load(1, meta.limit || 10, combinedQ, key, dir);
     loadAggregates(combinedQ);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, startDate, endDate, filterUserName]);
+  }, [debouncedQuery, filterUserName]);
 
   // Immediate refetch when dropdown filters change (no debounce)
   useEffect(() => {
@@ -426,7 +353,7 @@ export default function Sessions() {
     load(1, meta.limit || 10, combinedQ, key, dir);
     // Do not reload aggregates on dropdown change to keep options broad; charts are based on search/date only
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterUserName, filterTenantId, startDate, endDate]);
+  }, [filterUserName, filterTenantId]);
 
 
 
@@ -551,28 +478,7 @@ export default function Sessions() {
             ))}
           </select>
 
-          {/* Date range controls */}
-          <div role="group" aria-label="Date filters" style={{ display: "inline-flex", gap: 8, alignItems: "center", marginLeft: 8 }}>
-            <label htmlFor="start-date" style={{ fontSize: 12, color: "#374151" }}>Start</label>
-            <input
-              id="start-date"
-              type="date"
-              className="input-filter"
-              aria-label="Start date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
-            <label htmlFor="end-date" style={{ fontSize: 12, color: "#374151" }}>End</label>
-            <input
-              id="end-date"
-              type="date"
-              className="input-filter"
-              aria-label="End date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
-          </div>
-
+          <div style={{ width: 8 }} />
           <div className="spacer" style={{ flex: 1 }} />
         </div>
         {error && (
