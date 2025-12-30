@@ -314,17 +314,18 @@ export default function Sessions() {
             : new Date(endDate).toISOString();
       }
 
-      // Build filter: exact match on tenant_id and case-insensitive match handled server-side for user_name
-      const filter = {};
+      // Build parameters:
+      // - tenant_id is sent as part of params to be appended by baseClient ensureScopedQueryParams (it already enforces tenant_id).
+      // - IMPORTANT: Do NOT send params.filter for /api/session-tracking (baseClient strips it and backend ignores it).
+      //   Instead, when user dropdown has a value we pass it via 'q' which backend uses for search (and now exact match id).
       if (filterTenantId && filterTenantId.trim()) {
-        filter.tenant_id = filterTenantId.trim();
+        // keep as plain param in case baseClient wants to propagate or ensure scope;
+        // baseClient will enforce tenant_id anyway if missing.
+        params.tenant_id = filterTenantId.trim();
       }
       if (filterUserName && filterUserName.trim()) {
-        filter.user_id = filterUserName.trim();
-      }
-
-      if (Object.keys(filter).length > 0) {
-        params.filter = filter;
+        // Send selected user id through 'q' so backend can exact-match user_id and also match user_name text.
+        params.q = filterUserName.trim();
       }
 
       if (sortKey) {
@@ -403,18 +404,26 @@ export default function Sessions() {
   const debouncedQuery = useDebouncedValue(query, 250);
   // Debounced text search only
   useEffect(() => {
-    const q = (debouncedQuery || "").trim();
+    // Combine free text with dropdown user filter by prioritizing dropdown when present.
+    // If both are present, prepend user id so backend matches exact user and free-text too.
+    const baseQ = (debouncedQuery || "").trim();
+    const userQ = (filterUserName || "").trim();
+    const combinedQ = userQ ? (baseQ ? `${userQ} ${baseQ}` : userQ) : baseQ;
+
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, q, key, dir);
-    loadAggregates(q);
+    load(1, meta.limit || 10, combinedQ, key, dir);
+    loadAggregates(combinedQ);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, startDate, endDate]);
+  }, [debouncedQuery, startDate, endDate, filterUserName]);
 
   // Immediate refetch when dropdown filters change (no debounce)
   useEffect(() => {
-    const q = (query || "").trim();
+    const baseQ = (query || "").trim();
+    const userQ = (filterUserName || "").trim();
+    const combinedQ = userQ ? (baseQ ? `${userQ} ${baseQ}` : userQ) : baseQ;
+
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, q, key, dir);
+    load(1, meta.limit || 10, combinedQ, key, dir);
     // Do not reload aggregates on dropdown change to keep options broad; charts are based on search/date only
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterUserName, filterTenantId, startDate, endDate]);
