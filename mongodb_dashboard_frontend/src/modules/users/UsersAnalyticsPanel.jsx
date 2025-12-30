@@ -32,7 +32,7 @@ import Skeleton from "../../components/ui/Skeleton";
  *   - from = YYYY-MM-DDT00:00:00.000Z
  *   - to   = YYYY-MM-DDT23:59:59.999Z
  */
-export default function UsersAnalyticsPanel({ style, className, defaultDays = 30 }) {
+export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 }) {
   // Filter state (independent from Overview)
   const [days, setDays] = useState(defaultDays);
   const [customStart, setCustomStart] = useState(null);
