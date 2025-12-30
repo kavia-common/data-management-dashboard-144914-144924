@@ -7,10 +7,10 @@
  * - In previews, ensure the backend origin here is allowed by backend CORS (it is via permissive /api CORS with OPTIONS support).
  */
 //
-const apiBase = 
-//  `https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api`;
-// 'https://vscode-internal-38821-beta.beta01.cloud.kavia.ai:3001/api';
-`https://kavia-dashboard-kavia-beta.cloud.kavia.ai/api`
+const apiBase =
+  //  `https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api`;
+  'https://vscode-internal-25447-beta.beta01.cloud.kavia.ai:3001/api';
+// `https://kavia-dashboard-kavia-beta.cloud.kavia.ai/api`
 
 /**
  * PUBLIC_INTERFACE
@@ -33,4 +33,3 @@ export default config;
 // Also provide a named export for modules that import { apiBase }
 export { apiBase };
 
- 
