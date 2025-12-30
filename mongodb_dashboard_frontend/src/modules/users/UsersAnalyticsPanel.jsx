@@ -47,69 +47,115 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 30
    * IMPORTANT: Avoid local timezone when deriving these bounds. We construct
    * dates using UTC components via Date.UTC(...).
    */
+  // const { startISO, endISO } = useMemo(() => {
+  //   const utcStartOfDay = (year, monthIndex0, day) =>
+  //     new Date(Date.UTC(year, monthIndex0, day, 0, 0, 0, 0));
+
+  //   const utcEndOfDay = (year, monthIndex0, day) =>
+  //     new Date(Date.UTC(year, monthIndex0, day, 23, 59, 59, 999));
+
+  //   const parseYMD = (ymd) => {
+  //     if (!ymd || typeof ymd !== "string") return null;
+  //     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
+  //     if (!m) return null;
+  //     return { y: Number(m[1]), m0: Number(m[2]) - 1, d: Number(m[3]) };
+  //   };
+
+  //   let start;
+  //   let end;
+
+  //   if (customStart && customEnd) {
+  //     // Custom inputs are YYYY-MM-DD; interpret them as UTC calendar dates.
+  //     const s = parseYMD(customStart);
+  //     const e = parseYMD(customEnd);
+
+  //     if (s && e) {
+  //       start = utcStartOfDay(s.y, s.m0, s.d);
+  //       end = utcEndOfDay(e.y, e.m0, e.d);
+  //     } else {
+  //       // Defensive fallback (shouldn't happen with <input type="date">).
+  //       const now = new Date();
+  //       start = utcStartOfDay(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  //       end = utcEndOfDay(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  //     }
+  //   } else {
+  //     // For presets, define days based on UTC "today" to avoid local timezone drift.
+  //     const now = new Date();
+  //     const todayUtcStart = utcStartOfDay(
+  //       now.getUTCFullYear(),
+  //       now.getUTCMonth(),
+  //       now.getUTCDate()
+  //     );
+
+  //     if (days === 0) {
+  //       // Today (UTC): full UTC day bounds (not "through now").
+  //       start = todayUtcStart;
+  //       end = utcEndOfDay(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  //     } else if (days === -1) {
+  //       // Yesterday (UTC): full previous UTC calendar day.
+  //       const y = new Date(todayUtcStart);
+  //       y.setUTCDate(y.getUTCDate() - 1);
+  //       start = utcStartOfDay(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate());
+  //       end = utcEndOfDay(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate());
+  //     } else {
+  //       // Last N days (UTC, inclusive):
+  //       // end = end-of-today UTC
+  //       // start = start-of-(today - (N-1)) UTC
+  //       end = utcEndOfDay(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  //       const s = new Date(todayUtcStart);
+  //       s.setUTCDate(s.getUTCDate() - (Number(days) - 1));
+  //       start = utcStartOfDay(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate());
+  //     }
+  //   }
+
+  //   return { startISO: start.toISOString(), endISO: end.toISOString() };
+  // }, [customStart, customEnd, days]);
+
   const { startISO, endISO } = useMemo(() => {
-    const utcStartOfDay = (year, monthIndex0, day) =>
-      new Date(Date.UTC(year, monthIndex0, day, 0, 0, 0, 0));
+  const utcStartOfDay = (y, m, d) =>
+    new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
 
-    const utcEndOfDay = (year, monthIndex0, day) =>
-      new Date(Date.UTC(year, monthIndex0, day, 23, 59, 59, 999));
+  const utcEndOfDay = (y, m, d) =>
+    new Date(Date.UTC(y, m, d, 23, 59, 59, 999));
 
-    const parseYMD = (ymd) => {
-      if (!ymd || typeof ymd !== "string") return null;
-      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
-      if (!m) return null;
-      return { y: Number(m[1]), m0: Number(m[2]) - 1, d: Number(m[3]) };
+  const parseYMD = (ymd) => {
+    const [y, m, d] = ymd.split("-").map(Number);
+    return { y, m0: m - 1, d };
+  };
+
+  let targetDate;
+
+  if (customStart && customEnd) {
+    // 🔹 SAME DATE QUERY (custom)
+    const s = parseYMD(customStart);
+    targetDate = { y: s.y, m0: s.m0, d: s.d };
+  } else {
+    // 🔹 SAME DATE QUERY (presets)
+    const now = new Date();
+    targetDate = {
+      y: now.getUTCFullYear(),
+      m0: now.getUTCMonth(),
+      d: now.getUTCDate(),
     };
+  }
 
-    let start;
-    let end;
+  const start = utcStartOfDay(
+    targetDate.y,
+    targetDate.m0,
+    targetDate.d
+  );
 
-    if (customStart && customEnd) {
-      // Custom inputs are YYYY-MM-DD; interpret them as UTC calendar dates.
-      const s = parseYMD(customStart);
-      const e = parseYMD(customEnd);
+  const end = utcEndOfDay(
+    targetDate.y,
+    targetDate.m0,
+    targetDate.d
+  );
 
-      if (s && e) {
-        start = utcStartOfDay(s.y, s.m0, s.d);
-        end = utcEndOfDay(e.y, e.m0, e.d);
-      } else {
-        // Defensive fallback (shouldn't happen with <input type="date">).
-        const now = new Date();
-        start = utcStartOfDay(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-        end = utcEndOfDay(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-      }
-    } else {
-      // For presets, define days based on UTC "today" to avoid local timezone drift.
-      const now = new Date();
-      const todayUtcStart = utcStartOfDay(
-        now.getUTCFullYear(),
-        now.getUTCMonth(),
-        now.getUTCDate()
-      );
-
-      if (days === 0) {
-        // Today (UTC): full UTC day bounds (not "through now").
-        start = todayUtcStart;
-        end = utcEndOfDay(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-      } else if (days === -1) {
-        // Yesterday (UTC): full previous UTC calendar day.
-        const y = new Date(todayUtcStart);
-        y.setUTCDate(y.getUTCDate() - 1);
-        start = utcStartOfDay(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate());
-        end = utcEndOfDay(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate());
-      } else {
-        // Last N days (UTC, inclusive):
-        // end = end-of-today UTC
-        // start = start-of-(today - (N-1)) UTC
-        end = utcEndOfDay(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-        const s = new Date(todayUtcStart);
-        s.setUTCDate(s.getUTCDate() - (Number(days) - 1));
-        start = utcStartOfDay(s.getUTCFullYear(), s.getUTCMonth(), s.getUTCDate());
-      }
-    }
-
-    return { startISO: start.toISOString(), endISO: end.toISOString() };
-  }, [customStart, customEnd, days]);
+  return {
+    startISO: start.toISOString(),
+    endISO: end.toISOString(),
+  };
+}, [customStart, customEnd]);
 
   // Live label for date range for accessibility
   useEffect(() => {
