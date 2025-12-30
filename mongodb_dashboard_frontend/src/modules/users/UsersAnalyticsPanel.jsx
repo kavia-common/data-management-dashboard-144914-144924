@@ -11,7 +11,7 @@ import {
   Legend,
 } from "recharts";
 import { useUsers } from "../../hooks/useUsers";
-import { getApiClient } from "../../api";
+import { getUserProjects } from "../../api/users";
 import { getActiveTenant } from "../../utils/tenantClient";
 import Skeleton from "../../components/ui/Skeleton";
 
@@ -19,25 +19,20 @@ import Skeleton from "../../components/ui/Skeleton";
  * PUBLIC_INTERFACE
  * UsersAnalyticsPanel
  * A charts/analytics panel for the Users page, with independent filters.
- * - Activity by User (bar)
  *
  * Data source:
  * - Reuses /api/users to get users, then uses /api/users/:userId/projects
- *   to fetch per-user projects when available. Falls back to client-side
- *   aggregation from data already loaded if needed.
+ *   to fetch per-user projects when available.
  *
  * Filters:
- * - Date range (start, end with explicit ISO)
- * - Tenant scoped via base client and active tenant helper.
+ * - Quick range + Custom date range.
  *
- * Accessibility:
- * - Proper aria-labels and live region updates for date label.
+ * Date normalization requirement:
+ * - Always send full-day UTC bounds:
+ *   - from = YYYY-MM-DDT00:00:00.000Z
+ *   - to   = YYYY-MM-DDT23:59:59.999Z
  */
-export default function UsersAnalyticsPanel({
-  style,
-  className,
-  defaultDays = 30,
-}) {
+export default function UsersAnalyticsPanel({ style, className, defaultDays = 30 }) {
   // Filter state (independent from Overview)
   const [days, setDays] = useState(defaultDays);
   const [customStart, setCustomStart] = useState(null);
@@ -47,39 +42,18 @@ export default function UsersAnalyticsPanel({
   // Active tenant (scoped by client too, but visible here for explicit query params when needed)
   const activeTenantId = getActiveTenant?.() || null;
 
-  // Compute date range ISO strings for API query params.
-  // Requirement: For any chosen calendar day(s), send full-day UTC bounds:
-  // - from = YYYY-MM-DDT00:00:00.000Z
-  // - to   = YYYY-MM-DDT23:59:59.999Z
-  //
-  // IMPORTANT: Avoid local timezone when deriving these bounds. We construct
-  // dates using UTC components via Date.UTC(...).
+  /**
+   * Compute date range ISO strings for API query params.
+   * IMPORTANT: Avoid local timezone when deriving these bounds. We construct
+   * dates using UTC components via Date.UTC(...).
+   */
   const { startISO, endISO } = useMemo(() => {
-    /**
-     * Builds a UTC Date at the beginning of a given UTC calendar day.
-     * @param {number} year UTC year
-     * @param {number} monthIndex0 UTC month index (0-11)
-     * @param {number} day UTC day-of-month (1-31)
-     * @returns {Date}
-     */
     const utcStartOfDay = (year, monthIndex0, day) =>
       new Date(Date.UTC(year, monthIndex0, day, 0, 0, 0, 0));
 
-    /**
-     * Builds a UTC Date at the end of a given UTC calendar day.
-     * @param {number} year UTC year
-     * @param {number} monthIndex0 UTC month index (0-11)
-     * @param {number} day UTC day-of-month (1-31)
-     * @returns {Date}
-     */
     const utcEndOfDay = (year, monthIndex0, day) =>
       new Date(Date.UTC(year, monthIndex0, day, 23, 59, 59, 999));
 
-    /**
-     * Parse a YYYY-MM-DD string as a UTC calendar date (no local timezone).
-     * @param {string} ymd
-     * @returns {{ y: number, m0: number, d: number } | null}
-     */
     const parseYMD = (ymd) => {
       if (!ymd || typeof ymd !== "string") return null;
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
@@ -124,7 +98,9 @@ export default function UsersAnalyticsPanel({
         start = utcStartOfDay(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate());
         end = utcEndOfDay(y.getUTCFullYear(), y.getUTCMonth(), y.getUTCDate());
       } else {
-        // Last N days (UTC, inclusive): end = end-of-today UTC; start = start-of-(today - (N-1)) UTC.
+        // Last N days (UTC, inclusive):
+        // end = end-of-today UTC
+        // start = start-of-(today - (N-1)) UTC
         end = utcEndOfDay(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
         const s = new Date(todayUtcStart);
         s.setUTCDate(s.getUTCDate() - (Number(days) - 1));
@@ -145,14 +121,11 @@ export default function UsersAnalyticsPanel({
         month: "short",
         day: "numeric",
       });
-    const label = `${fmt(start)} \u2013 ${fmt(end)}`;
-    setDateLiveLabel(label);
+    setDateLiveLabel(`${fmt(start)} \u2013 ${fmt(end)}`);
   }, [startISO, endISO]);
 
   // Fetch users; table is unchanged elsewhere
-  const { users, loading: usersLoading, error: usersError } = useUsers({
-    limit: 200,
-  });
+  const { users, loading: usersLoading, error: usersError } = useUsers({ limit: 200 });
 
   // Fetch projects per user when needed
   const [projectsByUser, setProjectsByUser] = useState({});
@@ -161,52 +134,48 @@ export default function UsersAnalyticsPanel({
 
   useEffect(() => {
     let cancelled = false;
+
     async function run() {
-      // Lazily fetch projects for each user for better accuracy of counts over time.
-      // If endpoint not available or fails, gracefully continue with partial data.
       if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
         setProjectsByUser({});
         return;
       }
+
       setProjectsLoading(true);
       setProjectsError("");
-      const api = getApiClient();
       const acc = {};
+
       try {
         // Fetch in small batches to avoid overloading backend
         const batchSize = 8;
+
         for (let i = 0; i < users.length; i += batchSize) {
           const slice = users.slice(i, i + batchSize);
+
           await Promise.all(
             slice.map(async (u) => {
               if (!u?._id) return;
+
               try {
-                // Backend expects Mongo-shell style ISODate("...") wrappers for from/to.
-                // Keep the computed bounds as full-day UTC (already ensured by startISO/endISO),
-                // but wrap the outgoing values without introducing a date library.
-                const res = await api.get(
-                  `/users/${encodeURIComponent(String(u._id))}/projects`,
-                  {
-                    params: {
-                      organization_id: activeTenantId,
-                      from: `ISODate("${startISO}")`,
-                      to: `ISODate("${endISO}")`,
-                    },
-                  }
-                );
-                const payload = res.data?.data ?? res.data;
-                const list = Array.isArray(payload?.projects)
-                  ? payload.projects
-                  : [];
+                // IMPORTANT: startISO/endISO are full-day UTC bounds by construction.
+                // Use shared API helper so ISODate wrapping stays consistent.
+                const res = await getUserProjects(String(u._id), {
+                  organization_id: activeTenantId,
+                  from: startISO,
+                  to: endISO,
+                });
+
+                const list = Array.isArray(res?.projects) ? res.projects : [];
                 acc[String(u._id)] = list;
               } catch {
-                // Ignore individual user fetch errors; rely on others or fallback
                 acc[String(u._id)] = acc[String(u._id)] || [];
               }
             })
           );
+
           if (cancelled) return;
         }
+
         if (!cancelled) setProjectsByUser(acc);
       } catch (e) {
         if (!cancelled) {
@@ -217,41 +186,30 @@ export default function UsersAnalyticsPanel({
         if (!cancelled) setProjectsLoading(false);
       }
     }
+
     run();
     return () => {
       cancelled = true;
     };
   }, [users, activeTenantId, startISO, endISO]);
 
-  // Aggregations (department distribution removed)
   const aggregates = useMemo(() => {
-    // Projects by user count only
     const projectsCountByUser = [];
 
     for (const u of users || []) {
       const uid = String(u?._id || u?.id || "");
       const projs = projectsByUser[uid];
 
-      if (Array.isArray(projs)) {
-        projectsCountByUser.push({
-          user: u?.name || u?.full_name || u?.email || uid,
-          user_id: uid,
-          count: projs.length,
-        });
-      } else {
-        projectsCountByUser.push({
-          user: u?.name || u?.full_name || u?.email || uid,
-          user_id: uid,
-          count: 0,
-        });
-      }
+      projectsCountByUser.push({
+        user: u?.name || u?.full_name || u?.email || uid,
+        user_id: uid,
+        count: Array.isArray(projs) ? projs.length : 0,
+      });
     }
 
-    // Sort projectsCountByUser desc
     projectsCountByUser.sort((a, b) => b.count - a.count);
-
     return { projectsCountByUser };
-  }, [users, projectsByUser, startISO, endISO]);
+  }, [users, projectsByUser]);
 
   // Theme colors
   const primary = "#2563EB";
@@ -260,7 +218,6 @@ export default function UsersAnalyticsPanel({
 
   const ariaDateId = "users-analytics-date-label";
 
-  // Handlers
   const handlePreset = (d) => {
     setCustomStart(null);
     setCustomEnd(null);
@@ -278,10 +235,8 @@ export default function UsersAnalyticsPanel({
             <h3 className="card-title">Users Analytics</h3>
             <div className="card-subtitle">User activity distribution</div>
           </div>
-          <div
-            className="card-actions"
-            style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
-          >
+
+          <div className="card-actions" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
               <span style={{ fontSize: 12, color: subtle }}>Quick range</span>
               <select
@@ -330,6 +285,7 @@ export default function UsersAnalyticsPanel({
             </div>
           </div>
         </div>
+
         <div className="card-content" style={{ paddingTop: 8 }}>
           <div
             id={ariaDateId}
@@ -339,20 +295,13 @@ export default function UsersAnalyticsPanel({
             {dateLiveLabel}
           </div>
 
-          {/* Charts grid */}
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr",
-              gap: 12,
-            }}
-          >
-            {/* Activity by User */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
             <div className="card" aria-label="Activity by User">
               <div className="card-header" style={{ paddingBottom: 0 }}>
                 <h4 className="card-title">Activity by User</h4>
                 <div className="card-subtitle">Counts derived from associated activity</div>
               </div>
+
               <div className="card-content" style={{ height: 340 }}>
                 {usersLoading || projectsLoading ? (
                   <div aria-busy="true">
@@ -385,10 +334,7 @@ export default function UsersAnalyticsPanel({
                         textAnchor="end"
                         height={50}
                       />
-                      <YAxis
-                        tick={{ fill: subtle, fontSize: 12 }}
-                        allowDecimals={false}
-                      />
+                      <YAxis tick={{ fill: subtle, fontSize: 12 }} allowDecimals={false} />
                       <Tooltip />
                       <Legend />
                       <Bar
