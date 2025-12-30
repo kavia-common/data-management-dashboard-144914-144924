@@ -46,11 +46,37 @@ export default function UsersList({
       row?.organization ||
       row?.organization_id ||
       "—";
+
+    const renderSessionTotalCount = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n.toLocaleString() : "0";
+    };
+
+    const renderSessionTotalDuration = (v) => {
+      const n = Number(v);
+      // Keep value semantics the same; format reasonably for display.
+      return Number.isFinite(n) ? n.toFixed(2) : "0.00";
+    };
+
     return [
       { key: "name", label: "Name", priority: 1 },
       { key: "__tenant", label: "Tenant Id", render: renderTenant, priority: 2 },
       { key: "email", label: "Mail", priority: 2 },
       { key: "department", label: "Department", priority: 3 },
+      {
+        key: "session_total_count",
+        label: "Session Total Count",
+        render: renderSessionTotalCount,
+        priority: 3,
+        minWidth: 140,
+      },
+      {
+        key: "session_total_duration",
+        label: "Session Total Duration",
+        render: renderSessionTotalDuration,
+        priority: 3,
+        minWidth: 160,
+      },
     ];
   }, []);
 
