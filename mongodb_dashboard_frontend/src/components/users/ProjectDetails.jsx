@@ -136,10 +136,9 @@ export default function ProjectDetails({ selectedUser }) {
           className="text-sm font-medium"
           style={{ color: 'var(--text-secondary, #374151)', margin: 0 }}
         >
-          <span className="sr-only">User Projects</span>
-          <br></br>
+          <span className="sr-only">User projects total</span>
           <span aria-label={`Total Projects: ${totalProjects}`}>
-            Total Count:{' '}
+            Total Projects:{' '}
             <strong style={{ color: 'var(--primary, #2563EB)' }}>{totalProjects}</strong>
           </span>
         </h3>

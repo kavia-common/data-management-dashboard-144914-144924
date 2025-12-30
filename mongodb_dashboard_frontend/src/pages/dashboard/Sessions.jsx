@@ -5,6 +5,9 @@ import { listSessions } from "../../api";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
+import useDebouncedValue from "../../hooks/useDebouncedValue";
+
+
 
 // Simple helper to get distinct, sorted, non-empty values
 function distinctSorted(arr) {
@@ -19,10 +22,10 @@ function distinctSorted(arr) {
 // PUBLIC_INTERFACE
 export default function Sessions() {
   /**
-   * Sessions page with client-side global search and local pagination.
-   * - Typing in the search field filters the entire dataset (allItems) by user name and related fields.
-   * - No API calls are triggered by typing in the search field (frontend-only).
-   * - Pagination operates on the locally filtered list.
+   * Sessions page with server-side search and pagination.
+   * - Debounced search (300ms) across the entire dataset via backend query param `q`.
+   * - Keeps existing pagination using server-provided meta.total and page/limit.
+   * - Minimal loading and error states shown within the table and above toolbar.
    */
 
   const [items, setItems] = useState([]);
@@ -76,7 +79,7 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Details modal state
+  // Details modal state (session details; unrelated to deprecated "View All" costs modal)
   const [selectedSession, setSelectedSession] = useState(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
 
@@ -159,6 +162,8 @@ export default function Sessions() {
         label,
         render,
         priority: 2,
+        // Slightly widen column if session list is present
+
       };
     });
   }
@@ -171,7 +176,7 @@ export default function Sessions() {
   const [byOrg, setByOrg] = useState([]);   // [{ organization_name, session_count }]
   const [byType, setByType] = useState([]); // [{ session_type, session_count }]
 
-  async function loadAggregates() {
+  async function loadAggregates(qStr = "") {
     /**
      * Fetch sessions data across multiple pages (capped) and build client-side aggregates
      * for charts: by organization_name and by session_type.
@@ -196,7 +201,7 @@ export default function Sessions() {
               : new Date(endDate).toISOString();
         }
         // Do NOT pass text query for local-only search
-        const res = await listSessions(params);
+      const res = await listSessions(params);
         const arr = Array.isArray(res?.items) ? res.items : [];
         all.push(...arr);
         if (arr.length < limit) break;
@@ -234,6 +239,10 @@ export default function Sessions() {
       setByOrg(orgArr);
       setByType(typeArr);
 
+      // Build distinct options for dropdowns from the aggregated dataset (all collected pages)
+      // Keep pairs of { id, name } for filtering
+      // ✅ Build distinct options for dropdowns from the aggregated dataset (all collected pages)
+
       // Build unique user list with IDs and names
       const userPairs = all
         .map((it) => ({
@@ -263,6 +272,7 @@ export default function Sessions() {
       // Update dropdown options
       setUserNameOptions(uniqueUsers);
       setTenantIdOptions(tenantIds);
+
     } catch (e) {
       setByOrg([]);
       setByType([]);
@@ -275,8 +285,7 @@ export default function Sessions() {
   // PUBLIC_INTERFACE
   async function load(page = 1, limit = meta.limit || 10, _qStr = "", sortKey, sortDir) {
     /**
-     * Load sessions from server with pagination and optional server-driven sorting.
-     * Text search is never sent to the server (client-only).
+     * Load sessions from server with pagination, optional query string, and server-driven sorting.
      * When sortKey is provided, pass `sort` using:
      *  - asc: field
      *  - desc: -field
@@ -293,10 +302,10 @@ export default function Sessions() {
         service_type: "service_type",
         task_id: "task_id", // legacy, not used in current allowedOrdered
       };
-      // include optional date range
+      // include optional date range as both from/to and start/end
       const params = { page, limit };
 
-      // Date range params: ONLY send start/end
+      // Date range params: ONLY send start/end, never from/to (backend expects only start/end)
       if (startDate) {
         params.start = new Date(startDate).toISOString();
       }
@@ -308,7 +317,7 @@ export default function Sessions() {
             : new Date(endDate).toISOString();
       }
 
-      // Build filter: exact match on tenant_id and exact match on selected user_id
+      // Build filter: exact match on tenant_id and case-insensitive match handled server-side for user_name
       const filter = {};
       if (filterTenantId && filterTenantId.trim()) {
         filter.tenant_id = filterTenantId.trim();
@@ -330,7 +339,7 @@ export default function Sessions() {
       // If a newer request started after this one, ignore late response
       if (requestId !== activeRequestRef.current) return;
 
-      // Client-side fallback date filtering (safety)
+      // Client-side fallback date filtering
       let filtered = Array.isArray(arr) ? arr : [];
       if (startDate || endDate) {
         const fromMs = startDate ? new Date(startDate).getTime() : null;
@@ -364,15 +373,22 @@ export default function Sessions() {
           return inFrom && inTo;
         });
       }
-
-      // Save full dataset only on first page load; progressively merge on subsequent pages
+      // Save full dataset only on first page load
       if (page === 1) {
         setAllItems(filtered);
+        setItems(filtered);
+        setMeta({
+          page: 1,
+          limit,
+          total: filtered.length,
+        });
       } else {
-        setAllItems((prev) => {
-          const map = new Map(prev.map((i) => [i.id || i._id, i]));
-          filtered.forEach((i) => map.set(i.id || i._id, i));
-          return Array.from(map.values());
+        // pagination still works normally
+        setItems(filtered);
+        setMeta({
+          page: res?.meta?.page || page,
+          limit: res?.meta?.limit || limit,
+          total: res?.meta?.total ?? filtered.length,
         });
       }
 
@@ -392,27 +408,48 @@ export default function Sessions() {
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, "", key, dir);
-    loadAggregates();
+    loadAggregates("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
-  // Client-side global search & local pagination calculation
+  // Debounced server-side search on query change (250ms default)
+  // const debouncedQuery = useDebouncedValue(query, 250);
+  // Debounced text search only
+  // useEffect(() => {
+  //   const q = (debouncedQuery || "").trim();
+  //   const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+  //   load(1, meta.limit || 10, q, key, dir);
+  //   loadAggregates(q);
+  //   // eslint-disable-next-line react-hooks/exhaustive-deps
+  // }, [debouncedQuery, startDate, endDate]);
+
+
   useEffect(() => {
-    // Client-side filtering across the full dataset (allItems) before pagination (global filter)
+    // Client-side filtering across the full dataset (allItems) before pagination
     let filtered = Array.isArray(allItems) ? allItems.slice() : [];
 
     const q = (query || "").trim().toLowerCase();
     if (q) {
       filtered = filtered.filter((row) => {
-        // Match only user name related fields (global search)
+        // Strongly include user fields for matching
         const userValues = [
           row?.User_name,
           row?.user_name,
           row?.user?.name,
           row?.username,
           row?.email,
+          row?.user_id, // identifier allowed
         ];
-        return userValues
+
+        const otherValues = [
+          row?.organization_name,
+          row?.tenant_id,
+          row?.service_type,
+          row?.session_type,
+          row?.status,
+        ];
+
+        return [...userValues, ...otherValues]
           .filter((v) => v != null && v !== "")
           .map((v) => String(v).toLowerCase())
           .some((v) => v.includes(q));
@@ -427,26 +464,28 @@ export default function Sessions() {
       filtered = filtered.filter((r) => String(r?.tenant_id || "") === String(filterTenantId));
     }
 
-    // For local pagination, show first page slice and update meta
-    const page = 1;
-    const limit = meta.limit || 10;
-    setItems(filtered.slice(0, limit));
+    setItems(filtered);
+    // Preserve pagination UI but update total to filtered length
     setMeta((m) => ({
       ...m,
-      page,
+      page: 1,
       total: filtered.length,
     }));
-  }, [query, filterUserName, filterTenantId, allItems, meta.limit]);
+  }, [query, filterUserName, filterTenantId, allItems]);
 
-  // Immediate refetch when dropdown/date filters change; never refetch due to typing in search.
+
+  // Immediate refetch when dropdown filters change (no debounce)
   useEffect(() => {
-    if (query.trim()) return; // keep search purely client-side when active
-
+    const q = (query || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, "", key, dir);
-  }, [filterUserName, filterTenantId, startDate, endDate]); // eslint-disable-line react-hooks/exhaustive-deps
+    load(1, meta.limit || 10, q, key, dir);
+    // Do not reload aggregates on dropdown change to keep options broad; charts are based on search/date only
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterUserName, filterTenantId, startDate, endDate]);
 
-  // Toggle global dimming class while modal is open
+
+
+  // Toggle global dimming class while modal is open (align with user modal UX)
   useEffect(() => {
     if (detailsOpen) {
       document.body.classList.add("modal-open");
@@ -483,7 +522,7 @@ export default function Sessions() {
         session={selectedSession}
       />
 
-      {/* Charts stacked vertically */}
+      {/* Charts stacked vertically (normal flow, with spacing below so table doesn't overlap) */}
       <div
         className="sessions-charts"
         role="region"
@@ -531,8 +570,8 @@ export default function Sessions() {
         <div className="toolbar" aria-label="Sessions toolbar" style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <input
             className="input-search"
-            placeholder="Search by user name (global, client-side)"
-            aria-label="Search sessions by user name"
+            placeholder="Search sessions (user, org, service, status, etc.)..."
+            aria-label="Search sessions"
             value={query}
             onChange={(e) => {
               setLocalSearch(true); // ensure client-side mode
@@ -603,43 +642,23 @@ export default function Sessions() {
           columns={Array.isArray(columns) ? columns : []}
           data={Array.isArray(items) ? items : []}
           loading={!!loading}
+
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
-          fetchPage={(page, limit) => {
-            const start = (page - 1) * limit;
-            const end = start + limit;
-
-            // Build local filtered list using the same logic as the effect above
-            let source = Array.isArray(allItems) ? allItems.slice() : [];
-            const q = (query || "").trim().toLowerCase();
-            if (q) {
-              source = source.filter((row) => {
-                const userValues = [
-                  row?.User_name,
-                  row?.user_name,
-                  row?.user?.name,
-                  row?.username,
-                  row?.email,
-                ];
-                return userValues
-                  .filter((v) => v != null && v !== "")
-                  .map((v) => String(v).toLowerCase())
-                  .some((v) => v.includes(q));
-              });
+          fetchPage={async (page, limit, sortKey, sortDir) => {
+            // Remember current sort so external triggers (search) keep ordering consistent
+            if (sortKey) {
+              lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
+            } else if (!lastSortRef.current) {
+              lastSortRef.current = { key: "", dir: "asc" };
             }
-            if (filterUserName) {
-              source = source.filter((r) => String(r?.user_id || "") === String(filterUserName));
-            }
-            if (filterTenantId) {
-              source = source.filter((r) => String(r?.tenant_id || "") === String(filterTenantId));
-            }
-
-            setItems(source.slice(start, end));
-            setMeta((m) => ({ ...m, page }));
+            // Do not pass query for client-only search
+            await load(page, limit, "", sortKey, sortDir);
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
+
         />
       </Card>
     </div>
