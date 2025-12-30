@@ -112,50 +112,86 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 30
   // }, [customStart, customEnd, days]);
 
   const { startISO, endISO } = useMemo(() => {
-  const utcStartOfDay = (y, m, d) =>
-    new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
+    const utcStartOfDay = (y, m, d) =>
+      new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
 
-  const utcEndOfDay = (y, m, d) =>
-    new Date(Date.UTC(y, m, d, 23, 59, 59, 999));
+    const utcEndOfDay = (y, m, d) =>
+      new Date(Date.UTC(y, m, d, 23, 59, 59, 999));
 
-  const parseYMD = (ymd) => {
-    const [y, m, d] = ymd.split("-").map(Number);
-    return { y, m0: m - 1, d };
-  };
-
-  let targetDate;
-
-  if (customStart && customEnd) {
-    // 🔹 SAME DATE QUERY (custom)
-    const s = parseYMD(customStart);
-    targetDate = { y: s.y, m0: s.m0, d: s.d };
-  } else {
-    // 🔹 SAME DATE QUERY (presets)
-    const now = new Date();
-    targetDate = {
-      y: now.getUTCFullYear(),
-      m0: now.getUTCMonth(),
-      d: now.getUTCDate(),
+    const parseYMD = (ymd) => {
+      if (!ymd) return null;
+      const [y, m, d] = ymd.split("-").map(Number);
+      return { y, m0: m - 1, d };
     };
-  }
 
-  const start = utcStartOfDay(
-    targetDate.y,
-    targetDate.m0,
-    targetDate.d
-  );
+    let start;
+    let end;
 
-  const end = utcEndOfDay(
-    targetDate.y,
-    targetDate.m0,
-    targetDate.d
-  );
+    /** -------------------------
+     * CUSTOM DATE RANGE
+     * ------------------------*/
+    if (customStart && customEnd) {
+      const s = parseYMD(customStart);
+      const e = parseYMD(customEnd);
 
-  return {
-    startISO: start.toISOString(),
-    endISO: end.toISOString(),
-  };
-}, [customStart, customEnd]);
+      start = utcStartOfDay(s.y, s.m0, s.d);
+      end = utcEndOfDay(e.y, e.m0, e.d);
+    }
+
+    /** -------------------------
+     * QUICK RANGE PRESETS
+     * ------------------------*/
+    else {
+      const now = new Date();
+      const y = now.getUTCFullYear();
+      const m = now.getUTCMonth();
+      const d = now.getUTCDate();
+
+      // Today
+      if (days === 0) {
+        start = utcStartOfDay(y, m, d);
+        end = utcEndOfDay(y, m, d);
+      }
+
+      // Yesterday
+      else if (days === -1) {
+        const yd = new Date(Date.UTC(y, m, d - 1));
+        start = utcStartOfDay(
+          yd.getUTCFullYear(),
+          yd.getUTCMonth(),
+          yd.getUTCDate()
+        );
+        end = utcEndOfDay(
+          yd.getUTCFullYear(),
+          yd.getUTCMonth(),
+          yd.getUTCDate()
+        );
+      }
+
+      // Last N days (inclusive)
+      else {
+        end = utcEndOfDay(y, m, d);
+
+        const sd = new Date(Date.UTC(y, m, d));
+        sd.setUTCDate(sd.getUTCDate() - (days - 1));
+
+        start = utcStartOfDay(
+          sd.getUTCFullYear(),
+          sd.getUTCMonth(),
+          sd.getUTCDate()
+        );
+      }
+    }
+
+    // Safety guard
+    if (start > end) [start, end] = [end, start];
+
+    return {
+      startISO: start.toISOString(),
+      endISO: end.toISOString(),
+    };
+  }, [customStart, customEnd, days]);
+
 
   // Live label for date range for accessibility
   useEffect(() => {
