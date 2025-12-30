@@ -449,14 +449,14 @@ export default function Sessions() {
       {/* Table */}
       <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
         <div className="toolbar" aria-label="Sessions toolbar" style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-          <input
+          {/* <input
             className="input-search"
             placeholder="Search sessions (user, org, service, status, etc.)..."
             aria-label="Search sessions"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             style={{ minWidth: 280 }}
-          />
+          /> */}
           <label htmlFor="filter-user" className="sr-only">Filter by User name</label>
           <select
             id="filter-user"
