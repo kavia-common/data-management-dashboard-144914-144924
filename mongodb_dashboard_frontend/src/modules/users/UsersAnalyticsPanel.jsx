@@ -181,13 +181,16 @@ export default function UsersAnalyticsPanel({
             slice.map(async (u) => {
               if (!u?._id) return;
               try {
+                // Backend expects Mongo-shell style ISODate("...") wrappers for from/to.
+                // Keep the computed bounds as full-day UTC (already ensured by startISO/endISO),
+                // but wrap the outgoing values without introducing a date library.
                 const res = await api.get(
                   `/users/${encodeURIComponent(String(u._id))}/projects`,
                   {
                     params: {
                       organization_id: activeTenantId,
-                      from: startISO,
-                      to: endISO,
+                      from: `ISODate("${startISO}")`,
+                      to: `ISODate("${endISO}")`,
                     },
                   }
                 );
