@@ -511,6 +511,7 @@ export default function Sessions() {
       </div>
 
       {/* Existing table card remains below charts */}
+      {/* Below-table Search Sessions input removed as per requirement; toolbar search remains above the table */}
       <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
         <div className="toolbar" aria-label="Sessions toolbar" style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
           <input
