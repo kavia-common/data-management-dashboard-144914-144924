@@ -47,6 +47,11 @@ export default function UsersList({
       row?.organization_id ||
       "—";
 
+    const renderSessionCount = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n.toLocaleString() : "0";
+    };
+
     const renderSessionTotalCount = (v) => {
       const n = Number(v);
       return Number.isFinite(n) ? n.toLocaleString() : "0";
@@ -63,6 +68,17 @@ export default function UsersList({
       { key: "__tenant", label: "Tenant Id", render: renderTenant, priority: 2 },
       { key: "email", label: "Mail", priority: 2 },
       { key: "department", label: "Department", priority: 3 },
+
+      // New: session_count (per-user count of session_tracking rows)
+      {
+        key: "session_count",
+        label: "Session Count",
+        render: renderSessionCount,
+        priority: 3,
+        minWidth: 130,
+      },
+
+      // Existing fields (kept)
       {
         key: "session_total_count",
         label: "Session Total Count",
@@ -80,6 +96,12 @@ export default function UsersList({
     ];
   }, []);
 
+  const totalSessions = useMemo(() => {
+    // “Total Sessions” must respect the same filters already applied in this component.
+    // Therefore: compute from `items` (the filtered list), not from `allItems`.
+    return (items || []).reduce((sum, u) => sum + (Number(u?.session_count) || 0), 0);
+  }, [items]);
+
   // PUBLIC_INTERFACE
   async function load() {
     setLoading(true);
@@ -87,7 +109,19 @@ export default function UsersList({
     try {
       // listUsers routes through shared client enforcing /api/users?organization_id=<ORG_ID> only.
       const res = await listUsers({});
-      const arr = res?.items ?? (Array.isArray(res) ? res : []);
+
+      // Backend /api/users returns either:
+      // - envelope: { success, data:[...], meta:{...} }
+      // - array: [...]
+      // Some older client code used `items`, so keep that as a last fallback.
+      const arr = Array.isArray(res)
+        ? res
+        : Array.isArray(res?.data)
+        ? res.data
+        : Array.isArray(res?.items)
+        ? res.items
+        : [];
+
       setAllItems(arr);
       setItems(arr);
       setMeta((prev) => ({
@@ -211,6 +245,12 @@ export default function UsersList({
           >
             Reset
           </Button>
+
+          <div className="spacer" />
+
+          <div className="muted" aria-label="Total sessions (filtered)">
+            Total Sessions: <strong>{Number(totalSessions || 0).toLocaleString()}</strong>
+          </div>
         </div>
 
         {/* ⚠️ Error Message */}
