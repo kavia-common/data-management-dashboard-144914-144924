@@ -47,21 +47,41 @@ export default function UsersAnalyticsPanel({
   // Active tenant (scoped by client too, but visible here for explicit query params when needed)
   const activeTenantId = getActiveTenant?.() || null;
 
-  // Compute date range ISO strings; end is set to 23:59:59.999
+  // Compute date range ISO strings.
+  // - Custom: uses date inputs (YYYY-MM-DD) as local dates (start/end).
+  // - Today: start at local 00:00 through now.
+  // - Yesterday: local 00:00 to 23:59:59.999 of the previous calendar day.
+  // - Other "Last N days": preserves existing behavior (end-of-today through N-day window).
   const { startISO, endISO } = useMemo(() => {
     let start;
     let end;
+
     if (customStart && customEnd) {
       start = new Date(customStart);
       end = new Date(customEnd);
-    } else {
+    } else if (days === 0) {
+      // Today: from local start-of-day through now
       end = new Date();
-      // end to end-of-day
+      start = new Date();
+      start.setHours(0, 0, 0, 0);
+    } else if (days === -1) {
+      // Yesterday: full previous local calendar day
+      start = new Date();
+      start.setDate(start.getDate() - 1);
+      start.setHours(0, 0, 0, 0);
+
+      end = new Date(start);
       end.setHours(23, 59, 59, 999);
+    } else {
+      // Existing behavior for "Last N days": end is end-of-today, start is (end - (N-1) days) at start-of-day.
+      end = new Date();
+      end.setHours(23, 59, 59, 999);
+
       start = new Date();
       start.setDate(end.getDate() - days + 1);
       start.setHours(0, 0, 0, 0);
     }
+
     return { startISO: start.toISOString(), endISO: end.toISOString() };
   }, [customStart, customEnd, days]);
 
@@ -224,7 +244,8 @@ export default function UsersAnalyticsPanel({
                 className="ui-input"
                 style={{ minWidth: 140 }}
               >
-                <option value="1">Last 1 day</option>
+                <option value="0">Today</option>
+                <option value="-1">Yesterday</option>
                 <option value="7">Last 7 days</option>
                 <option value="14">Last 14 days</option>
                 <option value="30">Last 30 days</option>
