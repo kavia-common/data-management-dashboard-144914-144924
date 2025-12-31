@@ -225,7 +225,8 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       });
     }
 
-    projectsCountByUser.sort((a, b) => b.count - a.count);
+    // IMPORTANT: Bars should be based on sessions count, so sort accordingly.
+    projectsCountByUser.sort((a, b) => (b.total_count || 0) - (a.total_count || 0));
     return { projectsCountByUser };
   }, [users, projectsByUser]);
 
@@ -336,7 +337,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                     {projectsError}
                   </div>
                 ) : aggregates.projectsCountByUser.length === 0 ? (
-                  <div className="screen-center">No project data</div>
+                  <div className="screen-center">No sessions data</div>
                 ) : (
                   <ResponsiveContainer>
                     <BarChart
@@ -400,8 +401,8 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                       />
                       <Legend />
                       <Bar
-                        dataKey="count"
-                        name="Projects:"
+                        dataKey="total_count"
+                        name="Sessions"
                         fill={primary}
                         stroke={primary}
                         radius={[6, 6, 0, 0]}
