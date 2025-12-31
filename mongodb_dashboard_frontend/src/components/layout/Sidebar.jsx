@@ -4,6 +4,7 @@ import { useAuth } from "../../context/AuthContext";
 import Button from "../ui/Button.jsx";
 import "./Sidebar.css";
 import { resolveOrganizationId } from "../../utils/orgContext";
+import { isSuperAdmin } from "../../utils/isSuperAdmin";
 
 
 /**
@@ -57,6 +58,9 @@ export default function Sidebar() {
 
   // Resolve the active tenant id from shared context/token utils (used for fallback display)
   const tenantId = useMemo(() => resolveOrganizationId({ auth }), [auth]);
+
+  // Only super-admin (T0000) should see Costs in the sidebar.
+  const showCostsModule = useMemo(() => isSuperAdmin(tenantId), [tenantId]);
 
   const nameFromAuth = auth?.user?.tenant_name || null;
 
@@ -118,9 +122,12 @@ export default function Sidebar() {
           <NavLink to="/dashboard/deployments" className="nav-link">
             <span className="nav-label">Project Details</span>
           </NavLink>
-          <NavLink to="/dashboard/costs" className="nav-link">
-            <span className="nav-label">Costs</span>
-          </NavLink>
+
+          {showCostsModule ? (
+            <NavLink to="/dashboard/costs" className="nav-link">
+              <span className="nav-label">Costs</span>
+            </NavLink>
+          ) : null}
         </nav>
       </div>
 

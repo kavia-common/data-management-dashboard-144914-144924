@@ -9,13 +9,15 @@ export const SUPER_ADMIN_ORG_ID = 'T0000';
  *  - a user object with organization_id or tenant_id
  *  - a string representing organization/tenant id
  *
- * Returns true only when the effective org id equals 'T0000'.
+ * Returns true only when the effective org id equals 'T0000' (case-insensitive).
  */
 export function isSuperAdmin(input) {
   // Support both user object and direct string id
-  const orgId = typeof input === 'string'
-    ? input
-    : input?.organization_id || input?.tenant_id || input?.orgId || input?.tenantId;
+  const orgIdRaw =
+    typeof input === 'string'
+      ? input
+      : input?.organization_id || input?.tenant_id || input?.orgId || input?.tenantId;
 
+  const orgId = String(orgIdRaw || '').trim().toUpperCase();
   return orgId === SUPER_ADMIN_ORG_ID;
 }
