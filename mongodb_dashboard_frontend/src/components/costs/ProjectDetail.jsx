@@ -2,6 +2,7 @@ import React from "react";
 import DateDetails from "./DateDetails";
 
 import { renderCreditsWithUsd, usdToCredits } from "../../utils/currency";
+import { formatCurrencyAmount } from "../../utils/formatCurrency";
 
 /**
  * PUBLIC_INTERFACE
@@ -103,16 +104,16 @@ export default function ProjectDetail({ project }) {
             Project #{String(project?.projectId ?? "—")}: {project?.projectName || "Untitled"}
           </span>
           <div
-            title={`User Cost: ${renderCreditsWithUsd(totalCost, { maximumFractionDigits: 6 }).split("•")[0].trim()}; Credits Used: ${renderCreditsWithUsd(totalCost, { maximumFractionDigits: 6 }).split("•").slice(-1)[0].replace("Credits:", "").trim()}`}
+            title={`User Cost: ${formatCurrencyAmount(Number(totalCost || 0), { currency: "USD", maximumFractionDigits: 6 })}; Credits Used: ${usdToCredits(Number(totalCost || 0)).toLocaleString(undefined, { maximumFractionDigits: 0 })}`}
             className="flex flex-col items-start"
           >
             <span className="text-gray-900 font-semibold">
-              {renderCreditsWithUsd(totalCost, { maximumFractionDigits: 6 }).split("•")[0].trim()}
+              {formatCurrencyAmount(Number(totalCost || 0), { currency: "USD", maximumFractionDigits: 6 })}
             </span>
             <span className="mt-1 text-sm text-gray-500 leading-5">
               Credits Used:<br />
               <strong className="text-gray-900">
-                {renderCreditsWithUsd(totalCost, { maximumFractionDigits: 6 }).split("•").slice(-1)[0].replace("Credits:", "").trim()}
+                {usdToCredits(Number(totalCost || 0)).toLocaleString(undefined, { maximumFractionDigits: 0 })}
               </strong>
             </span>
           </div>

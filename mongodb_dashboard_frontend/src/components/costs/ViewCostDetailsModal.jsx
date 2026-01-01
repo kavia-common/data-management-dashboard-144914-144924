@@ -5,6 +5,7 @@ import { renderCreditsWithUsd } from "../../utils/currency";
 import { CREDITS_PER_USD } from "../../utils/currency";
 import { formatLabel } from "../../utils/formatLabel";
 import { getUserBasic } from "../../api/users";
+import { formatCurrencyAmount } from "../../utils/formatCurrency";
 
 /**
  * PUBLIC_INTERFACE
@@ -415,12 +416,12 @@ export default function ViewCostDetailsModal({ isOpen, onClose, data }) {
                   </span>
                 </p>
                 <div
-                  title={`User Cost: ${renderCreditsWithUsd(topLevelAmounts.usd, { maximumFractionDigits: 6 }).split("•")[0].trim()}; Credits Used: ${topLevelAmounts?.credits?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || "—"}`}
+                  title={`User Cost: ${formatCurrencyAmount(Number(topLevelAmounts.usd || 0), { currency: "USD", maximumFractionDigits: 6 })}; Credits Used: ${topLevelAmounts?.credits?.toLocaleString(undefined, { maximumFractionDigits: 0 }) || "—"}`}
                   className="flex flex-col items-start"
                   style={{ marginTop: 6 }}
                 >
                   <span className="text-gray-900 font-semibold" style={{ fontSize: 18, color: "var(--text-primary, #111827)" }}>
-                    {renderCreditsWithUsd(topLevelAmounts.usd, { maximumFractionDigits: 6 }).split("•")[0].trim()}
+                    {formatCurrencyAmount(Number(topLevelAmounts.usd || 0), { currency: "USD", maximumFractionDigits: 6 })}
                   </span>
                   <span className="mt-1 text-sm text-gray-500 leading-5" style={{ color: "var(--text-secondary, #374151)" }}>
                     Credits Used:<br />

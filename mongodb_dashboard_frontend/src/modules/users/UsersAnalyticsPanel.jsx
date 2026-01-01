@@ -11,9 +11,10 @@ import {
   Legend,
 } from "recharts";
 import { useUsers } from "../../hooks/useUsers";
-import { getUserProjects } from "../../api/users";
+import { getUsersProjectsBatch } from "../../api/users";
 import { getActiveTenant } from "../../utils/tenantClient";
 import Skeleton from "../../components/ui/Skeleton";
+import useDebouncedValue from "../../hooks/useDebouncedValue";
 
 /**
  * PUBLIC_INTERFACE
@@ -123,10 +124,16 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     setDateLiveLabel(`${fmt(start)} \u2013 ${fmt(end)}`);
   }, [startISO, endISO]);
 
+  // Debounce range changes so quick toggles don't spam requests.
+  const debouncedRange = useDebouncedValue(
+    { startISO, endISO, activeTenantId },
+    250
+  );
+
   // Fetch users; table is unchanged elsewhere
   const { users, loading: usersLoading, error: usersError } = useUsers({ limit: 200 });
 
-  // Fetch projects per user when needed
+  // Fetch projects for all users in a single request when needed
   const [projectsByUser, setProjectsByUser] = useState({});
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState("");
@@ -135,50 +142,38 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     let cancelled = false;
 
     async function run() {
-      if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
+      const tenantId = debouncedRange?.activeTenantId || null;
+      const from = debouncedRange?.startISO;
+      const to = debouncedRange?.endISO;
+
+      if (!Array.isArray(users) || users.length === 0 || !tenantId || !from || !to) {
         setProjectsByUser({});
         return;
       }
 
+      const userIds = users.map((u) => (u?._id != null ? String(u._id) : null)).filter(Boolean);
+
       setProjectsLoading(true);
       setProjectsError("");
-      const acc = {};
 
       try {
-        // Fetch in small batches to avoid overloading backend
-        const batchSize = 8;
+        const resp = await getUsersProjectsBatch(userIds, {
+          organization_id: tenantId,
+          from,
+          to,
+        });
 
-        for (let i = 0; i < users.length; i += batchSize) {
-          const slice = users.slice(i, i + batchSize);
+        const map = resp?.data && typeof resp.data === "object" ? resp.data : {};
+        const normalized = {};
 
-          await Promise.all(
-            slice.map(async (u) => {
-              if (!u?._id) return;
-
-              try {
-                // IMPORTANT: startISO/endISO are full-day UTC bounds by construction.
-                // Use shared API helper so ISODate wrapping stays consistent.
-                const res = await getUserProjects(String(u._id), {
-                  organization_id: activeTenantId,
-                  from: startISO,
-                  to: endISO,
-                });
-
-                // Preserve full response so we can access:
-                // - res.projects (distinct projects)
-                // - res.total_count (sessions count)
-                acc[String(u._id)] = res || { projects: [] };
-              } catch {
-                // Preserve prior behavior: user still exists, but no projects response.
-                acc[String(u._id)] = acc[String(u._id)] || { projects: [] };
-              }
-            })
-          );
-
-          if (cancelled) return;
+        // Normalize into prior shape: { [userId]: { projects: [...] } }
+        for (const uid of userIds) {
+          normalized[uid] = { projects: Array.isArray(map?.[uid]) ? map[uid] : [] };
+          // Batch endpoint currently returns projects only; preserve key with safe default.
+          normalized[uid].total_count = 0;
         }
 
-        if (!cancelled) setProjectsByUser(acc);
+        if (!cancelled) setProjectsByUser(normalized);
       } catch (e) {
         if (!cancelled) {
           setProjectsError(e?.message || "Failed to load user projects.");
@@ -193,7 +188,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     return () => {
       cancelled = true;
     };
-  }, [users, activeTenantId, startISO, endISO]);
+  }, [users, debouncedRange?.activeTenantId, debouncedRange?.startISO, debouncedRange?.endISO]);
 
   const aggregates = useMemo(() => {
     const projectsCountByUser = [];
