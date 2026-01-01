@@ -8,6 +8,7 @@ const Overview = lazy(() => import("../pages/dashboard/Overview"));
 const Users = lazy(() => import("../pages/dashboard/Users"));
 const Sessions = lazy(() => import("../pages/dashboard/Sessions"));
 const Deployments = lazy(() => import("../pages/dashboard/Deployments"));
+const Projects = lazy(() => import("../pages/dashboard/Projects"));
 const Costs = lazy(() => import("../pages/dashboard/Costs"));
 const CostsUnderscore = lazy(() => import("../pages/CostsUnderscore"));
 
@@ -77,6 +78,17 @@ export default function AppRoutes() {
             <AppLayout>
               <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={320} /></div>}>
                 <Deployments />
+              </Suspense>
+            </AppLayout>
+          }
+        />
+
+        <Route
+          path="/dashboard/projects"
+          element={
+            <AppLayout>
+              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={320} /></div>}>
+                <Projects />
               </Suspense>
             </AppLayout>
           }

@@ -123,6 +123,10 @@ export default function Sidebar() {
             <span className="nav-label">Project Details</span>
           </NavLink>
 
+          <NavLink to="/dashboard/projects" className="nav-link">
+            <span className="nav-label">Projects</span>
+          </NavLink>
+
           {showCostsModule ? (
             <NavLink to="/dashboard/costs" className="nav-link">
               <span className="nav-label">Costs</span>

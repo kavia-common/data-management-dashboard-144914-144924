@@ -76,8 +76,11 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
   const isUsersRoot =
     /\/api\/users(?:$|[?&#/])/.test(path) && !/\/api\/users\/[A-Za-z0-9_-]/.test(path);
 
-  if (isUsersRoot) {
-    // Allow ONLY a safe whitelist of query params for listing users.
+  const isProjectsRoot =
+    /\/api\/projects(?:$|[?&#/])/.test(path) && !/\/api\/projects\/[A-Za-z0-9_-]/.test(path);
+
+  if (isUsersRoot || isProjectsRoot) {
+    // Allow ONLY a safe whitelist of query params for listing users/projects.
     // Tenant scoping is still enforced via organization_id injected in ensureScopedQueryParams().
     const allowedKeys = new Set(["organization_id", "page", "limit", "sort", "filter", "q"]);
     const out = {};
@@ -346,6 +349,17 @@ export async function listSessions(params = {}) {
 export async function listDeployments(params = {}) {
   /** Lists app deployments normalized to { items, total, meta }. */
   const res = await httpGet("/api/app-deployments", { params });
+  return normalizeListPayload(res.data);
+}
+
+// PUBLIC_INTERFACE
+export async function listProjects(params = {}) {
+  /**
+   * Lists projects from /api/projects with server-side pagination support.
+   * Supported params: organization_id (injected), page, limit, sort, filter, q.
+   * Returns normalized { items, total, meta }.
+   */
+  const res = await httpGet("/api/projects", { params });
   return normalizeListPayload(res.data);
 }
 
