@@ -92,15 +92,18 @@ export default function ProjectsList({
         if (seq !== requestSeq.current) return;
 
         setItems(Array.isArray(res?.items) ? res.items : []);
-        setServerTotal(
-          typeof res?.total === "number"
-            ? res.total
-            : typeof res?.meta?.total === "number"
-              ? res.meta.total
-              : Array.isArray(res?.items)
-                ? res.items.length
-                : 0
-        );
+
+        // In server-side pagination, the backend contract is an envelope:
+        // { data, meta: { total, page, limit } }
+        // Prefer meta.total to ensure correct totalPages calculation.
+        const total =
+          typeof res?.meta?.total === "number"
+            ? res.meta.total
+            : typeof res?.total === "number"
+              ? res.total
+              : 0;
+
+        setServerTotal(total);
         setPage(nextPage);
       } catch (e) {
         if (seq !== requestSeq.current) return;

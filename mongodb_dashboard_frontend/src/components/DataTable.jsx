@@ -102,7 +102,10 @@ export default function DataTable({
 
   // Determine total and pagination mode
   const clientTotal = sorted?.length || 0;
-  const total = isServerMode ? Math.max(0, serverTotal ?? clientTotal) : clientTotal;
+
+  // In server mode, use serverTotal to compute total pages. Always clamp to a safe integer.
+  const totalRaw = isServerMode ? (serverTotal ?? clientTotal) : clientTotal;
+  const total = Number.isFinite(Number(totalRaw)) ? Math.max(0, Number(totalRaw)) : 0;
 
   const totalPages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
   const currentPage = Math.min(Math.max(1, page), totalPages);
