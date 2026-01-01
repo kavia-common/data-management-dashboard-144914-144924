@@ -4,6 +4,7 @@ import { listUsers } from "../api";
  * PUBLIC_INTERFACE
  * getUsers
  * Retrieves users from the backend with support for filter, page, limit, and sort.
+ * Note: Prefer using server-side pagination (page/limit) in UI tables to avoid N-per-row downstream calls.
  */
 export async function getUsers(options = {}) {
   const { filter, page, limit, sort, search } = options || {};

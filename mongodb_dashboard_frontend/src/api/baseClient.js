@@ -67,18 +67,26 @@ function isSessionTrackingRoot(pathOrUrl) {
 
 /**
  * For endpoint-specific rules, sanitize query params before building the request.
- * - For "/api/users" GET: allow only { organization_id }.
+ * - For "/api/users" GET: allow server-side pagination/sort/filter/search params (page, limit, sort, filter, q)
+ *   in addition to organization_id scoping. This enables a single paginated fetch per page.
  * - For "/api/session-tracking" root: strip organization_id, allow tenant_id only (appended later).
  */
 function sanitizeEndpointParams(pathOrUrl, params = {}) {
   const path = String(pathOrUrl || "");
   const isUsersRoot =
-    /\/api\/users(?:$|\?)/.test(path) && !/\/api\/users\/[A-Za-z0-9_-]/.test(path);
+    /\/api\/users(?:$|[?&#/])/.test(path) && !/\/api\/users\/[A-Za-z0-9_-]/.test(path);
 
   if (isUsersRoot) {
+    // Allow ONLY a safe whitelist of query params for listing users.
+    // Tenant scoping is still enforced via organization_id injected in ensureScopedQueryParams().
+    const allowedKeys = new Set(["organization_id", "page", "limit", "sort", "filter", "q"]);
     const out = {};
-    if (params && typeof params === "object" && "organization_id" in params) {
-      out.organization_id = params.organization_id;
+    if (params && typeof params === "object") {
+      Object.entries(params).forEach(([k, v]) => {
+        if (!allowedKeys.has(k)) return;
+        if (v === undefined || v === null || v === "") return;
+        out[k] = v;
+      });
     }
     return out;
   }
@@ -148,8 +156,14 @@ function ensureScopedQueryParams(pathOrUrl, params = {}) {
   const baseParams = {};
   if (orgId) baseParams.organization_id = orgId;
 
-  if (isTenantSummary || isUsersRoot) {
+  if (isTenantSummary) {
     return baseParams; // strictly only organization_id
+  }
+
+  if (isUsersRoot) {
+    // Allow server-side pagination/sort/filter/search params to pass through for /api/users,
+    // while still enforcing tenant scoping via organization_id.
+    return { ...(params || {}), ...baseParams };
   }
 
   // For /api/projects/summary: ALWAYS ensure organization_id is appended to query
@@ -310,7 +324,11 @@ export async function health() {
 
 // PUBLIC_INTERFACE
 export async function listUsers(params = {}) {
-  /** Lists users; for /api/users only organization_id is sent. All other params (e.g., limit, page, sort, filter) are ignored for this endpoint by design. Returns normalized { items, total, meta }. */
+  /**
+   * Lists users from /api/users with server-side pagination support.
+   * Supported params: organization_id (injected), page, limit, sort, filter, q.
+   * Returns normalized { items, total, meta } (meta contains page/limit/total when the backend returns an envelope).
+   */
   const res = await httpGet("/api/users", { params });
   return normalizeListPayload(res.data);
 }
