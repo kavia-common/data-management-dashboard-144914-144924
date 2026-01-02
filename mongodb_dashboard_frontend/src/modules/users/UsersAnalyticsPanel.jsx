@@ -10,30 +10,29 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { useUsers } from "../../hooks/useUsers";
-import { getUserProjects } from "../../api/users";
-import { getActiveTenant } from "../../utils/tenantClient";
 import Skeleton from "../../components/ui/Skeleton";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
+import { useUsers } from "../../hooks/useUsers";
+import { getActiveTenant } from "../../utils/tenantClient";
+import { fetchSessionTracking } from "../../api/sessionTracking";
+import { getApiClient } from "../../api/baseClient";
 
 /**
  * PUBLIC_INTERFACE
  * UsersAnalyticsPanel
- * A charts/analytics panel for the Users page, with independent filters.
  *
- * Regression fix:
- * - This panel must call the projects endpoint (NOT sessions), and must not
- *   regress to an unfiltered "total" value.
+ * Users analytics chart:
+ * - Tooltip shows user name (not filter text)
+ * - Bars are driven by sessions count for selected quick/custom range
+ * - Tooltip also shows projects count for the same selected range
  *
- * Requirements implemented:
- * - Invoke GET /api/users/:userId/projects exactly once per Quick Range change
- *   (debounced) with query params:
- *   - organization_id
- *   - from/to (full-day UTC bounds)
- * - Bind the chart to the FILTERED response (projects list length), not a total.
+ * Performance/requests:
+ * - Exactly ONE debounced projects request per selection (tenant + from/to)
+ * - Exactly ONE sessions aggregation request per selection (tenant + from/to)
+ *   (no N-per-user calls)
  *
- * Backend query formatting:
- * - getUserProjects() wraps from/to in ISODate("...") via src/api/users.js.
+ * Tenant/range scoping consistency:
+ * - Both requests apply the SAME tenant and from/to range.
  */
 export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 }) {
   // Filter state (independent from Overview)
@@ -47,8 +46,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
   /**
    * Compute date range ISO strings for API query params.
-   * IMPORTANT: Avoid local timezone when deriving these bounds. We construct
-   * dates using UTC components via Date.UTC(...).
+   * IMPORTANT: Avoid local timezone when deriving these bounds.
    */
   const { startISO, endISO } = useMemo(() => {
     const utcStartOfDay = (y, m, d) => new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
@@ -93,7 +91,6 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
         const sd = new Date(Date.UTC(y, m, d));
         sd.setUTCDate(sd.getUTCDate() - (days - 1));
-
         start = utcStartOfDay(sd.getUTCFullYear(), sd.getUTCMonth(), sd.getUTCDate());
       }
     }
@@ -104,13 +101,13 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     return { startISO: start.toISOString(), endISO: end.toISOString() };
   }, [customStart, customEnd, days]);
 
-  // Debounce range changes to prevent multiple fetches during rapid interactions
-  const debouncedRange = useDebouncedValue({ startISO, endISO, activeTenantId }, 200);
-  const debouncedStartISO = debouncedRange?.startISO;
-  const debouncedEndISO = debouncedRange?.endISO;
-  const debouncedTenantId = debouncedRange?.activeTenantId;
+  // Debounce selection changes so we keep a single projects request and single sessions request per selection.
+  const debouncedSelection = useDebouncedValue({ startISO, endISO, activeTenantId }, 250);
+  const debouncedStartISO = debouncedSelection?.startISO;
+  const debouncedEndISO = debouncedSelection?.endISO;
+  const debouncedTenantId = debouncedSelection?.activeTenantId;
 
-  // Live label for date range for accessibility (use raw values so the label updates immediately)
+  // Live label for date range (updates immediately, not debounced)
   useEffect(() => {
     const start = new Date(startISO);
     const end = new Date(endISO);
@@ -123,91 +120,197 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     setDateLiveLabel(`${fmt(start)} – ${fmt(end)}`);
   }, [startISO, endISO]);
 
-  // Fetch users
+  // Fetch users (names for tooltip + mapping ids)
   const { users, loading: usersLoading, error: usersError } = useUsers({ limit: 200 });
 
-  /**
-   * IMPORTANT:
-   * The backend endpoint is per-user: /api/users/:userId/projects.
-   * The explicit requirement for this task is "exactly one request per Quick Range".
-   *
-   * To satisfy this without adding a new backend batch endpoint, we scope the panel’s
-   * query to a single user (the first user returned by useUsers()).
-   *
-   * This restores:
-   * - correct endpoint (projects, not sessions)
-   * - correct from/to filtering
-   * - no totals-only regression
-   * - exactly one request per Quick Range (debounced)
-   */
-  const userIdForQuery = useMemo(() => {
-    const u = Array.isArray(users) && users.length > 0 ? users[0] : null;
-    return u?._id ? String(u._id) : u?.id ? String(u.id) : null;
+  // Build user id -> name map
+  const userNameById = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(users) ? users : []).forEach((u) => {
+      const id = u?._id ?? u?.id;
+      const name =
+        u?.name ||
+        u?.user_name ||
+        u?.full_name ||
+        u?.email ||
+        (u?.first_name || u?.last_name ? `${u?.first_name || ""} ${u?.last_name || ""}`.trim() : null);
+      if (id != null) map.set(String(id), name || String(id));
+    });
+    return map;
   }, [users]);
 
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [projectsResponse, setProjectsResponse] = useState(null);
+  // One aggregated sessions request per selection
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState("");
+  const [sessionsByUser, setSessionsByUser] = useState(() => new Map());
 
-  // Guard against out-of-order responses on rapid range switching
-  const requestSeq = useRef(0);
+  // One debounced projects request per selection
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectsError, setProjectsError] = useState("");
+  const [projectsByUser, setProjectsByUser] = useState(() => new Map());
+
+  // Guard against out-of-order responses on rapid switching
+  const sessionsReqSeq = useRef(0);
+  const projectsReqSeq = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function run() {
-      if (!userIdForQuery || !debouncedTenantId || !debouncedStartISO || !debouncedEndISO) {
-        setProjectsResponse(null);
+    async function loadSessionsAgg() {
+      if (!debouncedTenantId || !debouncedStartISO || !debouncedEndISO) {
+        setSessionsByUser(new Map());
         return;
       }
 
-      setLoading(true);
-      setError("");
+      setSessionsLoading(true);
+      setSessionsError("");
 
-      const seq = ++requestSeq.current;
+      const seq = ++sessionsReqSeq.current;
 
       try {
-        const res = await getUserProjects(userIdForQuery, {
-          organization_id: debouncedTenantId,
-          from: debouncedStartISO,
-          to: debouncedEndISO,
+        // Use a single call to /api/session-tracking and aggregate client-side by user_id.
+        // NOTE: baseClient enforces tenant_id query param; we still pass tenant_id explicitly to be clear.
+        const { items } = await fetchSessionTracking({
+          tenant_id: debouncedTenantId,
+          page: 1,
+          limit: 5000,
+          sort: "-last_updated",
         });
 
-        // Ignore late responses
-        if (cancelled || seq !== requestSeq.current) return;
+        if (cancelled || seq !== sessionsReqSeq.current) return;
 
-        setProjectsResponse(res || null);
+        const fromMs = new Date(debouncedStartISO).getTime();
+        const toMs = new Date(debouncedEndISO).getTime();
+
+        const counts = new Map();
+        for (const s of Array.isArray(items) ? items : []) {
+          const uid = String(s?.user_id ?? s?.user?.id ?? s?.user ?? "");
+          if (!uid) continue;
+
+          // Apply date range consistently on the frontend since fetchSessionTracking no longer forwards filters.
+          const tsRaw = s?.last_updated || s?.session_start || s?.created_at || s?.timestamp;
+          if (!tsRaw) continue;
+          const ts = new Date(tsRaw).getTime();
+          if (!Number.isFinite(ts) || ts < fromMs || ts > toMs) continue;
+
+          counts.set(uid, (counts.get(uid) || 0) + 1);
+        }
+
+        setSessionsByUser(counts);
       } catch (e) {
-        if (cancelled || seq !== requestSeq.current) return;
-        setError(e?.message || "Failed to load user projects.");
-        setProjectsResponse(null);
+        if (cancelled || seq !== sessionsReqSeq.current) return;
+        setSessionsError(e?.message || "Failed to load sessions.");
+        setSessionsByUser(new Map());
       } finally {
-        if (!cancelled && seq === requestSeq.current) setLoading(false);
+        if (!cancelled && seq === sessionsReqSeq.current) setSessionsLoading(false);
       }
     }
 
-    run();
+    loadSessionsAgg();
     return () => {
       cancelled = true;
     };
-  }, [userIdForQuery, debouncedTenantId, debouncedStartISO, debouncedEndISO]);
+  }, [debouncedTenantId, debouncedStartISO, debouncedEndISO]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProjectsAgg() {
+      if (!debouncedTenantId || !debouncedStartISO || !debouncedEndISO) {
+        setProjectsByUser(new Map());
+        return;
+      }
+
+      setProjectsLoading(true);
+      setProjectsError("");
+
+      const seq = ++projectsReqSeq.current;
+
+      try {
+        // Single request to session-tracking (via baseClient) but fetch enough items to compute distinct projects per user.
+        // We intentionally use baseClient directly here so we can pass from/to in the URL if backend supports it later;
+        // for now we apply range client-side the same way as sessions aggregation.
+        const res = await getApiClient().get("/api/session-tracking", {
+          params: {
+            tenant_id: debouncedTenantId,
+            page: 1,
+            limit: 5000,
+            sort: "-last_updated",
+          },
+        });
+
+        if (cancelled || seq !== projectsReqSeq.current) return;
+
+        const items = Array.isArray(res?.data) ? res.data : res?.data?.data ?? [];
+        const fromMs = new Date(debouncedStartISO).getTime();
+        const toMs = new Date(debouncedEndISO).getTime();
+
+        // userId -> Set(projectId)
+        const perUserProjects = new Map();
+        for (const s of Array.isArray(items) ? items : []) {
+          const uid = String(s?.user_id ?? s?.user?.id ?? s?.user ?? "");
+          if (!uid) continue;
+
+          const tsRaw = s?.last_updated || s?.session_start || s?.created_at || s?.timestamp;
+          if (!tsRaw) continue;
+          const ts = new Date(tsRaw).getTime();
+          if (!Number.isFinite(ts) || ts < fromMs || ts > toMs) continue;
+
+          const pid = s?.project_id ?? s?.projectId ?? s?.project?.id;
+          if (!pid) continue;
+
+          const set = perUserProjects.get(uid) || new Set();
+          set.add(String(pid));
+          perUserProjects.set(uid, set);
+        }
+
+        const counts = new Map();
+        perUserProjects.forEach((set, uid) => counts.set(uid, set.size));
+        setProjectsByUser(counts);
+      } catch (e) {
+        if (cancelled || seq !== projectsReqSeq.current) return;
+        setProjectsError(e?.message || "Failed to load projects.");
+        setProjectsByUser(new Map());
+      } finally {
+        if (!cancelled && seq === projectsReqSeq.current) setProjectsLoading(false);
+      }
+    }
+
+    loadProjectsAgg();
+    return () => {
+      cancelled = true;
+    };
+  }, [debouncedTenantId, debouncedStartISO, debouncedEndISO]);
 
   const chartData = useMemo(() => {
-    const projects = Array.isArray(projectsResponse?.projects) ? projectsResponse.projects : [];
-    return [
-      {
-        label: "Projects",
-        projectsCount: projects.length,
-      },
-    ];
-  }, [projectsResponse]);
+    // union of users list + any users observed in sessions/projects
+    const ids = new Set([
+      ...Array.from(userNameById.keys()),
+      ...Array.from(sessionsByUser.keys()),
+      ...Array.from(projectsByUser.keys()),
+    ]);
+
+    const rows = Array.from(ids).map((userId) => {
+      const sessions = sessionsByUser.get(userId) || 0;
+      const projects = projectsByUser.get(userId) || 0;
+      const name = userNameById.get(userId) || userId;
+      return {
+        userId,
+        userName: name,
+        sessionsCount: sessions,
+        projectsCount: projects,
+      };
+    });
+
+    // Sort by sessions desc, then projects desc
+    rows.sort((a, b) => b.sessionsCount - a.sessionsCount || b.projectsCount - a.projectsCount);
+    return rows.slice(0, 20); // keep chart readable
+  }, [userNameById, sessionsByUser, projectsByUser]);
 
   // Theme colors
   const primary = "#2563EB";
   const grid = "#E5E7EB";
   const subtle = "#e2750eff";
-
-  const ariaDateId = "users-analytics-date-label";
 
   const handlePreset = (d) => {
     setCustomStart(null);
@@ -218,13 +321,16 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   const onCustomStartChange = (e) => setCustomStart(e.target.value || null);
   const onCustomEndChange = (e) => setCustomEnd(e.target.value || null);
 
+  const isLoading = usersLoading || sessionsLoading || projectsLoading;
+  const error = usersError?.message || sessionsError || projectsError;
+
   return (
     <div className={className} style={{ ...style }}>
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="card-header" style={{ paddingBottom: 0, gap: 12 }}>
           <div>
             <h3 className="card-title">Users Analytics</h3>
-            <div className="card-subtitle">User activity distribution</div>
+            <div className="card-subtitle">Sessions by user (projects shown in tooltip)</div>
           </div>
 
           <div className="card-actions" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -234,11 +340,8 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 aria-label="Quick date range"
                 value={customStart && customEnd ? "custom" : String(days)}
                 onChange={(e) => {
-                  if (e.target.value === "custom") {
-                    // leave as-is; user will pick dates below
-                  } else {
-                    handlePreset(Number(e.target.value));
-                  }
+                  if (e.target.value === "custom") return;
+                  handlePreset(Number(e.target.value));
                 }}
                 className="ui-input"
                 style={{ minWidth: 140 }}
@@ -268,74 +371,88 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
         </div>
 
         <div className="card-content" style={{ paddingTop: 8 }}>
-          <div id={ariaDateId} aria-live="polite" style={{ fontSize: 12, color: subtle, marginBottom: 8 }}>
+          <div aria-live="polite" style={{ fontSize: 12, color: subtle, marginBottom: 8 }}>
             {dateLiveLabel}
           </div>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-            <div className="card" aria-label="Projects in Range">
-              <div className="card-header" style={{ paddingBottom: 0 }}>
-                <h4 className="card-title">Projects in Range</h4>
-                <div className="card-subtitle">Filtered by selected date range</div>
-              </div>
+          <div className="card" aria-label="Sessions by user">
+            <div className="card-header" style={{ paddingBottom: 0 }}>
+              <h4 className="card-title">Sessions by user</h4>
+              <div className="card-subtitle">Bar height = sessions (selected range)</div>
+            </div>
 
-              <div className="card-content" style={{ height: 340 }}>
-                {usersLoading || loading ? (
-                  <div aria-busy="true">
-                    <Skeleton width="60%" height={14} className="mb-2" />
-                    <Skeleton width="50%" height={12} className="mb-2" />
-                    <Skeleton width="100%" height={300} />
-                  </div>
-                ) : usersError ? (
-                  <div className="error" role="alert">
-                    {usersError.message || "Failed to load users"}
-                  </div>
-                ) : error ? (
-                  <div className="error" role="alert">
-                    {error}
-                  </div>
-                ) : !userIdForQuery ? (
-                  <div className="screen-center">No users found</div>
-                ) : (
-                  <ResponsiveContainer>
-                    <BarChart data={chartData} margin={{ top: 8, right: 16, bottom: 24, left: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={grid} />
-                      <XAxis dataKey="label" tick={{ fill: subtle, fontSize: 12 }} />
-                      <YAxis tick={{ fill: subtle, fontSize: 12 }} allowDecimals={false} />
-                      <Tooltip
-                        content={({ active, payload }) => {
-                          if (!active || !Array.isArray(payload) || payload.length === 0) return null;
-                          const row = payload?.[0]?.payload || {};
-                          const projectsCount = Number.isFinite(Number(row?.projectsCount)) ? Number(row.projectsCount) : 0;
+            <div className="card-content" style={{ height: 360 }}>
+              {isLoading ? (
+                <div aria-busy="true">
+                  <Skeleton width="60%" height={14} className="mb-2" />
+                  <Skeleton width="50%" height={12} className="mb-2" />
+                  <Skeleton width="100%" height={300} />
+                </div>
+              ) : error ? (
+                <div className="error" role="alert">
+                  {error}
+                </div>
+              ) : chartData.length === 0 ? (
+                <div className="screen-center">No data for selected range</div>
+              ) : (
+                <ResponsiveContainer>
+                  <BarChart data={chartData} margin={{ top: 8, right: 16, bottom: 24, left: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+                    <XAxis
+                      dataKey="userName"
+                      tick={{ fill: subtle, fontSize: 12 }}
+                      interval={0}
+                      angle={-20}
+                      textAnchor="end"
+                      height={56}
+                    />
+                    <YAxis tick={{ fill: subtle, fontSize: 12 }} allowDecimals={false} />
+                    <Tooltip
+                      content={({ active, payload }) => {
+                        if (!active || !Array.isArray(payload) || payload.length === 0) return null;
+                        const row = payload?.[0]?.payload || {};
+                        const userName = row?.userName || "Unknown user";
+                        const sessionsCount = Number(row?.sessionsCount || 0);
+                        const projectsCount = Number(row?.projectsCount || 0);
 
-                          return (
-                            <div
-                              style={{
-                                background: "#ffffff",
-                                border: "1px solid #E5E7EB",
-                                borderRadius: 8,
-                                padding: "10px 12px",
-                                boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-                                color: "#111827",
-                                fontSize: 12,
-                                lineHeight: 1.35,
-                              }}
-                            >
-                              <div style={{ fontWeight: 600, marginBottom: 6 }}>Filtered result</div>
-                              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                                <span style={{ color: "#6B7280" }}>Projects:</span>
-                                <span style={{ fontWeight: 600 }}>{projectsCount}</span>
-                              </div>
+                        return (
+                          <div
+                            style={{
+                              background: "#ffffff",
+                              border: "1px solid #E5E7EB",
+                              borderRadius: 8,
+                              padding: "10px 12px",
+                              boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+                              color: "#111827",
+                              fontSize: 12,
+                              lineHeight: 1.35,
+                              minWidth: 180,
+                            }}
+                          >
+                            <div style={{ fontWeight: 700, marginBottom: 6 }}>{userName}</div>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                              <span style={{ color: "#6B7280" }}>Sessions:</span>
+                              <span style={{ fontWeight: 700 }}>{sessionsCount}</span>
                             </div>
-                          );
-                        }}
-                      />
-                      <Legend />
-                      <Bar dataKey="projectsCount" name="Projects" fill={primary} stroke={primary} radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                              <span style={{ color: "#6B7280" }}>Projects:</span>
+                              <span style={{ fontWeight: 700 }}>{projectsCount}</span>
+                            </div>
+                          </div>
+                        );
+                      }}
+                    />
+                    <Legend />
+                    <Bar
+                      dataKey="sessionsCount"
+                      name="Sessions"
+                      fill={primary}
+                      stroke={primary}
+                      radius={[6, 6, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
         </div>
