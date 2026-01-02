@@ -81,3 +81,32 @@ export async function getUserSessionDetails(userId, params = {}) {
   );
   return data;
 }
+
+/**
+ * PUBLIC_INTERFACE
+ * getLlmCostsByOrganization
+ * Fetch LLM costs rows for an organization from the underscore endpoint:
+ *   GET /api/llm_costs?organization_id=...&page=...&limit=...
+ *
+ * Notes:
+ * - We pass organization_id when provided. If omitted, baseClient may still append
+ *   organization_id based on the active auth/org context.
+ * - Returns the raw response payload, expected to include a `llm_costs` collection/array.
+ *
+ * @param {Object} params
+ * @param {string} [params.organization_id] tenant/org id
+ * @param {number} [params.page] page number (default 1)
+ * @param {number} [params.limit] page size (default 10)
+ * @returns {Promise<any>}
+ */
+export async function getLlmCostsByOrganization({ organization_id, page = 1, limit = 10 } = {}) {
+  const api = getApiClient();
+  const { data } = await api.get('/api/llm_costs', {
+    params: {
+      ...(organization_id ? { organization_id } : {}),
+      page,
+      limit,
+    },
+  });
+  return data;
+}

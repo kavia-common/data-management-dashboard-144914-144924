@@ -8,7 +8,7 @@ import Modal from '../ui/Modal.jsx';
 import DataTable from '../DataTable.jsx';
 
 import { listSessions } from '../../api/baseClient';
-import { getUserSessionDetails } from '../../api/users';
+import { getLlmCostsByOrganization, getUserSessionDetails } from '../../api/users';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
@@ -470,17 +470,69 @@ export default function TabbedUserModal({
 
   // Credits Consumed Tab
   function CreditsConsumedTab({ userId }) {
-    /**
-     * This tab previously fetched LLM cost records to compute per-user spend.
-     * Per request, the LLM costs API call has been removed.
-     *
-     * We keep the tab functional and stable by rendering a graceful empty state
-     * (no spinner, no API error/retry) while preserving the rest of the modal.
-     */
-    const rows = useMemo(() => [], []);
+    const currentOrgId = useCurrentOrgId();
 
-    // With no backing API call, the total is deterministically 0.
-    const totalCost = 0;
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+    const [rows, setRows] = useState([]);
+    const [totalCost, setTotalCost] = useState(0);
+
+    // Prefer an explicit organization id from the selected user when present; otherwise fall back
+    // to the currently active org derived from auth/session context.
+    const effectiveOrgId = useMemo(() => {
+      return (
+        user?.organization_id ||
+        user?.tenant_id ||
+        user?.organizationId ||
+        user?.tenantId ||
+        currentOrgId ||
+        null
+      );
+    }, [currentOrgId]);
+
+    async function load() {
+      if (!userId) return;
+
+      setLoading(true);
+      setError('');
+
+      try {
+        const payload = await getLlmCostsByOrganization({
+          organization_id: effectiveOrgId || undefined,
+          page: 1,
+          limit: 10,
+        });
+
+        const llmCosts = Array.isArray(payload?.llm_costs)
+          ? payload.llm_costs
+          : Array.isArray(payload?.data)
+            ? payload.data
+            : [];
+
+        setRows(llmCosts);
+
+        // Requested: show organization_cost as the total user costs.
+        // If there are multiple rows, we sum them as a safe default.
+        const orgCostSum = llmCosts.reduce((acc, item) => {
+          const val = item?.organization_cost;
+          const num = typeof val === 'number' ? val : Number(val);
+          return Number.isFinite(num) ? acc + num : acc;
+        }, 0);
+
+        setTotalCost(orgCostSum);
+      } catch (e) {
+        setRows([]);
+        setTotalCost(0);
+        setError(e?.message || 'Failed to load credits consumed.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    useEffect(() => {
+      load();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId, effectiveOrgId]);
 
     return (
       <div data-testid="credits-consumed-tab">
@@ -506,21 +558,37 @@ export default function TabbedUserModal({
             Total Cost
           </div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>
-            {formatUsdUpToSixDecimals(totalCost)}
+            {loading ? 'Loading…' : formatUsdUpToSixDecimals(totalCost)}
           </div>
         </div>
 
-        {/* Keep a predictable UI with no dependency on removed LLM costs data */}
-        {userId ? (
-          <div className="table-empty">
-            Credits consumed details are currently unavailable.
+        {loading ? (
+          <div
+            role="status"
+            aria-live="polite"
+            style={{ minHeight: 120, display: 'grid', placeItems: 'center' }}
+          >
+            Loading credits consumed…
           </div>
-        ) : (
+        ) : error ? (
+          <div>
+            <div role="alert" className="error">
+              {error}
+            </div>
+            <button
+              type="button"
+              onClick={load}
+              className="btn btn-ghost"
+              style={{ height: 28, padding: '2px 8px' }}
+            >
+              Retry
+            </button>
+          </div>
+        ) : !userId ? (
           <div className="table-empty">No user selected.</div>
-        )}
-
-        {/* Preserve DataTable import usage pattern (if future data source is reintroduced) */}
-        {Array.isArray(rows) && rows.length > 0 ? (
+        ) : rows.length === 0 ? (
+          <div className="table-empty">No credits consumed records found.</div>
+        ) : (
           <DataTable
             data={rows}
             loading={false}
@@ -530,7 +598,7 @@ export default function TabbedUserModal({
             maxBodyHeight={360}
             forceHorizontalScroll
           />
-        ) : null}
+        )}
       </div>
     );
   }
