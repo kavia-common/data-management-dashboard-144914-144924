@@ -3,6 +3,10 @@ import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import { listLlmCostsUnderscore } from "../../api";
+import {
+  buildUserIdToNameMap,
+  resolveUserDisplayNameForRecord,
+} from "../../utils/userDisplay";
 
 /* =========================
    Formatters
@@ -58,6 +62,9 @@ export default function Costs() {
   const [limit, setLimit] = useState(initialLimit);
   const [total, setTotal] = useState(0);
 
+  // Cache: id -> display name. Built from embedded rows + /api/users.
+  const [userIdToName, setUserIdToName] = useState({});
+
   // Track in-flight request for cancellation to avoid race conditions
   const abortRef = useRef(null);
 
@@ -81,43 +88,42 @@ export default function Costs() {
      Table Columns
   ========================= */
 
-  const columns = useMemo(() => [
-    {
-      key: "organization_name",
-      label: "Organization",
-      priority: 1,
-      render: (v) => (
-        <span className="td--emphasis-name">
-          {v || "—"}
-        </span>
-      ),
-    },
-    {
-      key: "organization_cost",
-      label: "Org Cost",
-      className: "num",
-      render: (v) => (
-        <span className="amount-positive">
-          {formatCurrencyUSD(v)}
-        </span>
-      ),
-    },
-    {
-      key: "user_name",
-      label: "User",
-      render: (v) =>
-        v ? v : <span className="muted">Unknown User</span>,
-    },
-    {
-      key: "user_cost",
-      label: "User Cost",
-      className: "num",
-      render: (v) => (
-        <span className="amount-positive">
-          {formatCurrencyUSD(v)}
-        </span>
-      ),
-    },
+  const itemsWithUserDisplay = useMemo(() => {
+    return (Array.isArray(items) ? items : []).map((row) => ({
+      ...row,
+      __userDisplayName: resolveUserDisplayNameForRecord(row, userIdToName),
+    }));
+  }, [items, userIdToName]);
+
+  const columns = useMemo(
+    () => [
+      {
+        key: "organization_name",
+        label: "Organization",
+        priority: 1,
+        render: (v) => <span className="td--emphasis-name">{v || "—"}</span>,
+      },
+      {
+        key: "organization_cost",
+        label: "Org Cost",
+        className: "num",
+        render: (v) => (
+          <span className="amount-positive">{formatCurrencyUSD(v)}</span>
+        ),
+      },
+      {
+        key: "__userDisplayName",
+        label: "User",
+        render: (v) => (v ? v : <span className="muted">Unknown User</span>),
+      },
+      {
+        key: "user_cost",
+        label: "User Cost",
+        className: "num",
+        render: (v) => (
+          <span className="amount-positive">{formatCurrencyUSD(v)}</span>
+        ),
+      },
     // New Agents column from backend response (agents: string[])
     {
       key: "agents",
@@ -131,7 +137,7 @@ export default function Costs() {
             className="btn btn-link btn-sm"
             onClick={() =>
               openInspector(
-                `Agents used by ${row.user_name || "User"}`,
+                `Agents used by ${row.__userDisplayName || row.user_name || "User"}`,
                 names
               )
             }
@@ -210,13 +216,25 @@ export default function Costs() {
     }
 
     try {
-      const res = await listLlmCostsUnderscore(params, { signal: controller.signal });
+      const res = await listLlmCostsUnderscore(params, {
+        signal: controller.signal,
+      });
       const rows = Array.isArray(res?.items) ? res.items : [];
 
       setItems(rows);
       setTotal(typeof res?.total === "number" ? res.total : rows.length);
       setPage(nextPage);
       setLimit(nextLimit);
+
+      // Best-effort: build an id->name map using embedded fields + /api/users
+      try {
+        const map = await buildUserIdToNameMap(rows, {
+          signal: controller.signal,
+        });
+        setUserIdToName(map);
+      } catch {
+        // non-fatal; fallbacks will apply
+      }
     } catch (e) {
       // Swallow abort errors
       if (e?.name === "AbortError") return;
@@ -364,7 +382,7 @@ export default function Costs() {
         ) : (
           <DataTable
             columns={columns}
-            data={items}
+            data={itemsWithUserDisplay}
             loading={loading}
             pageSize={limit}
             initialPage={page}
