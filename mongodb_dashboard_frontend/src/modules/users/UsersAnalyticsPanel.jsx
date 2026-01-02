@@ -157,7 +157,6 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     let cancelled = false;
 
     async function loadSessionsAgg() {
-      // Requirement: do not call backend endpoints without from/to.
       if (!debouncedTenantId || !debouncedStartISO || !debouncedEndISO) {
         setSessionsByUser(new Map());
         return;
@@ -169,14 +168,10 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       const seq = ++sessionsReqSeq.current;
 
       try {
-        /**
-         * Single call to /api/session-tracking with from/to forwarded to backend.
-         * We still aggregate per-user client-side to avoid N-per-user loops.
-         */
+        // Use a single call to /api/session-tracking and aggregate client-side by user_id.
+        // NOTE: baseClient enforces tenant_id query param; we still pass tenant_id explicitly to be clear.
         const { items } = await fetchSessionTracking({
           tenant_id: debouncedTenantId,
-          from: debouncedStartISO,
-          to: debouncedEndISO,
           page: 1,
           limit: 5000,
           sort: "-last_updated",
@@ -184,10 +179,20 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
         if (cancelled || seq !== sessionsReqSeq.current) return;
 
+        const fromMs = new Date(debouncedStartISO).getTime();
+        const toMs = new Date(debouncedEndISO).getTime();
+
         const counts = new Map();
         for (const s of Array.isArray(items) ? items : []) {
           const uid = String(s?.user_id ?? s?.user?.id ?? s?.user ?? "");
           if (!uid) continue;
+
+          // Apply date range consistently on the frontend since fetchSessionTracking no longer forwards filters.
+          const tsRaw = s?.last_updated || s?.session_start || s?.created_at || s?.timestamp;
+          if (!tsRaw) continue;
+          const ts = new Date(tsRaw).getTime();
+          if (!Number.isFinite(ts) || ts < fromMs || ts > toMs) continue;
+
           counts.set(uid, (counts.get(uid) || 0) + 1);
         }
 
@@ -211,7 +216,6 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     let cancelled = false;
 
     async function loadProjectsAgg() {
-      // Requirement: do not call backend endpoints without from/to.
       if (!debouncedTenantId || !debouncedStartISO || !debouncedEndISO) {
         setProjectsByUser(new Map());
         return;
@@ -223,16 +227,12 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       const seq = ++projectsReqSeq.current;
 
       try {
-        /**
-         * Single call to /api/session-tracking with from/to forwarded to backend,
-         * then compute distinct project count per user client-side.
-         * (Still a single call; no per-user loops.)
-         */
+        // Single request to session-tracking (via baseClient) but fetch enough items to compute distinct projects per user.
+        // We intentionally use baseClient directly here so we can pass from/to in the URL if backend supports it later;
+        // for now we apply range client-side the same way as sessions aggregation.
         const res = await getApiClient().get("/api/session-tracking", {
           params: {
             tenant_id: debouncedTenantId,
-            from: debouncedStartISO,
-            to: debouncedEndISO,
             page: 1,
             limit: 5000,
             sort: "-last_updated",
@@ -242,12 +242,19 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
         if (cancelled || seq !== projectsReqSeq.current) return;
 
         const items = Array.isArray(res?.data) ? res.data : res?.data?.data ?? [];
+        const fromMs = new Date(debouncedStartISO).getTime();
+        const toMs = new Date(debouncedEndISO).getTime();
 
         // userId -> Set(projectId)
         const perUserProjects = new Map();
         for (const s of Array.isArray(items) ? items : []) {
           const uid = String(s?.user_id ?? s?.user?.id ?? s?.user ?? "");
           if (!uid) continue;
+
+          const tsRaw = s?.last_updated || s?.session_start || s?.created_at || s?.timestamp;
+          if (!tsRaw) continue;
+          const ts = new Date(tsRaw).getTime();
+          if (!Number.isFinite(ts) || ts < fromMs || ts > toMs) continue;
 
           const pid = s?.project_id ?? s?.projectId ?? s?.project?.id;
           if (!pid) continue;

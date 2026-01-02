@@ -84,15 +84,7 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
   }
 
   if (isSessionTrackingRoot(pathOrUrl)) {
-    /**
-     * Session tracking supports tenant_id + pagination/sort + optional q.
-     * Users Analytics also needs server-side time filtering, so we MUST allow
-     * `from` and `to` to pass through (ISO date-time strings).
-     *
-     * We still strip:
-     * - organization_id: for this endpoint tenant scoping is via tenant_id
-     * - filter: backend ignores/doesn't apply complex filter objects here
-     */
+    // Remove any organization_id remnants and 'filter' for session-tracking as backend ignores it now.
     const { organization_id, filter, ...rest } = params || {};
     return rest || {};
   }
