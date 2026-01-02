@@ -5,8 +5,10 @@ import PropTypes from 'prop-types';
 import Modal from '../ui/Modal.jsx';
 
 // Shared components/utilities
+import DataTable from '../DataTable.jsx';
+
 import { listSessions } from '../../api/baseClient';
-import { getLlmCostsByOrganization, getUserSessionDetails } from '../../api/users';
+import { getUserSessionDetails } from '../../api/users';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
@@ -468,96 +470,21 @@ export default function TabbedUserModal({
 
   // Credits Consumed Tab
   function CreditsConsumedTab({ userId }) {
-    const currentOrgId = useCurrentOrgId();
+    /**
+     * This tab previously fetched LLM cost records to compute per-user spend.
+     * Per request, the LLM costs API call has been removed.
+     *
+     * We keep the tab functional and stable by rendering a graceful empty state
+     * (no spinner, no API error/retry) while preserving the rest of the modal.
+     */
+    const rows = useMemo(() => [], []);
 
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
-    const [hasLoaded, setHasLoaded] = useState(false);
-    const [totalCost, setTotalCost] = useState(null);
-
-    // Prefer an explicit organization id from the selected user when present; otherwise fall back
-    // to the currently active org derived from auth/session context.
-    const effectiveOrgId = useMemo(() => {
-      return (
-        user?.organization_id ||
-        user?.tenant_id ||
-        user?.organizationId ||
-        user?.tenantId ||
-        currentOrgId ||
-        null
-      );
-    }, [currentOrgId]);
-
-    function parseOrgCost(value) {
-      if (value == null) return null;
-      if (typeof value === 'number' && Number.isFinite(value)) return value;
-      if (typeof value === 'string') {
-        const cleaned = value.replace(/\$/g, '').replace(/,/g, '').trim();
-        const num = Number(cleaned);
-        return Number.isFinite(num) ? num : null;
-      }
-      const num = Number(value);
-      return Number.isFinite(num) ? num : null;
-    }
-
-    async function load() {
-      // Credits consumed is organization-scoped; userId is not required to load.
-      if (!effectiveOrgId) return;
-
-      setLoading(true);
-      setError('');
-
-      try {
-        const payload = await getLlmCostsByOrganization({
-          organization_id: effectiveOrgId || undefined,
-          page: 1,
-          limit: 10,
-        });
-
-        const llmCosts = Array.isArray(payload?.llm_costs)
-          ? payload.llm_costs
-          : Array.isArray(payload?.data)
-            ? payload.data
-            : [];
-
-        // Requested: show organization_cost as "Total Cost".
-        // /api/llm_costs typically returns one row per org with organization_cost already aggregated.
-        // When multiple rows appear (pagination/duplication), pick the first non-null/non-zero value,
-        // otherwise fall back to the max value to avoid accidental double counting.
-        const parsedValues = llmCosts
-          .map((item) => parseOrgCost(item?.organization_cost))
-          .filter((v) => v != null);
-
-        const firstNonZero = parsedValues.find((v) => v > 0);
-        const maxVal = parsedValues.length ? Math.max(...parsedValues) : null;
-        setTotalCost(firstNonZero ?? maxVal);
-      } catch (e) {
-        setTotalCost(null);
-        setError(e?.message || 'Failed to load credits consumed.');
-      } finally {
-        setHasLoaded(true);
-        setLoading(false);
-      }
-    }
-
-    useEffect(() => {
-      // Clear any stale values when switching org context.
-      setTotalCost(null);
-      setError('');
-      setHasLoaded(false);
-
-      load();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [effectiveOrgId]);
-
-    const formattedTotalCost =
-      typeof totalCost === 'number' && Number.isFinite(totalCost)
-        ? formatUsdUpToSixDecimals(totalCost)
-        : '—';
+    // With no backing API call, the total is deterministically 0.
+    const totalCost = 0;
 
     return (
       <div data-testid="credits-consumed-tab">
-        {/* Summary header (keep visible even when loading/error) */}
+        {/* Summary header */}
         <div
           className="card"
           style={{
@@ -579,49 +506,31 @@ export default function TabbedUserModal({
             Total Cost
           </div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>
-            {loading ? 'Loading…' : formattedTotalCost}
+            {formatUsdUpToSixDecimals(totalCost)}
           </div>
-          {/* Small context line to reduce confusion when no org is available */}
-          {!effectiveOrgId && (
-            <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary,#475569)' }}>
-              Select an organization to view credits consumed.
-            </div>
-          )}
         </div>
 
-        {/* Beneath the Total Cost card: keep only loading/error/empty messaging; do NOT render any table/list */}
-        {loading ? (
-          <div
-            role="status"
-            aria-live="polite"
-            style={{ minHeight: 80, display: 'grid', placeItems: 'center' }}
-          >
-            Loading credits consumed…
+        {/* Keep a predictable UI with no dependency on removed LLM costs data */}
+        {userId ? (
+          <div className="table-empty">
+            Credits consumed details are currently unavailable.
           </div>
-        ) : error ? (
-          <div>
-            <div role="alert" className="error">
-              {error}
-            </div>
-            <button
-              type="button"
-              onClick={load}
-              className="btn btn-ghost"
-              style={{ height: 28, padding: '2px 8px' }}
-            >
-              Retry
-            </button>
-          </div>
-        ) : !effectiveOrgId ? (
-          <div className="table-empty">No organization selected.</div>
-        ) : hasLoaded && totalCost == null ? (
-          <div className="table-empty">No credits consumed records found.</div>
+        ) : (
+          <div className="table-empty">No user selected.</div>
+        )}
+
+        {/* Preserve DataTable import usage pattern (if future data source is reintroduced) */}
+        {Array.isArray(rows) && rows.length > 0 ? (
+          <DataTable
+            data={rows}
+            loading={false}
+            pageSize={10}
+            initialPage={1}
+            paginationTitle="Costs pages"
+            maxBodyHeight={360}
+            forceHorizontalScroll
+          />
         ) : null}
-
-        {/* Keep userId referenced so prop remains meaningful for future enhancements (user-scoped drilldown). */}
-        <div style={{ display: 'none' }} aria-hidden="true">
-          {userId}
-        </div>
       </div>
     );
   }
