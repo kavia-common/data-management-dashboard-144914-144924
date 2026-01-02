@@ -8,6 +8,7 @@ import Modal from '../ui/Modal.jsx';
 import DataTable from '../DataTable.jsx';
 
 import { listSessions, listLlmCosts } from '../../api/baseClient';
+import { getUserSessionDetails } from '../../api/users';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
 import ProjectDetails from './ProjectDetails.jsx';
@@ -246,76 +247,22 @@ export default function TabbedUserModal({
 
   // Session Details Tab
   function SessionDetailsTab({ userId }) {
-    const [items, setItems] = useState([]);
+    const [sessionDetails, setSessionDetails] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [serviceTypes, setServiceTypes] = useState([]);
-
-    // Helpers: safe getters and formatting for aggregation panel
-    const toStringSafe = (v) => (v === null || v === undefined ? '' : String(v));
-
-    // Attempt to parse ISO8601 duration like PT1H2M3S -> seconds
-    const parseIsoDurationToSeconds = (txt) => {
-      try {
-        if (typeof txt !== 'string') return null;
-        const m = txt.match(/^P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/i);
-        if (!m) return null;
-        const days = Number(m[1] || 0);
-        const hours = Number(m[2] || 0);
-        const minutes = Number(m[3] || 0);
-        const seconds = Number(m[4] || 0);
-        return days + hours * 3600 + minutes * 60 + seconds;
-      } catch {
-        return null;
-      }
-    };
-
-    const formatSecondsHHMMSS = (totalSeconds) => {
-      if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return '—';
-      const sec = Math.floor(totalSeconds);
-      const h = Math.floor(sec / 3600);
-      const m = Math.floor((sec % 3600) / 60);
-      const s = sec % 60;
-      const pad = (n) => String(n).padStart(2, '0');
-      return `${pad(h)}:${pad(m)}:${pad(s)}`;
-    };
 
     async function load() {
       if (!userId) return;
+
       setLoading(true);
       setError('');
-      try {
-        const res = await listSessions({ page: 1, limit: 100, sort: '-last_updated' });
-        const arr = Array.isArray(res?.items) ? res.items : [];
-        const normalizedUserId = String(userId);
-        const filtered = arr.filter((row) => {
-          const uid =
-            row?.user_id ??
-            row?.userId ??
-            row?.user?.id ??
-            row?.user?._id ??
-            row?.user?._source?.id ??
-            row?.user?.user_id;
-          return uid && String(uid) === normalizedUserId;
-        });
-        setItems(filtered);
 
-        // compute distinct service types across filtered sessions
-        const stSet = new Set();
-        for (const it of filtered) {
-          const st =
-            it?.service_type ??
-            it?.serviceType ??
-            it?.session_data?.service_type ??
-            it?.session?.service_type ??
-            it?.metadata?.service_type;
-          const val = (st == null ? '' : String(st)).trim();
-          if (val) stSet.add(val);
-        }
-        setServiceTypes(Array.from(stSet));
+      try {
+        const data = await getUserSessionDetails(userId);
+        setSessionDetails(data || null);
       } catch (e) {
-        setItems([]);
-        setError(e?.message || 'Failed to load sessions.');
+        setSessionDetails(null);
+        setError(e?.message || 'Failed to load session details.');
       } finally {
         setLoading(false);
       }
@@ -326,158 +273,38 @@ export default function TabbedUserModal({
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId]);
 
-    // Aggregation logic
-    const aggregate = React.useMemo(() => {
-      if (!items || items.length === 0) return null;
-
-      const first = items[0] || {};
-
-      const userName =
-        first?.user_name ??
-        first?.User_name ??
-        first?.user?.name ??
-        first?.user?.full_name ??
-        first?.user?.email ??
-        '';
-
-      // Agents aggregation
-      let agentsList = [];
-      const normalizeAgentName = (a) => {
-        if (!a) return null;
-        if (typeof a === 'string') return a;
-        if (typeof a === 'object') {
-          return (
-            a.name ||
-            a.agent_name ||
-            a.agentName ||
-            a.displayName ||
-            a.username ||
-            a.user_name ||
-            null
-          );
-        }
-        return null;
-      };
-      items.forEach((it) => {
-        const agents = it?.agents ?? it?.session_data?.agents ?? [];
-        if (Array.isArray(agents)) {
-          agents.forEach((a) => {
-            const nm = normalizeAgentName(a);
-            if (nm) agentsList.push(nm);
-          });
-        } else if (agents && typeof agents === 'object') {
-          Object.values(agents).forEach((a) => {
-            const nm = normalizeAgentName(a);
-            if (nm) agentsList.push(nm);
-          });
-        }
-      });
-      const seen = new Set();
-      agentsList = agentsList.filter((n) => {
-        const k = (n == null ? '' : String(n)).trim();
-        if (!k) return false;
-        if (seen.has(k)) return false;
-        seen.add(k);
-        return true;
-      });
-
-      // service_type and organization_name from first
-      const serviceType = first?.service_type ?? first?.serviceType ?? first?.session_data?.service_type ?? '';
-      const organizationName =
-        first?.organization_name ??
-        first?.tenant_name ??
-        first?.organization ??
-        first?.org_name ??
-        '';
-
-      // Sessions count
-      let sessionsCount = 0;
-      const breakdownFromFirst = first?.session_breakdown;
-      if (Array.isArray(breakdownFromFirst)) {
-        sessionsCount = breakdownFromFirst.length;
-      } else if (breakdownFromFirst && typeof breakdownFromFirst === 'object' && typeof breakdownFromFirst.count === 'number') {
-        sessionsCount = breakdownFromFirst.count;
-      } else {
-        sessionsCount = items.length;
-      }
-
-      // Total duration
-      let totalSeconds = 0;
-      const addDurationSeconds = (sec) => {
-        if (Number.isFinite(sec) && sec > 0) totalSeconds += sec;
-      };
-      const tryExtractSeconds = (obj) => {
-        if (!obj || typeof obj !== 'object') return 0;
-        if (Number.isFinite(Number(obj.duration_seconds))) return Number(obj.duration_seconds);
-        if (Number.isFinite(Number(obj.duration_sec))) return Number(obj.duration_sec);
-        if (Number.isFinite(Number(obj.duration_ms))) return Number(obj.duration_ms) / 1000;
-        if (Number.isFinite(Number(obj.time_ms))) return Number(obj.time_ms) / 1000;
-        if (Number.isFinite(Number(obj.elapsed_ms))) return Number(obj.elapsed_ms) / 1000;
-        if (Number.isFinite(Number(obj.latency_ms))) return Number(obj.latency_ms) / 1000;
-        if (Number.isFinite(Number(obj.time_s))) return Number(obj.time_s);
-        if (Number.isFinite(Number(obj.elapsed_s))) return Number(obj.elapsed_s);
-        if (Number.isFinite(Number(obj.latency_s))) return Number(obj.latency_s);
-        if (typeof obj.duration === 'string') {
-          const secs = parseIsoDurationToSeconds(obj.duration);
-          if (Number.isFinite(secs)) return secs;
-        }
-        if (Number.isFinite(Number(obj.duration))) return Number(obj.duration);
-        return 0;
-      };
-      items.forEach((it) => {
-        const bd = it?.session_breakdown ?? it?.breakdown ?? [];
-        if (Array.isArray(bd)) {
-          bd.forEach((step) => addDurationSeconds(tryExtractSeconds(step)));
-        } else if (bd && typeof bd === "object") {
-          Object.values(bd).forEach((step) => addDurationSeconds(tryExtractSeconds(step)));
-        }
-      });
-
-      // Total cost
-      let currencyHint = first?.currency || first?.cost_currency || 'USD';
-      let totalCost = 0;
-      if (Number.isFinite(Number(first?.total_cost))) {
-        totalCost = Number(first.total_cost);
-      } else {
-        items.forEach((it) => {
-          const raw = it?.total_cost ?? it?.cost ?? it?.amount ?? it?.session_data?.total_cost;
-          const num = typeof raw === 'number' ? raw : Number(String(raw ?? '').replace(/[$,]/g, ''));
-          if (Number.isFinite(num)) totalCost += num;
-          if (!currencyHint) currencyHint = it?.currency || it?.cost_currency || currencyHint;
-        });
-      }
-
-      return {
-        userName: userName || '',
-        agents: agentsList,
-        serviceType: serviceType || '',
-        organizationName: organizationName || '',
-        sessionsCount,
-        totalSeconds,
-        totalCost,
-        currency: currencyHint || 'USD',
-      };
-    }, [items, user]);
-
     const AggregatesPanel = () => {
       if (loading) {
         return (
-          <div role="status" aria-live="polite" style={{ minHeight: 120, display: 'grid', placeItems: 'center' }}>
-            Loading sessions...
+          <div
+            role="status"
+            aria-live="polite"
+            style={{ minHeight: 120, display: 'grid', placeItems: 'center' }}
+          >
+            Loading session details...
           </div>
         );
       }
+
       if (error) {
         return (
           <div>
-            <div role="alert" className="error">{error}</div>
-            <button type="button" onClick={load} className="btn btn-ghost" style={{ height: 28, padding: '2px 8px' }}>
+            <div role="alert" className="error">
+              {error}
+            </div>
+            <button
+              type="button"
+              onClick={load}
+              className="btn btn-ghost"
+              style={{ height: 28, padding: '2px 8px' }}
+            >
               Retry
             </button>
           </div>
         );
       }
-      if (!aggregate) {
+
+      if (!sessionDetails) {
         return (
           <div
             style={{
@@ -495,8 +322,20 @@ export default function TabbedUserModal({
         );
       }
 
-      const valueStyle = { margin: 0, color: 'var(--text-primary, #111827)', fontWeight: 600, wordBreak: 'break-word' };
-      const labelStyle = { display: 'block', fontSize: 12, fontWeight: 700, color: 'var(--text-tertiary, #64748B)', letterSpacing: '.02em', marginBottom: 6 };
+      const valueStyle = {
+        margin: 0,
+        color: 'var(--text-primary, #111827)',
+        fontWeight: 600,
+        wordBreak: 'break-word',
+      };
+      const labelStyle = {
+        display: 'block',
+        fontSize: 12,
+        fontWeight: 700,
+        color: 'var(--text-tertiary, #64748B)',
+        letterSpacing: '.02em',
+        marginBottom: 6,
+      };
 
       const cardStyle = {
         background: 'var(--bg-surface, #ffffff)',
@@ -507,29 +346,35 @@ export default function TabbedUserModal({
         marginBottom: 12,
       };
 
-      const agentsText = aggregate.agents && aggregate.agents.length > 0 ? aggregate.agents.join(', ') : '—';
-      const totalDurationText = formatSecondsHHMMSS(aggregate.totalSeconds);
+      // Bind new backend fields (requested):
+      //  - Number of Sessions -> total_count
+      //  - Total Duration -> total_duration
+      const totalCount =
+        sessionDetails?.total_count ??
+        sessionDetails?.totalCount ??
+        sessionDetails?.total_sessions;
 
-      const toCurrency = (n, currency) => {
-        const num = Number(n);
-        if (!Number.isFinite(num)) return '—';
-        try {
-          if (String(currency || 'USD').toUpperCase() === 'USD') {
-            return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num);
-          }
-          return `${num.toFixed(2)} ${currency || ''}`.trim();
-        } catch {
-          return `$${num.toFixed(2)}`;
-        }
-      };
+      const totalDuration =
+        sessionDetails?.total_duration ??
+        sessionDetails?.totalDuration ??
+        sessionDetails?.duration_total;
 
       return (
         <section aria-label="Aggregated session details" style={cardStyle}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 16 }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              gap: 16,
+            }}
+          >
             <div>
               <span style={labelStyle}>User name</span>
-              <div style={valueStyle} title={aggregate.userName || undefined}>
-                {aggregate.userName || ((user?.name || user?.full_name || user?.email) ?? '—')}
+              <div
+                style={valueStyle}
+                title={(user?.name || user?.full_name || user?.email) || undefined}
+              >
+                {(user?.name || user?.full_name || user?.email) ?? '—'}
               </div>
             </div>
 
@@ -540,49 +385,44 @@ export default function TabbedUserModal({
               </div>
             </div>
 
+            {/* Kept for visual consistency; backend response doesn't provide this in the new contract */}
             <div>
               <span style={labelStyle}>Agents used</span>
-              <div style={valueStyle} title={agentsText !== '—' ? agentsText : undefined}>
-                {agentsText}
-              </div>
+              <div style={valueStyle}>—</div>
             </div>
 
+            {/* Kept for visual consistency; backend response doesn't provide this in the new contract */}
             <div>
               <span style={labelStyle}>Service type</span>
-              <div style={valueStyle} title={(serviceTypes && serviceTypes.length > 0) ? serviceTypes.join(', ') : (aggregate.serviceType || undefined)}>
-                {serviceTypes && serviceTypes.length > 0
-                  ? serviceTypes.join(', ')
-                  : (aggregate.serviceType || '—')}
-              </div>
+              <div style={valueStyle}>—</div>
             </div>
 
-
+            {/* Kept for visual consistency; backend response doesn't provide this in the new contract */}
             <div>
               <span style={labelStyle}>Organization</span>
-              <div style={valueStyle} title={aggregate.organizationName || undefined}>
-                {aggregate.organizationName || '—'}
-              </div>
+              <div style={valueStyle}>—</div>
             </div>
 
             <div>
               <span style={labelStyle}>Number of sessions</span>
               <div style={valueStyle}>
-                {Number.isFinite(aggregate.sessionsCount) ? aggregate.sessionsCount : '—'}
+                {Number.isFinite(Number(totalCount)) ? Number(totalCount) : '—'}
               </div>
             </div>
 
             <div>
               <span style={labelStyle}>Total Duration</span>
-              <div style={valueStyle} title={aggregate.totalSeconds ? `${aggregate.totalSeconds.toFixed(0)} seconds` : undefined}>
-                {totalDurationText}
+              <div style={valueStyle} title={totalDuration != null ? String(totalDuration) : undefined}>
+                {totalDuration != null && String(totalDuration).trim() !== ''
+                  ? String(totalDuration)
+                  : '—'}
               </div>
             </div>
 
+            {/* Kept for visual consistency with existing grid; cost is shown in Credits tab */}
             <div>
               <span style={labelStyle}>Total Cost consumed</span>
-              <div style={valueStyle}>
-                {toCurrency(aggregate.totalCost, aggregate.currency)}
-              </div>
+              <div style={valueStyle}>—</div>
             </div>
           </div>
         </section>
@@ -592,21 +432,6 @@ export default function TabbedUserModal({
     return (
       <div data-testid="session-details-tab">
         <AggregatesPanel />
-        {!loading && !error && (!Array.isArray(items) || items.length === 0) ? (
-          <div
-            style={{
-              background: 'transparent',
-              color: '#ffffff',
-              border: 'none',
-              boxShadow: 'none',
-              textAlign: 'center',
-              padding: 12,
-              borderRadius: 8,
-            }}
-          >
-            No session details found for this user.
-          </div>
-        ) : null}
       </div>
     );
   }

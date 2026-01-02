@@ -55,3 +55,29 @@ export async function getUserProjects(userId, params = {}) {
   });
   return data;
 }
+
+/**
+ * PUBLIC_INTERFACE
+ * getUserSessionDetails
+ * Fetch aggregated session details for a given user.
+ *
+ * Backend endpoint:
+ *   GET /api/users/:userId/session-details
+ *
+ * Expected response fields (used by UI):
+ *   - total_count: number
+ *   - total_duration: string|number
+ *
+ * @param {string} userId
+ * @param {Object} [params] optional query params
+ * @returns {Promise<any>}
+ */
+export async function getUserSessionDetails(userId, params = {}) {
+  if (!userId) throw new Error('userId is required');
+  const api = getApiClient();
+  const { data } = await api.get(
+    `/api/users/${encodeURIComponent(userId)}/session-details`,
+    { params }
+  );
+  return data;
+}
