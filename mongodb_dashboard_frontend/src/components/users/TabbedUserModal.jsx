@@ -7,7 +7,7 @@ import Modal from '../ui/Modal.jsx';
 // Shared components/utilities
 import DataTable from '../DataTable.jsx';
 
-import { listSessions, listLlmCosts } from '../../api/baseClient';
+import { listSessions } from '../../api/baseClient';
 import { getUserSessionDetails } from '../../api/users';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
@@ -412,10 +412,7 @@ export default function TabbedUserModal({
             </div>
 
             {/* Kept for visual consistency; backend response doesn't provide this in the contract */}
-            <div>
-              <span style={labelStyle}>Agents used</span>
-              <div style={valueStyle}>—</div>
-            </div>
+         
 
             <div>
               <span style={labelStyle}>Service Type</span>
@@ -473,49 +470,17 @@ export default function TabbedUserModal({
 
   // Credits Consumed Tab
   function CreditsConsumedTab({ userId }) {
-    const [rows, setRows] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState('');
+    /**
+     * This tab previously fetched LLM cost records to compute per-user spend.
+     * Per request, the LLM costs API call has been removed.
+     *
+     * We keep the tab functional and stable by rendering a graceful empty state
+     * (no spinner, no API error/retry) while preserving the rest of the modal.
+     */
+    const rows = useMemo(() => [], []);
 
-    async function load() {
-      if (!userId) return;
-      setLoading(true);
-      setError('');
-      try {
-        const res = await listLlmCosts({ page: 1, limit: 100, sort: '-timestamp' });
-        let items = Array.isArray(res?.items) ? res.items : [];
-        const normalizedUserId = String(userId);
-        items = items.filter((row) => {
-          const uid =
-            row?.user_id ??
-            row?.userId ??
-            row?.user?.id ??
-            row?.user?._id ??
-            row?.user?.user_id;
-          return uid && String(uid) === normalizedUserId;
-        });
-        setRows(items);
-      } catch (e) {
-        setRows([]);
-        setError(e?.message || 'Failed to load credits consumed.');
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    useEffect(() => {
-      load();
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [userId]);
-
-    // compute total cost
-    const totalCost = useMemo(() => {
-      return (rows || []).reduce((acc, r) => {
-        const raw = r?.running_total ?? r?.total_cost ?? r?.cost ?? r?.amount ?? 0;
-        const num = typeof raw === 'number' ? raw : Number(String(raw).replace(/[$,]/g, ''));
-        return acc + (Number.isFinite(num) ? num : 0);
-      }, 0);
-    }, [rows]);
+    // With no backing API call, the total is deterministically 0.
+    const totalCost = 0;
 
     return (
       <div data-testid="credits-consumed-tab">
@@ -530,7 +495,14 @@ export default function TabbedUserModal({
             borderRadius: 10,
           }}
         >
-          <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)', fontWeight: 700, letterSpacing: '.02em' }}>
+          <div
+            style={{
+              fontSize: 12,
+              color: 'var(--text-tertiary,#64748B)',
+              fontWeight: 700,
+              letterSpacing: '.02em',
+            }}
+          >
             Total Cost
           </div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>
@@ -538,32 +510,27 @@ export default function TabbedUserModal({
           </div>
         </div>
 
-        {loading && (
-          <div role="status" aria-live="polite" style={{ minHeight: 160, display: 'grid', placeItems: 'center' }}>
-            Loading credits...
+        {/* Keep a predictable UI with no dependency on removed LLM costs data */}
+        {userId ? (
+          <div className="table-empty">
+            Credits consumed details are currently unavailable.
           </div>
+        ) : (
+          <div className="table-empty">No user selected.</div>
         )}
-        {!loading && error && (
-          <div>
-            <div role="alert" className="error">{error}</div>
-            <button type="button" onClick={load} className="btn btn-ghost">Retry</button>
-          </div>
-        )}
-        {!loading && !error && (
-          Array.isArray(rows) && rows.length > 0 ? (
-            <DataTable
-              data={rows || []}
-              loading={false}
-              pageSize={10}
-              initialPage={1}
-              paginationTitle="Costs pages"
-              maxBodyHeight={360}
-              forceHorizontalScroll
-            />
-          ) : (
-            <div className="table-empty">No cost records found for this user.</div>
-          )
-        )}
+
+        {/* Preserve DataTable import usage pattern (if future data source is reintroduced) */}
+        {Array.isArray(rows) && rows.length > 0 ? (
+          <DataTable
+            data={rows}
+            loading={false}
+            pageSize={10}
+            initialPage={1}
+            paginationTitle="Costs pages"
+            maxBodyHeight={360}
+            forceHorizontalScroll
+          />
+        ) : null}
       </div>
     );
   }
