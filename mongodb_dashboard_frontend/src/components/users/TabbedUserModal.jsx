@@ -5,8 +5,6 @@ import PropTypes from 'prop-types';
 import Modal from '../ui/Modal.jsx';
 
 // Shared components/utilities
-import DataTable from '../DataTable.jsx';
-
 import { listSessions } from '../../api/baseClient';
 import { getLlmCostsByOrganization, getUserSessionDetails } from '../../api/users';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
@@ -474,7 +472,7 @@ export default function TabbedUserModal({
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [rows, setRows] = useState([]);
+    const [hasLoaded, setHasLoaded] = useState(false);
     const [totalCost, setTotalCost] = useState(null);
 
     // Prefer an explicit organization id from the selected user when present; otherwise fall back
@@ -522,8 +520,6 @@ export default function TabbedUserModal({
             ? payload.data
             : [];
 
-        setRows(llmCosts);
-
         // Requested: show organization_cost as "Total Cost".
         // /api/llm_costs typically returns one row per org with organization_cost already aggregated.
         // When multiple rows appear (pagination/duplication), pick the first non-null/non-zero value,
@@ -536,15 +532,20 @@ export default function TabbedUserModal({
         const maxVal = parsedValues.length ? Math.max(...parsedValues) : null;
         setTotalCost(firstNonZero ?? maxVal);
       } catch (e) {
-        setRows([]);
         setTotalCost(null);
         setError(e?.message || 'Failed to load credits consumed.');
       } finally {
+        setHasLoaded(true);
         setLoading(false);
       }
     }
 
     useEffect(() => {
+      // Clear any stale values when switching org context.
+      setTotalCost(null);
+      setError('');
+      setHasLoaded(false);
+
       load();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [effectiveOrgId]);
@@ -554,37 +555,9 @@ export default function TabbedUserModal({
         ? formatUsdUpToSixDecimals(totalCost)
         : '—';
 
-    const columns = useMemo(
-      () => [
-        { key: 'organization_id', label: 'Organization ID', priority: 1 },
-        { key: 'organization_name', label: 'Organization Name', priority: 1 },
-        {
-          key: 'organization_cost',
-          label: 'Organization Cost',
-          priority: 1,
-          render: (v) => {
-            const num = parseOrgCost(v);
-            return num != null ? formatUsdUpToSixDecimals(num) : (v ?? '—');
-          },
-        },
-        { key: 'users', label: 'Users' },
-        { key: 'projects', label: 'Projects' },
-        {
-          key: 'cost',
-          label: 'Cost',
-          render: (v) => {
-            const num = parseOrgCost(v);
-            return num != null ? formatUsdUpToSixDecimals(num) : (v ?? '—');
-          },
-        },
-      ],
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      []
-    );
-
     return (
       <div data-testid="credits-consumed-tab">
-        {/* Summary header */}
+        {/* Summary header (keep visible even when loading/error) */}
         <div
           className="card"
           style={{
@@ -616,11 +589,12 @@ export default function TabbedUserModal({
           )}
         </div>
 
+        {/* Beneath the Total Cost card: keep only loading/error/empty messaging; do NOT render any table/list */}
         {loading ? (
           <div
             role="status"
             aria-live="polite"
-            style={{ minHeight: 120, display: 'grid', placeItems: 'center' }}
+            style={{ minHeight: 80, display: 'grid', placeItems: 'center' }}
           >
             Loading credits consumed…
           </div>
@@ -640,20 +614,9 @@ export default function TabbedUserModal({
           </div>
         ) : !effectiveOrgId ? (
           <div className="table-empty">No organization selected.</div>
-        ) : rows.length === 0 ? (
+        ) : hasLoaded && totalCost == null ? (
           <div className="table-empty">No credits consumed records found.</div>
-        ) : (
-          <DataTable
-            columns={columns}
-            data={rows}
-            loading={false}
-            pageSize={10}
-            initialPage={1}
-            paginationTitle="Costs pages"
-            maxBodyHeight={360}
-            forceHorizontalScroll
-          />
-        )}
+        ) : null}
 
         {/* Keep userId referenced so prop remains meaningful for future enhancements (user-scoped drilldown). */}
         <div style={{ display: 'none' }} aria-hidden="true">
