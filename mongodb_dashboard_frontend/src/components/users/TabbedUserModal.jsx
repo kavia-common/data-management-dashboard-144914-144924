@@ -511,8 +511,8 @@ export default function TabbedUserModal({
 
         setRows(llmCosts);
 
-        // Requested: show organization_cost as the total user costs.
-        // If there are multiple rows, we sum them as a safe default.
+        // Requested: show organization_cost as "Total Cost".
+        // If multiple rows/records are returned, aggregate by summing organization_cost values.
         const orgCostSum = llmCosts.reduce((acc, item) => {
           const val = item?.organization_cost;
           const num = typeof val === 'number' ? val : Number(val);
@@ -533,6 +533,11 @@ export default function TabbedUserModal({
       load();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId, effectiveOrgId]);
+
+    const formattedTotalCost =
+      typeof totalCost === 'number' && Number.isFinite(totalCost)
+        ? formatUsdUpToSixDecimals(totalCost)
+        : '—';
 
     return (
       <div data-testid="credits-consumed-tab">
@@ -558,7 +563,7 @@ export default function TabbedUserModal({
             Total Cost
           </div>
           <div style={{ fontSize: 20, fontWeight: 700 }}>
-            {loading ? 'Loading…' : formatUsdUpToSixDecimals(totalCost)}
+            {loading ? 'Loading…' : formattedTotalCost}
           </div>
         </div>
 
