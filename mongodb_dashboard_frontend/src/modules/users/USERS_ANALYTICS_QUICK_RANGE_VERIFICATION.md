@@ -5,10 +5,10 @@ This note documents how to verify the fix for **Users Analytics** Quick Range be
 ## What was fixed
 
 - Users Analytics should **only call**:
-  - `GET /api/users/:userId/projects?organization_id=...&from=...&to=...`
+  - `GET /api/users/:userId/sessions?organization_id=...&from=...&to=...`
 - Users Analytics should **not call**:
   - `GET /api/session-tracking` (or any session tracking endpoint) when the Quick Range changes.
-- Counts and charts in Users Analytics must be derived from the **filtered** projects response for the selected range (not totals).
+- Bars and tooltip metrics (sessions + projects) must reflect the **selected range** only.
 
 ## Manual verification steps
 
@@ -16,8 +16,8 @@ This note documents how to verify the fix for **Users Analytics** Quick Range be
 2. Open the browser DevTools → **Network** tab.
 3. In the **Users Analytics** panel:
    - Select `Today`, `Yesterday`, `Last 7 days`, etc.
-   - Confirm **exactly one** request fires per selection:
-     - Path contains: `/api/users/<userId>/projects`
+   - Confirm the network activity is **debounced** (no request storms) and that the only backend calls are:
+     - Path contains: `/api/users/<userId>/sessions`
      - Query contains:
        - `organization_id=<tenantId>`
        - `from=<ISO...>`
@@ -25,7 +25,11 @@ This note documents how to verify the fix for **Users Analytics** Quick Range be
    - Confirm **no** requests fire to:
      - `/api/session-tracking`
 
-4. Confirm the displayed count/bar reflects only the **filtered range** (the value should change when you switch range).
+4. Confirm bar height reflects **sessions** in the selected range and tooltip shows:
+   - User name
+   - Sessions (range)
+   - Projects (range)
+=======
 
 ## Notes
 

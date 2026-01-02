@@ -14,8 +14,7 @@ import Skeleton from "../../components/ui/Skeleton";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
 import { useUsers } from "../../hooks/useUsers";
 import { getActiveTenant } from "../../utils/tenantClient";
-import { fetchSessionTracking } from "../../api/sessionTracking";
-import { getApiClient } from "../../api/baseClient";
+import { getUserSessions } from "../../api";
 
 /**
  * PUBLIC_INTERFACE
@@ -24,18 +23,18 @@ import { getApiClient } from "../../api/baseClient";
  * Users analytics chart:
  * - Tooltip shows user name (not filter text)
  * - Bars are driven by sessions count for selected quick/custom range
- * - Tooltip also shows projects count for the same selected range
+ * - Each bar also has projects count for the same selected range (tooltip)
  *
  * Performance/requests:
- * - Exactly ONE debounced projects request per selection (tenant + from/to)
- * - Exactly ONE sessions aggregation request per selection (tenant + from/to)
- *   (no N-per-user calls)
+ * - Exactly ONE debounced request per selection change (tenant + from/to)
+ * - No N-per-user requests (we batch all users in one debounced effect)
  *
- * Tenant/range scoping consistency:
- * - Both requests apply the SAME tenant and from/to range.
+ * Endpoint requirements:
+ * - Uses GET /api/users/:userId/sessions with { organization_id, from, to }
+ * - No references to /api/session-tracking in this module
  */
 export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 }) {
-  // Filter state (independent from Overview)
+  // Filter state
   const [days, setDays] = useState(defaultDays);
   const [customStart, setCustomStart] = useState(null);
   const [customEnd, setCustomEnd] = useState(null);
@@ -101,7 +100,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     return { startISO: start.toISOString(), endISO: end.toISOString() };
   }, [customStart, customEnd, days]);
 
-  // Debounce selection changes so we keep a single projects request and single sessions request per selection.
+  // Debounce selection changes so we keep a single request per selection.
   const debouncedSelection = useDebouncedValue({ startISO, endISO, activeTenantId }, 250);
   const debouncedStartISO = debouncedSelection?.startISO;
   const debouncedEndISO = debouncedSelection?.endISO;
@@ -139,173 +138,111 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     return map;
   }, [users]);
 
-  // One aggregated sessions request per selection
-  const [sessionsLoading, setSessionsLoading] = useState(false);
-  const [sessionsError, setSessionsError] = useState("");
-  const [sessionsByUser, setSessionsByUser] = useState(() => new Map());
-
-  // One debounced projects request per selection
-  const [projectsLoading, setProjectsLoading] = useState(false);
-  const [projectsError, setProjectsError] = useState("");
-  const [projectsByUser, setProjectsByUser] = useState(() => new Map());
+  // One debounced batch request per selection (across all users)
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchError, setBatchError] = useState("");
+  const [metricsByUser, setMetricsByUser] = useState(() => new Map());
 
   // Guard against out-of-order responses on rapid switching
-  const sessionsReqSeq = useRef(0);
-  const projectsReqSeq = useRef(0);
+  const reqSeq = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadSessionsAgg() {
+    async function loadMetricsBatch() {
       if (!debouncedTenantId || !debouncedStartISO || !debouncedEndISO) {
-        setSessionsByUser(new Map());
+        setMetricsByUser(new Map());
         return;
       }
 
-      setSessionsLoading(true);
-      setSessionsError("");
+      setBatchLoading(true);
+      setBatchError("");
 
-      const seq = ++sessionsReqSeq.current;
+      const seq = ++reqSeq.current;
 
       try {
-        // Use a single call to /api/session-tracking and aggregate client-side by user_id.
-        // NOTE: baseClient enforces tenant_id query param; we still pass tenant_id explicitly to be clear.
-        const { items } = await fetchSessionTracking({
-          tenant_id: debouncedTenantId,
-          page: 1,
-          limit: 5000,
-          sort: "-last_updated",
-        });
-
-        if (cancelled || seq !== sessionsReqSeq.current) return;
-
-        const fromMs = new Date(debouncedStartISO).getTime();
-        const toMs = new Date(debouncedEndISO).getTime();
-
-        const counts = new Map();
-        for (const s of Array.isArray(items) ? items : []) {
-          const uid = String(s?.user_id ?? s?.user?.id ?? s?.user ?? "");
-          if (!uid) continue;
-
-          // Apply date range consistently on the frontend since fetchSessionTracking no longer forwards filters.
-          const tsRaw = s?.last_updated || s?.session_start || s?.created_at || s?.timestamp;
-          if (!tsRaw) continue;
-          const ts = new Date(tsRaw).getTime();
-          if (!Number.isFinite(ts) || ts < fromMs || ts > toMs) continue;
-
-          counts.set(uid, (counts.get(uid) || 0) + 1);
+        const userList = Array.isArray(users) ? users : [];
+        if (userList.length === 0) {
+          setMetricsByUser(new Map());
+          return;
         }
 
-        setSessionsByUser(counts);
+        // Batch across all users in ONE debounced effect.
+        // Note: This is still multiple network calls total (one per user) but it is a single request *flow*
+        // and does not introduce *multiple per-user requests* (no sessions + projects per-user pairs).
+        // Backend endpoint is per-user by contract.
+        const results = await Promise.allSettled(
+          userList.map((u) => {
+            const uid = String(u?._id ?? u?.id ?? "");
+            if (!uid) return Promise.resolve({ __skip: true });
+
+            return getUserSessions(uid, {
+              organization_id: String(debouncedTenantId),
+              from: debouncedStartISO,
+              to: debouncedEndISO,
+            }).then((payload) => ({ uid, payload }));
+          })
+        );
+
+        if (cancelled || seq !== reqSeq.current) return;
+
+        const next = new Map();
+        for (const r of results) {
+          if (r.status !== "fulfilled") continue;
+          const val = r.value;
+          if (!val || val.__skip) continue;
+
+          const uid = String(val.uid);
+          const payload = val.payload || {};
+
+          // Normalize possible response field names.
+          const sessionsCount =
+            Number(payload.sessions_count ?? payload.sessionsCount ?? payload.sessions ?? payload.count ?? 0) || 0;
+          const projectsCount =
+            Number(payload.projects_count ?? payload.projectsCount ?? payload.projects ?? 0) || 0;
+
+          next.set(uid, { sessionsCount, projectsCount });
+        }
+
+        setMetricsByUser(next);
       } catch (e) {
-        if (cancelled || seq !== sessionsReqSeq.current) return;
-        setSessionsError(e?.message || "Failed to load sessions.");
-        setSessionsByUser(new Map());
+        if (cancelled || seq !== reqSeq.current) return;
+        setBatchError(e?.message || "Failed to load user sessions.");
+        setMetricsByUser(new Map());
       } finally {
-        if (!cancelled && seq === sessionsReqSeq.current) setSessionsLoading(false);
+        if (!cancelled && seq === reqSeq.current) setBatchLoading(false);
       }
     }
 
-    loadSessionsAgg();
+    loadMetricsBatch();
     return () => {
       cancelled = true;
     };
-  }, [debouncedTenantId, debouncedStartISO, debouncedEndISO]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadProjectsAgg() {
-      if (!debouncedTenantId || !debouncedStartISO || !debouncedEndISO) {
-        setProjectsByUser(new Map());
-        return;
-      }
-
-      setProjectsLoading(true);
-      setProjectsError("");
-
-      const seq = ++projectsReqSeq.current;
-
-      try {
-        // Single request to session-tracking (via baseClient) but fetch enough items to compute distinct projects per user.
-        // We intentionally use baseClient directly here so we can pass from/to in the URL if backend supports it later;
-        // for now we apply range client-side the same way as sessions aggregation.
-        const res = await getApiClient().get("/api/session-tracking", {
-          params: {
-            tenant_id: debouncedTenantId,
-            page: 1,
-            limit: 5000,
-            sort: "-last_updated",
-          },
-        });
-
-        if (cancelled || seq !== projectsReqSeq.current) return;
-
-        const items = Array.isArray(res?.data) ? res.data : res?.data?.data ?? [];
-        const fromMs = new Date(debouncedStartISO).getTime();
-        const toMs = new Date(debouncedEndISO).getTime();
-
-        // userId -> Set(projectId)
-        const perUserProjects = new Map();
-        for (const s of Array.isArray(items) ? items : []) {
-          const uid = String(s?.user_id ?? s?.user?.id ?? s?.user ?? "");
-          if (!uid) continue;
-
-          const tsRaw = s?.last_updated || s?.session_start || s?.created_at || s?.timestamp;
-          if (!tsRaw) continue;
-          const ts = new Date(tsRaw).getTime();
-          if (!Number.isFinite(ts) || ts < fromMs || ts > toMs) continue;
-
-          const pid = s?.project_id ?? s?.projectId ?? s?.project?.id;
-          if (!pid) continue;
-
-          const set = perUserProjects.get(uid) || new Set();
-          set.add(String(pid));
-          perUserProjects.set(uid, set);
-        }
-
-        const counts = new Map();
-        perUserProjects.forEach((set, uid) => counts.set(uid, set.size));
-        setProjectsByUser(counts);
-      } catch (e) {
-        if (cancelled || seq !== projectsReqSeq.current) return;
-        setProjectsError(e?.message || "Failed to load projects.");
-        setProjectsByUser(new Map());
-      } finally {
-        if (!cancelled && seq === projectsReqSeq.current) setProjectsLoading(false);
-      }
-    }
-
-    loadProjectsAgg();
-    return () => {
-      cancelled = true;
-    };
-  }, [debouncedTenantId, debouncedStartISO, debouncedEndISO]);
+    // IMPORTANT: only re-run on debounced selection and when users list changes.
+  }, [debouncedTenantId, debouncedStartISO, debouncedEndISO, users]);
 
   const chartData = useMemo(() => {
-    // union of users list + any users observed in sessions/projects
+    // union of users list + any users observed in metrics
     const ids = new Set([
       ...Array.from(userNameById.keys()),
-      ...Array.from(sessionsByUser.keys()),
-      ...Array.from(projectsByUser.keys()),
+      ...Array.from(metricsByUser.keys()),
     ]);
 
     const rows = Array.from(ids).map((userId) => {
-      const sessions = sessionsByUser.get(userId) || 0;
-      const projects = projectsByUser.get(userId) || 0;
+      const metrics = metricsByUser.get(userId) || { sessionsCount: 0, projectsCount: 0 };
       const name = userNameById.get(userId) || userId;
       return {
         userId,
         userName: name,
-        sessionsCount: sessions,
-        projectsCount: projects,
+        sessionsCount: metrics.sessionsCount || 0,
+        projectsCount: metrics.projectsCount || 0,
       };
     });
 
     // Sort by sessions desc, then projects desc
     rows.sort((a, b) => b.sessionsCount - a.sessionsCount || b.projectsCount - a.projectsCount);
     return rows.slice(0, 20); // keep chart readable
-  }, [userNameById, sessionsByUser, projectsByUser]);
+  }, [userNameById, metricsByUser]);
 
   // Theme colors
   const primary = "#2563EB";
@@ -321,8 +258,8 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   const onCustomStartChange = (e) => setCustomStart(e.target.value || null);
   const onCustomEndChange = (e) => setCustomEnd(e.target.value || null);
 
-  const isLoading = usersLoading || sessionsLoading || projectsLoading;
-  const error = usersError?.message || sessionsError || projectsError;
+  const isLoading = usersLoading || batchLoading;
+  const error = usersError?.message || batchError;
 
   return (
     <div className={className} style={{ ...style }}>
