@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import PropTypes from "prop-types";
 import {
   ResponsiveContainer,
@@ -15,95 +15,68 @@ import {
   Scatter,
 } from "recharts";
 
-import { listSessions } from "../../api/baseClient";
+import { getUserProjects } from "../../api/users";
 import { getChartTheme } from "../charts/chartTheme";
 
 /**
  * PUBLIC_INTERFACE
  * UsersAnalyticsPanelModal
- * Provides charts for a single user's analytics inside the Users modal.
- * - Sessions over time (from session_breakdown/date fields if available)
- * - Total session duration vs count (aggregate from session_breakdown)
- * - Optional project distribution/activity summary (from session records if available)
+ * Provides analytics for a single user inside the Users modal.
  *
- * Props:
- *  - userId: string (required for fetching)
- *  - tenantId: string (optional; scoping is handled by base client too)
- *  - from?: string|Date
- *  - to?: string|Date
- *
- * Behavior:
- * - Lazy fetches when mounted/active.
- * - No pagination; caps to reasonable fetch sizes.
- * - Minimal dependencies (uses recharts already present).
- * - Loading/empty/error states included.
+ * IMPORTANT (bugfix/requirements):
+ * - Must NOT call /api/session-tracking from this panel.
+ * - Must use GET /api/users/:userId/projects with:
+ *   - organization_id (tenant scope)
+ *   - from/to (range)
+ * - All counts/charts must derive from the FILTERED projects response (selected range only).
  */
 export default function UsersAnalyticsPanelModal({ userId, tenantId, from, to }) {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [sessions, setSessions] = useState([]); // filtered for this user
+  const [projectsResponse, setProjectsResponse] = useState(null);
 
   const theme = getChartTheme();
 
-  const inRange = (dt) => {
-    if (!dt) return true;
-    const d = new Date(dt);
-    if (Number.isNaN(d.getTime())) return true;
-    const f = from ? new Date(from) : null;
-    const t = to ? new Date(to) : null;
-    if (f && d < f) return false;
-    if (t && d > t) return false;
-    return true;
-  };
+  // Guard against out-of-order responses when quickly changing range
+  const requestSeq = useRef(0);
 
-  // Fetch lazily on mount
   useEffect(() => {
     let cancelled = false;
+
     async function load() {
-      if (!userId) {
+      if (!userId || !tenantId) {
+        setProjectsResponse(null);
         setLoading(false);
-        setSessions([]);
         return;
       }
+
       setLoading(true);
       setErr("");
+
+      const seq = ++requestSeq.current;
+
       try {
-        const sessResp = await listSessions({ page: 1, limit: 500, sort: "-last_updated" });
-
-        const normalizedUserId = String(userId);
-
-        // Normalize array items from envelopes
-        const sessionItems = Array.isArray(sessResp?.items) ? sessResp.items : [];
-
-        const byUserSessions = sessionItems.filter((row) => {
-          const uid =
-            row?.user_id ??
-            row?.userId ??
-            row?.user?._id ??
-            row?.user?.id ??
-            row?.user?.user_id ??
-            null;
-          // Filter by user and date range
-          return uid && String(uid) === normalizedUserId && inRange(row?.last_updated || row?.session_end || row?.session_start || row?.created_at);
+        const res = await getUserProjects(String(userId), {
+          organization_id: String(tenantId),
+          from: from ? new Date(from).toISOString() : undefined,
+          to: to ? new Date(to).toISOString() : undefined,
         });
 
-        if (!cancelled) {
-          setSessions(byUserSessions);
-        }
+        if (cancelled || seq !== requestSeq.current) return;
+        setProjectsResponse(res || null);
       } catch (e) {
-        if (!cancelled) {
-          setErr(e?.message || "Failed to load analytics.");
-          setSessions([]);
-        }
+        if (cancelled || seq !== requestSeq.current) return;
+        setErr(e?.message || "Failed to load analytics.");
+        setProjectsResponse(null);
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && seq === requestSeq.current) setLoading(false);
       }
     }
+
     load();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, tenantId, String(from || ""), String(to || "")]);
 
   const dateKey = (d) => {
@@ -118,105 +91,56 @@ export default function UsersAnalyticsPanelModal({ userId, tenantId, from, to })
     }
   };
 
-  // Aggregate charts data (only those retained)
   const charts = useMemo(() => {
-    // 1) Sessions over time (count per day)
-    const sessionsByDayMap = new Map();
-    (sessions || []).forEach((s) => {
-      const when =
-        s?.last_updated ||
-        s?.session_end ||
-        s?.session_start ||
-        s?.created_at ||
-        s?.updated_at;
+    const projects = Array.isArray(projectsResponse?.projects) ? projectsResponse.projects : [];
+
+    // 1) Projects over time (count of distinct projects by last_activity day)
+    const projectsByDayMap = new Map();
+    projects.forEach((p) => {
+      const when = p?.last_activity || p?.updated_at || p?.created_at || null;
       if (!when) return;
       const k = dateKey(when);
-      sessionsByDayMap.set(k, (sessionsByDayMap.get(k) || 0) + 1);
+      projectsByDayMap.set(k, (projectsByDayMap.get(k) || 0) + 1);
     });
-    const sessionsOverTime = Array.from(sessionsByDayMap.entries())
+
+    const projectsOverTime = Array.from(projectsByDayMap.entries())
       .map(([date, count]) => ({ date, count }))
       .sort((a, b) => (a.date > b.date ? 1 : -1));
 
-    // 2) Total session duration vs count (aggregate duration from session_breakdown)
-    const secondsFromStep = (step) => {
-      if (!step || typeof step !== "object") return 0;
-      if (Number.isFinite(Number(step.duration_seconds))) return Number(step.duration_seconds);
-      if (Number.isFinite(Number(step.duration_sec))) return Number(step.duration_sec);
-      if (Number.isFinite(Number(step.duration_ms))) return Number(step.duration_ms) / 1000;
-      if (Number.isFinite(Number(step.time_ms))) return Number(step.time_ms) / 1000;
-      if (Number.isFinite(Number(step.time_s))) return Number(step.time_s);
-      if (Number.isFinite(Number(step.duration))) return Number(step.duration);
-      return 0;
-    };
-    const durVsCountMap = new Map();
-    (sessions || []).forEach((s) => {
-      const when = s?.last_updated || s?.session_end || s?.session_start || s?.created_at;
-      const k = when ? dateKey(when) : "unknown";
-      let totalSec = 0;
-      const bd = s?.session_breakdown ?? s?.breakdown ?? [];
-      if (Array.isArray(bd)) {
-        bd.forEach((st) => {
-          totalSec += secondsFromStep(st);
-        });
-      } else if (bd && typeof bd === "object") {
-        Object.values(bd).forEach((st) => {
-          totalSec += secondsFromStep(st);
-        });
-      }
-      const prev = durVsCountMap.get(k) || { date: k, seconds: 0, count: 0 };
-      prev.seconds += totalSec;
-      prev.count += 1;
-      durVsCountMap.set(k, prev);
-    });
-    const durationVsCount = Array.from(durVsCountMap.values()).sort((a, b) =>
-      a.date > b.date ? 1 : -1
-    );
+    // 2) Total distinct projects (single point shown as an area series)
+    const totalProjects = projects.length;
+    const totalSeries = projectsOverTime.length
+      ? projectsOverTime.map((row) => ({ date: row.date, total: totalProjects }))
+      : [{ date: "range", total: totalProjects }];
 
-    // 3) Optional project activity summary (deduce projects from sessions)
-    const projMap = new Map();
-    (sessions || []).forEach((s) => {
-      const pid =
-        s?.project_id ||
-        s?.projectId ||
-        s?.session_data?.project_id ||
-        s?.project?.id ||
-        null;
-      if (!pid) return;
-      const key = String(pid);
-      const last =
-        s?.last_updated ||
-        s?.session_end ||
-        s?.updated_at ||
-        s?.created_at ||
-        s?.session_start ||
-        null;
-      const prev = projMap.get(key) || { project_id: key, count: 0, last_activity: null };
-      prev.count += 1;
-      if (!prev.last_activity || (last && last > prev.last_activity)) {
-        prev.last_activity = last;
-      }
-      projMap.set(key, prev);
-    });
-    const projectActivity = Array.from(projMap.values()).sort((a, b) =>
-      (b.last_activity || "") > (a.last_activity || "") ? 1 : -1
-    );
+    // 3) Project activity scatter (x=last_activity, y=index)
+    const projectActivity = projects
+      .map((p) => ({
+        project_id: String(p?.project_id ?? p?.projectId ?? ""),
+        last_activity: p?.last_activity ?? null,
+      }))
+      .filter((p) => p.project_id);
 
     return {
-      sessionsOverTime,
-      durationVsCount,
+      projects,
+      projectsOverTime,
+      totalSeries,
       projectActivity,
     };
-  }, [sessions]);
+  }, [projectsResponse]);
 
-  // Empty overall state
   const allEmpty =
-    (!charts.sessionsOverTime || charts.sessionsOverTime.length === 0) &&
-    (!charts.durationVsCount || charts.durationVsCount.length === 0) &&
+    (!charts.projects || charts.projects.length === 0) &&
+    (!charts.projectsOverTime || charts.projectsOverTime.length === 0) &&
     (!charts.projectActivity || charts.projectActivity.length === 0);
 
   if (loading) {
     return (
-      <div role="status" aria-live="polite" style={{ minHeight: 220, display: 'grid', placeItems: 'center', color:'white' }}>
+      <div
+        role="status"
+        aria-live="polite"
+        style={{ minHeight: 220, display: "grid", placeItems: "center", color: "white" }}
+      >
         Loading analytics…
       </div>
     );
@@ -224,10 +148,13 @@ export default function UsersAnalyticsPanelModal({ userId, tenantId, from, to })
   if (err) {
     return (
       <div>
-        <div role="alert" className="error">{err}</div>
+        <div role="alert" className="error">
+          {err}
+        </div>
         <button
           type="button"
           onClick={() => {
+            // trigger effect reload by resetting error/loading briefly
             setLoading(true);
             setErr("");
             setTimeout(() => setLoading(false), 0);
@@ -240,15 +167,19 @@ export default function UsersAnalyticsPanelModal({ userId, tenantId, from, to })
     );
   }
   if (allEmpty) {
-    return <div className="screen-center" style={{ minHeight: 120 }}>No analytics available for this user.</div>;
+    return (
+      <div className="screen-center" style={{ minHeight: 120 }}>
+        No analytics available for this user in the selected range.
+      </div>
+    );
   }
 
   return (
     <div style={{ display: "grid", gap: 12 }}>
-      {/* Row 1: Sessions over time + Duration vs Count */}
+      {/* Row 1: Projects over time + Total projects */}
       <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 12 }}>
         <section
-          aria-label="Sessions over time"
+          aria-label="Projects over time"
           style={{
             background: "var(--bg-surface, #fff)",
             border: "1px solid var(--border-subtle, #e5e7eb)",
@@ -258,22 +189,37 @@ export default function UsersAnalyticsPanelModal({ userId, tenantId, from, to })
           }}
         >
           <header style={{ marginBottom: 6 }}>
-            <h4 style={{ margin: 0 }}>Sessions over time</h4>
-            <div style={{ color: "var(--text-secondary,#475569)", fontSize: 12 }}>Daily count</div>
+            <h4 style={{ margin: 0 }}>Projects over time</h4>
+            <div style={{ color: "var(--text-secondary,#475569)", fontSize: 12 }}>
+              Distinct projects with activity per day (filtered)
+            </div>
           </header>
-          {charts.sessionsOverTime.length === 0 ? (
-            <div className="screen-center" style={{ minHeight: 220 }}>No sessions</div>
+          {charts.projectsOverTime.length === 0 ? (
+            <div className="screen-center" style={{ minHeight: 220 }}>
+              No project activity
+            </div>
           ) : (
             <div style={{ width: "100%", height: 260 }}>
               <ResponsiveContainer>
-                <BarChart data={charts.sessionsOverTime} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+                <BarChart data={charts.projectsOverTime} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
-                  <XAxis dataKey="date" tick={{ fill: theme.label }} tickLine={false} axisLine={{ stroke: theme.axisTick }} minTickGap={24} />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: theme.label }}
+                    tickLine={false}
+                    axisLine={{ stroke: theme.axisTick }}
+                    minTickGap={24}
+                  />
                   <YAxis tick={{ fill: theme.label }} tickLine={false} axisLine={{ stroke: theme.axisTick }} allowDecimals={false} />
                   <Tooltip
                     cursor={{ fill: "transparent" }}
-                    contentStyle={{ background: theme.tooltip.bg, border: `1px solid ${theme.tooltip.border}`, borderRadius: 8, color: theme.tooltip.text }}
-                    formatter={(value) => [value, "Sessions"]}
+                    contentStyle={{
+                      background: theme.tooltip.bg,
+                      border: `1px solid ${theme.tooltip.border}`,
+                      borderRadius: 8,
+                      color: theme.tooltip.text,
+                    }}
+                    formatter={(value) => [value, "Projects"]}
                     labelFormatter={(label) => `Date: ${label}`}
                   />
                   <Bar dataKey="count" fill={theme.primary} radius={[6, 6, 0, 0]} />
@@ -284,7 +230,7 @@ export default function UsersAnalyticsPanelModal({ userId, tenantId, from, to })
         </section>
 
         <section
-          aria-label="Total duration vs count"
+          aria-label="Total projects in range"
           style={{
             background: "var(--bg-surface, #fff)",
             border: "1px solid var(--border-subtle, #e5e7eb)",
@@ -294,37 +240,43 @@ export default function UsersAnalyticsPanelModal({ userId, tenantId, from, to })
           }}
         >
           <header style={{ marginBottom: 6 }}>
-            <h4 style={{ margin: 0 }}>Total duration vs count</h4>
-            <div style={{ color: "var(--text-secondary,#475569)", fontSize: 12 }}>Seconds aggregated per day vs number of sessions</div>
-          </header>
-          {charts.durationVsCount.length === 0 ? (
-            <div className="screen-center" style={{ minHeight: 220 }}>No session duration</div>
-          ) : (
-            <div style={{ width: "100%", height: 260 }}>
-              <ResponsiveContainer>
-                <AreaChart data={charts.durationVsCount} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
-                  <XAxis dataKey="date" tick={{ fill: theme.label }} />
-                  <YAxis tick={{ fill: theme.label }} />
-                  <Tooltip
-                    contentStyle={{ background: theme.tooltip.bg, border: `1px solid ${theme.tooltip.border}`, borderRadius: 8, color: theme.tooltip.text }}
-                    formatter={(v, name) =>
-                      name === "seconds"
-                        ? [`${Number(v).toFixed(0)} sec`, "Total Duration"]
-                        : [v, "Count"]
-                    }
-                  />
-                  <Legend />
-                  <Area type="monotone" dataKey="seconds" name="Total Duration (sec)" stroke={theme.primaryHover} fill={theme.primaryHover} fillOpacity={0.25} />
-                  <Area type="monotone" dataKey="count" name="Sessions" stroke={theme.primaryActive} fill={theme.primaryActive} fillOpacity={0.18} />
-                </AreaChart>
-              </ResponsiveContainer>
+            <h4 style={{ margin: 0 }}>Total projects (range)</h4>
+            <div style={{ color: "var(--text-secondary,#475569)", fontSize: 12 }}>
+              Count of distinct projects returned by filtered API
             </div>
-          )}
+          </header>
+
+          <div style={{ width: "100%", height: 260 }}>
+            <ResponsiveContainer>
+              <AreaChart data={charts.totalSeries} margin={{ top: 8, right: 16, bottom: 8, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={theme.grid} />
+                <XAxis dataKey="date" tick={{ fill: theme.label }} />
+                <YAxis tick={{ fill: theme.label }} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{
+                    background: theme.tooltip.bg,
+                    border: `1px solid ${theme.tooltip.border}`,
+                    borderRadius: 8,
+                    color: theme.tooltip.text,
+                  }}
+                  formatter={(v) => [v, "Projects in range"]}
+                />
+                <Legend />
+                <Area
+                  type="monotone"
+                  dataKey="total"
+                  name="Projects in range"
+                  stroke={theme.primaryActive}
+                  fill={theme.primaryActive}
+                  fillOpacity={0.18}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
         </section>
       </div>
 
-      {/* Row 2: Project activity summary */}
+      {/* Row 2: Project activity scatter */}
       <section
         aria-label="Project activity summary"
         style={{
@@ -337,10 +289,15 @@ export default function UsersAnalyticsPanelModal({ userId, tenantId, from, to })
       >
         <header style={{ marginBottom: 6 }}>
           <h4 style={{ margin: 0 }}>Project activity</h4>
-          <div style={{ color: "var(--text-secondary,#475569)", fontSize: 12 }}>Distinct projects with last activity</div>
+          <div style={{ color: "var(--text-secondary,#475569)", fontSize: 12 }}>
+            Distinct projects with last activity (filtered)
+          </div>
         </header>
+
         {charts.projectActivity.length === 0 ? (
-          <div className="screen-center" style={{ minHeight: 120 }}>No project activity</div>
+          <div className="screen-center" style={{ minHeight: 120 }}>
+            No project activity
+          </div>
         ) : (
           <div style={{ width: "100%", height: 220 }}>
             <ResponsiveContainer>
@@ -359,12 +316,53 @@ export default function UsersAnalyticsPanelModal({ userId, tenantId, from, to })
                     }
                   }}
                 />
-                <YAxis dataKey="count" name="Count" tick={{ fill: theme.label }} />
-                <Tooltip cursor={{ strokeDasharray: "3 3" }} />
+                <YAxis
+                  dataKey="idx"
+                  name="Project"
+                  tick={{ fill: theme.label }}
+                  tickFormatter={() => ""}
+                  width={24}
+                />
+                <Tooltip
+                  cursor={{ strokeDasharray: "3 3" }}
+                  formatter={(v, name, item) => {
+                    if (name === "idx") return null;
+                    return [v, name];
+                  }}
+                  labelFormatter={() => ""}
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const p = payload[0]?.payload || {};
+                    return (
+                      <div
+                        style={{
+                          background: theme.tooltip.bg,
+                          border: `1px solid ${theme.tooltip.border}`,
+                          borderRadius: 8,
+                          padding: 10,
+                          color: theme.tooltip.text,
+                          fontSize: 12,
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, marginBottom: 6 }}>Project</div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                          <span style={{ opacity: 0.85 }}>ID:</span>
+                          <span style={{ fontWeight: 600 }}>{p.project_id}</span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                          <span style={{ opacity: 0.85 }}>Last activity:</span>
+                          <span style={{ fontWeight: 600 }}>
+                            {p.last_activity ? new Date(p.last_activity).toLocaleString() : "—"}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }}
+                />
                 <Scatter
-                  data={charts.projectActivity.map((p) => ({
-                    last_activity: new Date(p.last_activity).getTime() || 0,
-                    count: p.count,
+                  data={charts.projectActivity.map((p, idx) => ({
+                    idx: idx + 1,
+                    last_activity: p.last_activity ? new Date(p.last_activity).getTime() : 0,
                     project_id: p.project_id,
                   }))}
                   name="Projects"
