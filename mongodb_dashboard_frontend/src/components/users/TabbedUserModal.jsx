@@ -285,16 +285,24 @@ export default function TabbedUserModal({
       setLoading(true);
       setError('');
       try {
-        // Prefer server-side user filtering so we can read aggregate fields like:
-        // - total_count (Number of Sessions)
-        // - total_duration (Total Duration)
-        const res = await listSessions({ page: 1, limit: 100, sort: '-last_updated', userId });
+        const res = await listSessions({ page: 1, limit: 100, sort: '-last_updated' });
         const arr = Array.isArray(res?.items) ? res.items : [];
-        setItems(arr);
+        const normalizedUserId = String(userId);
+        const filtered = arr.filter((row) => {
+          const uid =
+            row?.user_id ??
+            row?.userId ??
+            row?.user?.id ??
+            row?.user?._id ??
+            row?.user?._source?.id ??
+            row?.user?.user_id;
+          return uid && String(uid) === normalizedUserId;
+        });
+        setItems(filtered);
 
-        // compute distinct service types across returned sessions
+        // compute distinct service types across filtered sessions
         const stSet = new Set();
-        for (const it of arr) {
+        for (const it of filtered) {
           const st =
             it?.service_type ??
             it?.serviceType ??
@@ -382,112 +390,48 @@ export default function TabbedUserModal({
         first?.org_name ??
         '';
 
-      // Sessions count: use server-provided aggregate field when available
+      // Sessions count
       let sessionsCount = 0;
-      if (Number.isFinite(Number(first?.total_count))) {
-        sessionsCount = Number(first.total_count);
+      const breakdownFromFirst = first?.session_breakdown;
+      if (Array.isArray(breakdownFromFirst)) {
+        sessionsCount = breakdownFromFirst.length;
+      } else if (breakdownFromFirst && typeof breakdownFromFirst === 'object' && typeof breakdownFromFirst.count === 'number') {
+        sessionsCount = breakdownFromFirst.count;
       } else {
-        const breakdownFromFirst = first?.session_breakdown;
-        if (Array.isArray(breakdownFromFirst)) {
-          sessionsCount = breakdownFromFirst.length;
-        } else if (
-          breakdownFromFirst &&
-          typeof breakdownFromFirst === 'object' &&
-          typeof breakdownFromFirst.count === 'number'
-        ) {
-          sessionsCount = breakdownFromFirst.count;
-        } else {
-          sessionsCount = items.length;
-        }
+        sessionsCount = items.length;
       }
 
-      // Total duration: use server-provided aggregate field when available
+      // Total duration
       let totalSeconds = 0;
-
-      // Try to interpret total_duration in a few common shapes:
-      // - number of seconds
-      // - number of milliseconds (heuristic: very large)
-      // - ISO 8601 duration string (PT#H#M#S)
-      // - "HH:MM:SS" string
-      const parseTotalDurationToSeconds = (v) => {
-        if (v === null || v === undefined) return null;
-
-        if (typeof v === 'number' && Number.isFinite(v)) {
-          // Heuristic: treat large values as ms.
-          return v > 10_000_000 ? v / 1000 : v;
-        }
-
-        if (typeof v === 'string') {
-          const s = v.trim();
-          if (!s) return null;
-
-          // HH:MM:SS
-          const hms = s.match(/^(\d{1,3}):(\d{2}):(\d{2})$/);
-          if (hms) {
-            const h = Number(hms[1]);
-            const m = Number(hms[2]);
-            const sec = Number(hms[3]);
-            if ([h, m, sec].every((n) => Number.isFinite(n))) return h * 3600 + m * 60 + sec;
-          }
-
-          // ISO 8601
-          const iso = parseIsoDurationToSeconds(s);
-          if (Number.isFinite(iso)) return iso;
-
-          // numeric string
-          const asNum = Number(s);
-          if (Number.isFinite(asNum)) return asNum > 10_000_000 ? asNum / 1000 : asNum;
-        }
-
-        if (typeof v === 'object') {
-          // common nested patterns
-          const candidate =
-            v?.seconds ??
-            v?.sec ??
-            v?.duration_seconds ??
-            v?.duration_sec ??
-            (Number.isFinite(Number(v?.duration_ms)) ? Number(v.duration_ms) / 1000 : null);
-          if (Number.isFinite(Number(candidate))) return Number(candidate);
-        }
-
-        return null;
+      const addDurationSeconds = (sec) => {
+        if (Number.isFinite(sec) && sec > 0) totalSeconds += sec;
       };
-
-      const fromAggregateField = parseTotalDurationToSeconds(first?.total_duration);
-      if (Number.isFinite(fromAggregateField) && fromAggregateField > 0) {
-        totalSeconds = fromAggregateField;
-      } else {
-        // Fallback: derive from per-session breakdowns (legacy behavior)
-        const addDurationSeconds = (sec) => {
-          if (Number.isFinite(sec) && sec > 0) totalSeconds += sec;
-        };
-        const tryExtractSeconds = (obj) => {
-          if (!obj || typeof obj !== 'object') return 0;
-          if (Number.isFinite(Number(obj.duration_seconds))) return Number(obj.duration_seconds);
-          if (Number.isFinite(Number(obj.duration_sec))) return Number(obj.duration_sec);
-          if (Number.isFinite(Number(obj.duration_ms))) return Number(obj.duration_ms) / 1000;
-          if (Number.isFinite(Number(obj.time_ms))) return Number(obj.time_ms) / 1000;
-          if (Number.isFinite(Number(obj.elapsed_ms))) return Number(obj.elapsed_ms) / 1000;
-          if (Number.isFinite(Number(obj.latency_ms))) return Number(obj.latency_ms) / 1000;
-          if (Number.isFinite(Number(obj.time_s))) return Number(obj.time_s);
-          if (Number.isFinite(Number(obj.elapsed_s))) return Number(obj.elapsed_s);
-          if (Number.isFinite(Number(obj.latency_s))) return Number(obj.latency_s);
-          if (typeof obj.duration === 'string') {
-            const secs = parseIsoDurationToSeconds(obj.duration);
-            if (Number.isFinite(secs)) return secs;
-          }
-          if (Number.isFinite(Number(obj.duration))) return Number(obj.duration);
-          return 0;
-        };
-        items.forEach((it) => {
-          const bd = it?.session_breakdown ?? it?.breakdown ?? [];
-          if (Array.isArray(bd)) {
-            bd.forEach((step) => addDurationSeconds(tryExtractSeconds(step)));
-          } else if (bd && typeof bd === "object") {
-            Object.values(bd).forEach((step) => addDurationSeconds(tryExtractSeconds(step)));
-          }
-        });
-      }
+      const tryExtractSeconds = (obj) => {
+        if (!obj || typeof obj !== 'object') return 0;
+        if (Number.isFinite(Number(obj.duration_seconds))) return Number(obj.duration_seconds);
+        if (Number.isFinite(Number(obj.duration_sec))) return Number(obj.duration_sec);
+        if (Number.isFinite(Number(obj.duration_ms))) return Number(obj.duration_ms) / 1000;
+        if (Number.isFinite(Number(obj.time_ms))) return Number(obj.time_ms) / 1000;
+        if (Number.isFinite(Number(obj.elapsed_ms))) return Number(obj.elapsed_ms) / 1000;
+        if (Number.isFinite(Number(obj.latency_ms))) return Number(obj.latency_ms) / 1000;
+        if (Number.isFinite(Number(obj.time_s))) return Number(obj.time_s);
+        if (Number.isFinite(Number(obj.elapsed_s))) return Number(obj.elapsed_s);
+        if (Number.isFinite(Number(obj.latency_s))) return Number(obj.latency_s);
+        if (typeof obj.duration === 'string') {
+          const secs = parseIsoDurationToSeconds(obj.duration);
+          if (Number.isFinite(secs)) return secs;
+        }
+        if (Number.isFinite(Number(obj.duration))) return Number(obj.duration);
+        return 0;
+      };
+      items.forEach((it) => {
+        const bd = it?.session_breakdown ?? it?.breakdown ?? [];
+        if (Array.isArray(bd)) {
+          bd.forEach((step) => addDurationSeconds(tryExtractSeconds(step)));
+        } else if (bd && typeof bd === "object") {
+          Object.values(bd).forEach((step) => addDurationSeconds(tryExtractSeconds(step)));
+        }
+      });
 
       // Total cost
       let currencyHint = first?.currency || first?.cost_currency || 'USD';
