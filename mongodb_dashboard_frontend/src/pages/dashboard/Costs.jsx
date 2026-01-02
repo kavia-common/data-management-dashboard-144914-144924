@@ -3,15 +3,11 @@ import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
 import Modal from "../../components/ui/Modal.jsx";
 import { listLlmCostsUnderscore } from "../../api";
-import {
-  buildUserIdToNameMap,
-  resolveUserDisplayNameForRecord,
-} from "../../utils/userDisplay";
-
+ 
 /* =========================
    Formatters
 ========================= */
-
+ 
 // PUBLIC_INTERFACE
 function formatCurrencyUSD(n) {
   if (typeof n === "string") {
@@ -19,20 +15,20 @@ function formatCurrencyUSD(n) {
   }
   const num = Number(n || 0);
   if (!Number.isFinite(num)) return "$0.00";
-
+ 
   return new Intl.NumberFormat(undefined, {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 6,
   }).format(num);
 }
-
+ 
 // PUBLIC_INTERFACE
 function formatInt(n) {
   const num = typeof n === "number" ? n : Number.parseInt(n || 0, 10);
   return Number.isFinite(num) ? num.toLocaleString() : "0";
 }
-
+ 
 /**
  * PUBLIC_INTERFACE
  * Costs page (underscore endpoint)
@@ -48,82 +44,80 @@ export default function Costs() {
   const initialPage = initialSearch?.get("page") ? Number(initialSearch.get("page")) || 1 : 1;
   const initialLimit = initialSearch?.get("limit") ? Number(initialSearch.get("limit")) || 10 : 10;
   const initialOrgId = initialSearch?.get("organization_id") || "";
-
+ 
   // pending UI filters (editable inputs)
   const [pendingOrgId, setPendingOrgId] = useState(initialOrgId);
-
+ 
   // committed filters (used for fetching and pagination until Load pressed again)
   const [committedOrgId, setCommittedOrgId] = useState(initialOrgId);
-
+ 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [page, setPage] = useState(initialPage);
   const [limit, setLimit] = useState(initialLimit);
   const [total, setTotal] = useState(0);
-
-  // Cache: id -> display name. Built from embedded rows + /api/users.
-  const [userIdToName, setUserIdToName] = useState({});
-
+ 
   // Track in-flight request for cancellation to avoid race conditions
   const abortRef = useRef(null);
-
+ 
   // Inspector modal
   const [inspectOpen, setInspectOpen] = useState(false);
   const [inspectTitle, setInspectTitle] = useState("Details");
   const [inspectPayload, setInspectPayload] = useState(null);
-
+ 
   function openInspector(title, payload) {
     setInspectTitle(title);
     setInspectPayload(payload);
     setInspectOpen(true);
   }
-
+ 
   function closeInspector() {
     setInspectOpen(false);
     setInspectPayload(null);
   }
-
+ 
   /* =========================
      Table Columns
   ========================= */
-
-  const itemsWithUserDisplay = useMemo(() => {
-    return (Array.isArray(items) ? items : []).map((row) => ({
-      ...row,
-      __userDisplayName: resolveUserDisplayNameForRecord(row, userIdToName),
-    }));
-  }, [items, userIdToName]);
-
-  const columns = useMemo(
-    () => [
-      {
-        key: "organization_name",
-        label: "Organization",
-        priority: 1,
-        render: (v) => <span className="td--emphasis-name">{v || "—"}</span>,
-      },
-      {
-        key: "organization_cost",
-        label: "Org Cost",
-        className: "num",
-        render: (v) => (
-          <span className="amount-positive">{formatCurrencyUSD(v)}</span>
-        ),
-      },
-      {
-        key: "__userDisplayName",
-        label: "User",
-        render: (v) => (v ? v : <span className="muted">Unknown User</span>),
-      },
-      {
-        key: "user_cost",
-        label: "User Cost",
-        className: "num",
-        render: (v) => (
-          <span className="amount-positive">{formatCurrencyUSD(v)}</span>
-        ),
-      },
+ 
+  const columns = useMemo(() => [
+    {
+      key: "organization_name",
+      label: "Organization",
+      priority: 1,
+      render: (v) => (
+        <span className="td--emphasis-name">
+          {v || "—"}
+        </span>
+      ),
+    },
+    {
+      key: "organization_cost",
+      label: "Org Cost",
+      className: "num",
+      render: (v) => (
+        <span className="amount-positive">
+          {formatCurrencyUSD(v)}
+        </span>
+      ),
+    },
+    {
+      key: "user_name",
+      label: "User",
+      render: (v) =>
+        v ? v : <span className="muted">Unknown User</span>,
+    },
+    {
+      key: "user_cost",
+      label: "User Cost",
+      className: "num",
+      render: (v) => (
+        <span className="amount-positive">
+          {formatCurrencyUSD(v)}
+        </span>
+      ),
+    },
     // New Agents column from backend response (agents: string[])
     {
       key: "agents",
@@ -131,13 +125,13 @@ export default function Costs() {
       render: (_v, row) => {
         const names = Array.isArray(row?.agents) ? row.agents.filter(Boolean) : [];
         if (!names.length) return <span className="muted">-</span>;
-
+ 
         return (
           <button
             className="btn btn-link btn-sm"
             onClick={() =>
               openInspector(
-                `Agents used by ${row.__userDisplayName || row.user_name || "User"}`,
+                `Agents used by ${row.user_name || "User"}`,
                 names
               )
             }
@@ -148,7 +142,7 @@ export default function Costs() {
       },
       minWidth: 120,
     },
-
+ 
     {
       key: "projects",
       label: "Projects",
@@ -172,11 +166,11 @@ export default function Costs() {
       ),
     },
   ], []);
-
+ 
   /* =========================
      Data Fetching
   ========================= */
-
+ 
   async function doFetch(nextPage = page, nextLimit = limit, opts = {}) {
     // Cancel any in-flight request
     if (abortRef.current) {
@@ -184,13 +178,13 @@ export default function Costs() {
     }
     const controller = new AbortController();
     abortRef.current = controller;
-
+ 
     setLoading(true);
     setError("");
-
+ 
     // Effective filters: always use committed values unless explicitly overridden via opts
     const effectiveOrgId = (opts.organization_id ?? committedOrgId) || undefined;
-
+ 
     // Build params
     const params = {
       organization_id: effectiveOrgId,
@@ -199,7 +193,7 @@ export default function Costs() {
       ...(opts.filter ? { filter: opts.filter } : {}),
       ...(opts.sort ? { sort: opts.sort } : {}),
     };
-
+ 
     // Update URL query to reflect current committed state (page, limit, and org filter)
     try {
       if (typeof window !== "undefined" && window.history?.replaceState) {
@@ -214,27 +208,15 @@ export default function Costs() {
     } catch {
       // non-critical
     }
-
+ 
     try {
-      const res = await listLlmCostsUnderscore(params, {
-        signal: controller.signal,
-      });
+      const res = await listLlmCostsUnderscore(params, { signal: controller.signal });
       const rows = Array.isArray(res?.items) ? res.items : [];
-
+ 
       setItems(rows);
       setTotal(typeof res?.total === "number" ? res.total : rows.length);
       setPage(nextPage);
       setLimit(nextLimit);
-
-      // Best-effort: build an id->name map using embedded fields + /api/users
-      try {
-        const map = await buildUserIdToNameMap(rows, {
-          signal: controller.signal,
-        });
-        setUserIdToName(map);
-      } catch {
-        // non-fatal; fallbacks will apply
-      }
     } catch (e) {
       // Swallow abort errors
       if (e?.name === "AbortError") return;
@@ -244,13 +226,13 @@ export default function Costs() {
       abortRef.current = null;
     }
   }
-
+ 
   // On mount: do NOT auto-load. Only Load button and pagination should trigger requests.
   // We keep the state from URL so the user can see params, but no fetch until they click Load.
   useEffect(() => {
     // intentionally no-op
   }, []);
-
+ 
   // When page or limit changes due to pagination controls, re-fetch using committed filters.
   // Note: We avoid triggering when there is no committedOrgId and initial load hasn't happened yet.
   useEffect(() => {
@@ -263,30 +245,30 @@ export default function Costs() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, limit]);
-
+ 
   // If page size changes via the select, reset to page 1 (pagination control will trigger fetch effect)
   useEffect(() => {
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [limit]);
-
+ 
   const fetchPage = async (p, l) => {
     await doFetch(p, l);
   };
-
+ 
   // Handle Load: commit current pending filters and fetch page=1
   const onLoadClick = async () => {
     // Commit current filters for subsequent pagination use
     setCommittedOrgId(pendingOrgId);
-
+ 
     // Reset to first page on a new load and fetch immediately using committed filters
     await doFetch(1, limit, { organization_id: pendingOrgId });
   };
-
+ 
   /* =========================
      Render
   ========================= */
-
+ 
   return (
     <div>
       <Card
@@ -313,7 +295,7 @@ export default function Costs() {
             onChange={(e) => setPendingOrgId(e.target.value)}
             style={{ minWidth: 260 }}
           />
-
+ 
           <button
             className="btn btn-primary"
             type="button"
@@ -322,7 +304,7 @@ export default function Costs() {
           >
             {loading ? "Loading..." : "Load"}
           </button>
-
+ 
           {error && (
             <div
               className="error"
@@ -332,9 +314,9 @@ export default function Costs() {
               {error}
             </div>
           )}
-
+ 
           <div style={{ flex: 1 }} />
-
+ 
           <label
             htmlFor="costs-pagesize"
             className="muted"
@@ -342,7 +324,7 @@ export default function Costs() {
           >
             Page size
           </label>
-
+ 
           <select
             id="costs-pagesize"
             className="input"
@@ -363,7 +345,7 @@ export default function Costs() {
               </option>
             ))}
           </select>
-
+ 
           <button
             className="btn btn-secondary"
             type="button"
@@ -373,7 +355,7 @@ export default function Costs() {
             View rows
           </button>
         </div>
-
+ 
         {/* Table */}
         {(!loading && items.length === 0) ? (
           <div className="empty-state">
@@ -382,7 +364,7 @@ export default function Costs() {
         ) : (
           <DataTable
             columns={columns}
-            data={itemsWithUserDisplay}
+            data={items}
             loading={loading}
             pageSize={limit}
             initialPage={page}
@@ -393,7 +375,7 @@ export default function Costs() {
           />
         )}
       </Card>
-
+ 
       {/* Inspector Modal */}
       <Modal
         title={inspectTitle}
