@@ -19,8 +19,14 @@ import { buildQueryString } from './util';
  */
 export async function fetchSessionTracking(params = {}) {
   const {
-    page, limit, tenant_id, sort, q,
-    // ignore any deprecated params that callers might send
+    page,
+    limit,
+    tenant_id,
+    sort,
+    q,
+    from,
+    to,
+    // ignore any other deprecated params that callers might send
   } = params || {};
 
   const safeParams = {};
@@ -29,6 +35,10 @@ export async function fetchSessionTracking(params = {}) {
   if (tenant_id !== undefined) safeParams.tenant_id = tenant_id;
   if (sort !== undefined) safeParams.sort = sort;
   if (q !== undefined) safeParams.q = q;
+
+  // Users Analytics requires server-side time filtering; forward ISO range.
+  if (from !== undefined) safeParams.from = from;
+  if (to !== undefined) safeParams.to = to;
 
   const qs = buildQueryString(safeParams);
   const url = `/api/session-tracking${qs}`;
