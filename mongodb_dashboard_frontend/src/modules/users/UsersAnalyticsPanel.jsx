@@ -11,18 +11,26 @@ import {
   Legend,
 } from "recharts";
 import { useUsers } from "../../hooks/useUsers";
-import { getUserProjects } from "../../api/users";
+import { listSessions } from "../../api/baseClient";
 import { getActiveTenant } from "../../utils/tenantClient";
 import Skeleton from "../../components/ui/Skeleton";
+import useDebouncedValue from "../../hooks/useDebouncedValue";
 
 /**
  * PUBLIC_INTERFACE
  * UsersAnalyticsPanel
  * A charts/analytics panel for the Users page, with independent filters.
  *
- * Data source:
- * - Reuses /api/users to get users, then uses /api/users/:userId/projects
- *   to fetch per-user projects when available.
+ * Optimization / bug fix:
+ * - Previously, this panel called `/api/users/:userId/projects` once per user.
+ *   Selecting a Quick Range therefore triggered N requests (N = number of users).
+ * - Now it performs a SINGLE request to session tracking for the selected
+ *   date range and computes per-user aggregates client-side.
+ *
+ * Preserved behavior:
+ * - The bar chart still represents sessions count per user (`total_count`).
+ * - Tooltip continues showing derived "Projects" count (distinct projects seen)
+ *   and "Sessions" count for the selected range.
  *
  * Filters:
  * - Quick range + Custom date range.
@@ -60,21 +68,15 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     let start;
     let end;
 
-    /** -------------------------
-     * CUSTOM DATE RANGE
-     * ------------------------*/
+    // CUSTOM DATE RANGE
     if (customStart && customEnd) {
       const s = parseYMD(customStart);
       const e = parseYMD(customEnd);
 
       start = utcStartOfDay(s.y, s.m0, s.d);
       end = utcEndOfDay(e.y, e.m0, e.d);
-    }
-
-    /** -------------------------
-     * QUICK RANGE PRESETS
-     * ------------------------*/
-    else {
+    } else {
+      // QUICK RANGE PRESETS
       const now = new Date();
       const y = now.getUTCFullYear();
       const m = now.getUTCMonth();
@@ -85,14 +87,12 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
         start = utcStartOfDay(y, m, d);
         end = utcEndOfDay(y, m, d);
       }
-
       // Yesterday
       else if (days === -1) {
         const yd = new Date(Date.UTC(y, m, d - 1));
         start = utcStartOfDay(yd.getUTCFullYear(), yd.getUTCMonth(), yd.getUTCDate());
         end = utcEndOfDay(yd.getUTCFullYear(), yd.getUTCMonth(), yd.getUTCDate());
       }
-
       // Last N days (inclusive)
       else {
         end = utcEndOfDay(y, m, d);
@@ -110,7 +110,13 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     return { startISO: start.toISOString(), endISO: end.toISOString() };
   }, [customStart, customEnd, days]);
 
-  // Live label for date range for accessibility
+  // Debounce range changes to prevent back-to-back fetches on rapid interactions
+  const debouncedRange = useDebouncedValue({ startISO, endISO, activeTenantId }, 200);
+  const debouncedStartISO = debouncedRange?.startISO;
+  const debouncedEndISO = debouncedRange?.endISO;
+  const debouncedTenantId = debouncedRange?.activeTenantId;
+
+  // Live label for date range for accessibility (use raw values so the label updates immediately)
   useEffect(() => {
     const start = new Date(startISO);
     const end = new Date(endISO);
@@ -126,66 +132,144 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   // Fetch users; table is unchanged elsewhere
   const { users, loading: usersLoading, error: usersError } = useUsers({ limit: 200 });
 
-  // Fetch projects per user when needed
+  // Aggregate session tracking ONCE per selection and compute per-user metrics.
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [sessionsError, setSessionsError] = useState("");
+
+  /**
+   * Per-user computed aggregates:
+   * {
+   *   [userId]: { total_count: number, projects: Array<{project_id, project_name, last_activity}> }
+   * }
+   */
   const [projectsByUser, setProjectsByUser] = useState({});
-  const [projectsLoading, setProjectsLoading] = useState(false);
-  const [projectsError, setProjectsError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
 
     async function run() {
-      if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
+      if (!Array.isArray(users) || users.length === 0 || !debouncedTenantId) {
         setProjectsByUser({});
         return;
       }
 
-      setProjectsLoading(true);
-      setProjectsError("");
-      const acc = {};
+      setSessionsLoading(true);
+      setSessionsError("");
 
       try {
-        // Fetch in small batches to avoid overloading backend
-        const batchSize = 8;
+        // We only need enough sessions to cover the users list. Keep the query bounded.
+        // NOTE: listSessions uses the shared API client (tenant scoping handled in client).
+        //
+        // Session tracking endpoint supports JSON `filter`. We restrict to the selected time window.
+        // Some records may store times as ISO strings; the backend filter builder should pass through.
+        const res = await listSessions({
+          page: 1,
+          limit: 5000,
+          sort: "-last_updated",
+          filter: JSON.stringify({
+            $or: [
+              { last_updated: { $gte: debouncedStartISO, $lte: debouncedEndISO } },
+              { session_start: { $gte: debouncedStartISO, $lte: debouncedEndISO } },
+            ],
+          }),
+        });
 
-        for (let i = 0; i < users.length; i += batchSize) {
-          const slice = users.slice(i, i + batchSize);
+        const rows = Array.isArray(res?.items) ? res.items : Array.isArray(res) ? res : [];
 
-          await Promise.all(
-            slice.map(async (u) => {
-              if (!u?._id) return;
+        // Build a lookup for the users currently displayed.
+        const allowedUserIds = new Set(
+          (users || [])
+            .map((u) => (u?._id ? String(u._id) : u?.id ? String(u.id) : ""))
+            .filter(Boolean)
+        );
 
-              try {
-                // IMPORTANT: startISO/endISO are full-day UTC bounds by construction.
-                // Use shared API helper so ISODate wrapping stays consistent.
-                const res = await getUserProjects(String(u._id), {
-                  organization_id: activeTenantId,
-                  from: startISO,
-                  to: endISO,
-                });
+        const acc = {};
 
-                // Preserve full response so we can access:
-                // - res.projects (distinct projects)
-                // - res.total_count (sessions count)
-                acc[String(u._id)] = res || { projects: [] };
-              } catch {
-                // Preserve prior behavior: user still exists, but no projects response.
-                acc[String(u._id)] = acc[String(u._id)] || { projects: [] };
-              }
-            })
+        const getUserIdFromSession = (row) => {
+          const uid =
+            row?.user_id ??
+            row?.userId ??
+            row?.user?.id ??
+            row?.user?._id ??
+            row?.user?.user_id;
+          return uid ? String(uid) : "";
+        };
+
+        const getProjectIdFromSession = (row) => {
+          return (
+            row?.project_id ??
+            row?.projectId ??
+            row?.project?.id ??
+            row?.session_data?.project_id ??
+            row?.session_data?.projectId ??
+            row?.metadata?.project_id ??
+            null
           );
+        };
 
-          if (cancelled) return;
+        const getProjectNameFromSession = (row) => {
+          return (
+            row?.project_name ??
+            row?.projectName ??
+            row?.project?.name ??
+            row?.metadata?.project_name ??
+            row?.metadata?.projectName ??
+            null
+          );
+        };
+
+        const getLastActivityISO = (row) => {
+          const candidate = row?.last_updated ?? row?.lastUpdated ?? row?.session_end ?? row?.session_start;
+          const d = candidate ? new Date(candidate) : null;
+          return d && !Number.isNaN(d.getTime()) ? d.toISOString() : null;
+        };
+
+        for (const row of rows) {
+          const uid = getUserIdFromSession(row);
+          if (!uid || !allowedUserIds.has(uid)) continue;
+
+          if (!acc[uid]) {
+            acc[uid] = { total_count: 0, projects: [] };
+          }
+
+          acc[uid].total_count += 1;
+
+          const projectIdRaw = getProjectIdFromSession(row);
+          const projectId = projectIdRaw == null ? null : String(projectIdRaw);
+          if (!projectId) continue;
+
+          const lastActivity = getLastActivityISO(row);
+          const projectName = getProjectNameFromSession(row);
+
+          const existing = acc[uid].projects.find((p) => String(p?.project_id) === projectId);
+
+          if (!existing) {
+            acc[uid].projects.push({
+              project_id: projectId,
+              project_name: projectName == null ? null : String(projectName),
+              last_activity: lastActivity,
+            });
+          } else if (lastActivity) {
+            // Keep most recent last_activity
+            const prev = existing.last_activity ? new Date(existing.last_activity) : null;
+            const next = new Date(lastActivity);
+            if (!prev || next > prev) {
+              existing.last_activity = lastActivity;
+            }
+            if (!existing.project_name && projectName) {
+              existing.project_name = String(projectName);
+            }
+          }
         }
 
         if (!cancelled) setProjectsByUser(acc);
       } catch (e) {
         if (!cancelled) {
-          setProjectsError(e?.message || "Failed to load user projects.");
+          setSessionsError(e?.message || "Failed to load user analytics.");
           setProjectsByUser({});
         }
       } finally {
-        if (!cancelled) setProjectsLoading(false);
+        if (!cancelled) setSessionsLoading(false);
       }
     }
 
@@ -193,7 +277,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     return () => {
       cancelled = true;
     };
-  }, [users, activeTenantId, startISO, endISO]);
+  }, [users, debouncedTenantId, debouncedStartISO, debouncedEndISO]);
 
   const aggregates = useMemo(() => {
     const projectsCountByUser = [];
@@ -202,14 +286,8 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       const uid = String(u?._id || u?.id || "");
       const res = projectsByUser[uid];
 
-      // Existing behavior (Projects): derived from distinct projects list length
-      const projectsCount = Array.isArray(res?.projects)
-        ? res.projects.length
-        : Array.isArray(res)
-          ? res.length
-          : 0;
+      const projectsCount = Array.isArray(res?.projects) ? res.projects.length : 0;
 
-      // New behavior (Sessions): derived from backend total_count
       const sessionsCount =
         typeof res?.total_count === "number"
           ? res.total_count
@@ -286,31 +364,17 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
               aria-label="Custom date range"
               style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
             >
-              <input
-                type="date"
-                aria-label="Start date"
-                className="ui-input"
-                onChange={onCustomStartChange}
-              />
+              <input type="date" aria-label="Start date" className="ui-input" onChange={onCustomStartChange} />
               <span aria-hidden="true" style={{ color: subtle }}>
                 to
               </span>
-              <input
-                type="date"
-                aria-label="End date"
-                className="ui-input"
-                onChange={onCustomEndChange}
-              />
+              <input type="date" aria-label="End date" className="ui-input" onChange={onCustomEndChange} />
             </div>
           </div>
         </div>
 
         <div className="card-content" style={{ paddingTop: 8 }}>
-          <div
-            id={ariaDateId}
-            aria-live="polite"
-            style={{ fontSize: 12, color: subtle, marginBottom: 8 }}
-          >
+          <div id={ariaDateId} aria-live="polite" style={{ fontSize: 12, color: subtle, marginBottom: 8 }}>
             {dateLiveLabel}
           </div>
 
@@ -322,7 +386,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
               </div>
 
               <div className="card-content" style={{ height: 340 }}>
-                {usersLoading || projectsLoading ? (
+                {usersLoading || sessionsLoading ? (
                   <div aria-busy="true">
                     <Skeleton width="60%" height={14} className="mb-2" />
                     <Skeleton width="50%" height={12} className="mb-2" />
@@ -332,18 +396,15 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                   <div className="error" role="alert">
                     {usersError.message || "Failed to load users"}
                   </div>
-                ) : projectsError ? (
+                ) : sessionsError ? (
                   <div className="error" role="alert">
-                    {projectsError}
+                    {sessionsError}
                   </div>
                 ) : aggregates.projectsCountByUser.length === 0 ? (
                   <div className="screen-center">No sessions data</div>
                 ) : (
                   <ResponsiveContainer>
-                    <BarChart
-                      data={aggregates.projectsCountByUser.slice(0, 20)}
-                      margin={{ top: 8, right: 16, bottom: 24, left: 8 }}
-                    >
+                    <BarChart data={aggregates.projectsCountByUser.slice(0, 20)} margin={{ top: 8, right: 16, bottom: 24, left: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke={grid} />
                       <XAxis
                         dataKey="user"
@@ -360,9 +421,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
                           const row = payload?.[0]?.payload || {};
                           const projectsCount = Number.isFinite(Number(row?.count)) ? Number(row.count) : 0;
-                          const sessionsCount = Number.isFinite(Number(row?.total_count))
-                            ? Number(row.total_count)
-                            : 0;
+                          const sessionsCount = Number.isFinite(Number(row?.total_count)) ? Number(row.total_count) : 0;
 
                           return (
                             <div
@@ -384,14 +443,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                                 <span style={{ fontWeight: 600 }}>{projectsCount}</span>
                               </div>
 
-                              <div
-                                style={{
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                  gap: 12,
-                                  marginTop: 4,
-                                }}
-                              >
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 4 }}>
                                 <span style={{ color: "#6B7280" }}>Sessions:</span>
                                 <span style={{ fontWeight: 600 }}>{sessionsCount}</span>
                               </div>
@@ -400,13 +452,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                         }}
                       />
                       <Legend />
-                      <Bar
-                        dataKey="total_count"
-                        name="Sessions"
-                        fill={primary}
-                        stroke={primary}
-                        radius={[6, 6, 0, 0]}
-                      />
+                      <Bar dataKey="total_count" name="Sessions" fill={primary} stroke={primary} radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
