@@ -110,3 +110,34 @@ export async function getLlmCostsByOrganization({ organization_id, page = 1, lim
   });
   return data;
 }
+
+/**
+ * PUBLIC_INTERFACE
+ * getLlmCostsByUser
+ * Fetch LLM costs rows for a specific user from the underscore endpoint:
+ *   GET /api/llm_costs?organization_id=...&user_id=...&page=...&limit=...
+ *
+ * Notes:
+ * - We pass organization_id when provided to preserve tenant scoping for demo/non-JWT contexts.
+ * - The backend is expected to return rows that include a `user_cost` field.
+ *
+ * @param {Object} params
+ * @param {string} params.user_id selected user id (required)
+ * @param {string} [params.organization_id] tenant/org id (optional but recommended)
+ * @param {number} [params.page] page number (default 1)
+ * @param {number} [params.limit] page size (default 10)
+ * @returns {Promise<any>}
+ */
+export async function getLlmCostsByUser({ user_id, organization_id, page = 1, limit = 10 } = {}) {
+  if (!user_id) throw new Error('user_id is required');
+  const api = getApiClient();
+  const { data } = await api.get('/api/llm_costs', {
+    params: {
+      ...(organization_id ? { organization_id } : {}),
+      user_id,
+      page,
+      limit,
+    },
+  });
+  return data;
+}

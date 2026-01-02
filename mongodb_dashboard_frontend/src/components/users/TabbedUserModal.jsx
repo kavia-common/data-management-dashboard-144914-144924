@@ -6,7 +6,7 @@ import Modal from '../ui/Modal.jsx';
 
 // Shared components/utilities
 import { listSessions } from '../../api/baseClient';
-import { getLlmCostsByOrganization, getUserSessionDetails } from '../../api/users';
+import { getLlmCostsByUser, getUserSessionDetails } from '../../api/users';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
@@ -488,7 +488,7 @@ export default function TabbedUserModal({
       );
     }, [currentOrgId]);
 
-    function parseOrgCost(value) {
+    function parseUserCost(value) {
       if (value == null) return null;
       if (typeof value === 'number' && Number.isFinite(value)) return value;
       if (typeof value === 'string') {
@@ -501,14 +501,16 @@ export default function TabbedUserModal({
     }
 
     async function load() {
-      // Credits consumed is organization-scoped; userId is not required to load.
-      if (!effectiveOrgId) return;
-
+      // Credits consumed is user-scoped; we need a selected user.
+      if (!userId) return;
+      // Preserve prior behavior of using an effective org id when available (demo/non-JWT contexts).
+      // If not available, the request may still succeed in JWT-based environments.
       setLoading(true);
       setError('');
 
       try {
-        const payload = await getLlmCostsByOrganization({
+        const payload = await getLlmCostsByUser({
+          user_id: userId,
           organization_id: effectiveOrgId || undefined,
           page: 1,
           limit: 10,
@@ -520,12 +522,10 @@ export default function TabbedUserModal({
             ? payload.data
             : [];
 
-        // Requested: show organization_cost as "Total Cost".
-        // /api/llm_costs typically returns one row per org with organization_cost already aggregated.
-        // When multiple rows appear (pagination/duplication), pick the first non-null/non-zero value,
-        // otherwise fall back to the max value to avoid accidental double counting.
+        // Requested: show user_cost as "Total Cost" for the selected user.
+        // Similar defensive approach: pick the first non-null/non-zero value, else max, to avoid double counting.
         const parsedValues = llmCosts
-          .map((item) => parseOrgCost(item?.organization_cost))
+          .map((item) => parseUserCost(item?.user_cost))
           .filter((v) => v != null);
 
         const firstNonZero = parsedValues.find((v) => v > 0);
@@ -541,14 +541,14 @@ export default function TabbedUserModal({
     }
 
     useEffect(() => {
-      // Clear any stale values when switching org context.
+      // Clear any stale values when switching selected user or org context.
       setTotalCost(null);
       setError('');
       setHasLoaded(false);
 
       load();
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [effectiveOrgId]);
+    }, [userId, effectiveOrgId]);
 
     const formattedTotalCost =
       typeof totalCost === 'number' && Number.isFinite(totalCost)
@@ -581,10 +581,10 @@ export default function TabbedUserModal({
           <div style={{ fontSize: 20, fontWeight: 700 }}>
             {loading ? 'Loading…' : formattedTotalCost}
           </div>
-          {/* Small context line to reduce confusion when no org is available */}
-          {!effectiveOrgId && (
+          {/* Small context line to reduce confusion when no user is available */}
+          {!userId && (
             <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary,#475569)' }}>
-              Select an organization to view credits consumed.
+              Select a user to view credits consumed.
             </div>
           )}
         </div>
@@ -612,16 +612,11 @@ export default function TabbedUserModal({
               Retry
             </button>
           </div>
-        ) : !effectiveOrgId ? (
-          <div className="table-empty">No organization selected.</div>
+        ) : !userId ? (
+          <div className="table-empty">No user selected.</div>
         ) : hasLoaded && totalCost == null ? (
           <div className="table-empty">No credits consumed records found.</div>
         ) : null}
-
-        {/* Keep userId referenced so prop remains meaningful for future enhancements (user-scoped drilldown). */}
-        <div style={{ display: 'none' }} aria-hidden="true">
-          {userId}
-        </div>
       </div>
     );
   }
