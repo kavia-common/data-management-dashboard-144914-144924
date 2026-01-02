@@ -475,7 +475,7 @@ export default function TabbedUserModal({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [rows, setRows] = useState([]);
-    const [totalCost, setTotalCost] = useState(0);
+    const [totalCost, setTotalCost] = useState(null);
 
     // Prefer an explicit organization id from the selected user when present; otherwise fall back
     // to the currently active org derived from auth/session context.
@@ -490,8 +490,21 @@ export default function TabbedUserModal({
       );
     }, [currentOrgId]);
 
+    function parseOrgCost(value) {
+      if (value == null) return null;
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      if (typeof value === 'string') {
+        const cleaned = value.replace(/\$/g, '').replace(/,/g, '').trim();
+        const num = Number(cleaned);
+        return Number.isFinite(num) ? num : null;
+      }
+      const num = Number(value);
+      return Number.isFinite(num) ? num : null;
+    }
+
     async function load() {
-      if (!userId) return;
+      // Credits consumed is organization-scoped; userId is not required to load.
+      if (!effectiveOrgId) return;
 
       setLoading(true);
       setError('');
@@ -512,17 +525,19 @@ export default function TabbedUserModal({
         setRows(llmCosts);
 
         // Requested: show organization_cost as "Total Cost".
-        // If multiple rows/records are returned, aggregate by summing organization_cost values.
-        const orgCostSum = llmCosts.reduce((acc, item) => {
-          const val = item?.organization_cost;
-          const num = typeof val === 'number' ? val : Number(val);
-          return Number.isFinite(num) ? acc + num : acc;
-        }, 0);
+        // /api/llm_costs typically returns one row per org with organization_cost already aggregated.
+        // When multiple rows appear (pagination/duplication), pick the first non-null/non-zero value,
+        // otherwise fall back to the max value to avoid accidental double counting.
+        const parsedValues = llmCosts
+          .map((item) => parseOrgCost(item?.organization_cost))
+          .filter((v) => v != null);
 
-        setTotalCost(orgCostSum);
+        const firstNonZero = parsedValues.find((v) => v > 0);
+        const maxVal = parsedValues.length ? Math.max(...parsedValues) : null;
+        setTotalCost(firstNonZero ?? maxVal);
       } catch (e) {
         setRows([]);
-        setTotalCost(0);
+        setTotalCost(null);
         setError(e?.message || 'Failed to load credits consumed.');
       } finally {
         setLoading(false);
@@ -532,12 +547,40 @@ export default function TabbedUserModal({
     useEffect(() => {
       load();
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [userId, effectiveOrgId]);
+    }, [effectiveOrgId]);
 
     const formattedTotalCost =
       typeof totalCost === 'number' && Number.isFinite(totalCost)
         ? formatUsdUpToSixDecimals(totalCost)
         : '—';
+
+    const columns = useMemo(
+      () => [
+        { key: 'organization_id', label: 'Organization ID', priority: 1 },
+        { key: 'organization_name', label: 'Organization Name', priority: 1 },
+        {
+          key: 'organization_cost',
+          label: 'Organization Cost',
+          priority: 1,
+          render: (v) => {
+            const num = parseOrgCost(v);
+            return num != null ? formatUsdUpToSixDecimals(num) : (v ?? '—');
+          },
+        },
+        { key: 'users', label: 'Users' },
+        { key: 'projects', label: 'Projects' },
+        {
+          key: 'cost',
+          label: 'Cost',
+          render: (v) => {
+            const num = parseOrgCost(v);
+            return num != null ? formatUsdUpToSixDecimals(num) : (v ?? '—');
+          },
+        },
+      ],
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      []
+    );
 
     return (
       <div data-testid="credits-consumed-tab">
@@ -565,6 +608,12 @@ export default function TabbedUserModal({
           <div style={{ fontSize: 20, fontWeight: 700 }}>
             {loading ? 'Loading…' : formattedTotalCost}
           </div>
+          {/* Small context line to reduce confusion when no org is available */}
+          {!effectiveOrgId && (
+            <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-secondary,#475569)' }}>
+              Select an organization to view credits consumed.
+            </div>
+          )}
         </div>
 
         {loading ? (
@@ -589,12 +638,13 @@ export default function TabbedUserModal({
               Retry
             </button>
           </div>
-        ) : !userId ? (
-          <div className="table-empty">No user selected.</div>
+        ) : !effectiveOrgId ? (
+          <div className="table-empty">No organization selected.</div>
         ) : rows.length === 0 ? (
           <div className="table-empty">No credits consumed records found.</div>
         ) : (
           <DataTable
+            columns={columns}
             data={rows}
             loading={false}
             pageSize={10}
@@ -604,6 +654,11 @@ export default function TabbedUserModal({
             forceHorizontalScroll
           />
         )}
+
+        {/* Keep userId referenced so prop remains meaningful for future enhancements (user-scoped drilldown). */}
+        <div style={{ display: 'none' }} aria-hidden="true">
+          {userId}
+        </div>
       </div>
     );
   }
