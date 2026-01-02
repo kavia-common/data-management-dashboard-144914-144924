@@ -9,6 +9,7 @@ import DataTable from '../DataTable.jsx';
 
 import { listSessions, listLlmCosts } from '../../api/baseClient';
 import { getUserSessionDetails } from '../../api/users';
+import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
 import ProjectDetails from './ProjectDetails.jsx';
@@ -247,6 +248,8 @@ export default function TabbedUserModal({
 
   // Session Details Tab
   function SessionDetailsTab({ userId }) {
+    const currentOrgId = useCurrentOrgId();
+
     const [sessionDetails, setSessionDetails] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -258,7 +261,9 @@ export default function TabbedUserModal({
       setError('');
 
       try {
-        const data = await getUserSessionDetails(userId);
+        // Pass organization_id when available (required in some demo/non-JWT contexts)
+        const params = currentOrgId ? { organization_id: currentOrgId } : {};
+        const data = await getUserSessionDetails(userId, params);
         setSessionDetails(data || null);
       } catch (e) {
         setSessionDetails(null);
@@ -271,7 +276,7 @@ export default function TabbedUserModal({
     useEffect(() => {
       load();
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [userId]);
+    }, [userId, currentOrgId]);
 
     const AggregatesPanel = () => {
       if (loading) {
@@ -346,9 +351,7 @@ export default function TabbedUserModal({
         marginBottom: 12,
       };
 
-      // Bind new backend fields (requested):
-      //  - Number of Sessions -> total_count
-      //  - Total Duration -> total_duration
+      // Existing fields (kept)
       const totalCount =
         sessionDetails?.total_count ??
         sessionDetails?.totalCount ??
@@ -358,6 +361,29 @@ export default function TabbedUserModal({
         sessionDetails?.total_duration ??
         sessionDetails?.totalDuration ??
         sessionDetails?.duration_total;
+
+      // New fields (requested)
+      const organizationName =
+        sessionDetails?.organization_name ??
+        sessionDetails?.organizationName ??
+        sessionDetails?.org_name ??
+        sessionDetails?.tenant_name ??
+        null;
+
+      const rawServiceTypes = sessionDetails?.service_type ?? sessionDetails?.serviceType ?? [];
+      const serviceTypesDeduped = Array.from(
+        new Set(
+          (Array.isArray(rawServiceTypes) ? rawServiceTypes : [rawServiceTypes])
+            .filter((v) => v != null && String(v).trim() !== '')
+            .map((v) => String(v))
+        )
+      );
+
+      const totalCost =
+        sessionDetails?.total_cost ??
+        sessionDetails?.totalCost ??
+        sessionDetails?.cost_total ??
+        null;
 
       return (
         <section aria-label="Aggregated session details" style={cardStyle}>
@@ -385,22 +411,24 @@ export default function TabbedUserModal({
               </div>
             </div>
 
-            {/* Kept for visual consistency; backend response doesn't provide this in the new contract */}
+            {/* Kept for visual consistency; backend response doesn't provide this in the contract */}
             <div>
               <span style={labelStyle}>Agents used</span>
               <div style={valueStyle}>—</div>
             </div>
 
-            {/* Kept for visual consistency; backend response doesn't provide this in the new contract */}
             <div>
-              <span style={labelStyle}>Service type</span>
-              <div style={valueStyle}>—</div>
+              <span style={labelStyle}>Service Type</span>
+              <div style={valueStyle} title={serviceTypesDeduped.join(', ') || undefined}>
+                {serviceTypesDeduped.length ? serviceTypesDeduped.join(', ') : '—'}
+              </div>
             </div>
 
-            {/* Kept for visual consistency; backend response doesn't provide this in the new contract */}
             <div>
               <span style={labelStyle}>Organization</span>
-              <div style={valueStyle}>—</div>
+              <div style={valueStyle} title={organizationName ? String(organizationName) : undefined}>
+                {organizationName ? String(organizationName) : '—'}
+              </div>
             </div>
 
             <div>
@@ -412,17 +440,23 @@ export default function TabbedUserModal({
 
             <div>
               <span style={labelStyle}>Total Duration</span>
-              <div style={valueStyle} title={totalDuration != null ? String(totalDuration) : undefined}>
+              <div
+                style={valueStyle}
+                title={totalDuration != null ? String(totalDuration) : undefined}
+              >
                 {totalDuration != null && String(totalDuration).trim() !== ''
                   ? String(totalDuration)
                   : '—'}
               </div>
             </div>
 
-            {/* Kept for visual consistency with existing grid; cost is shown in Credits tab */}
             <div>
-              <span style={labelStyle}>Total Cost consumed</span>
-              <div style={valueStyle}>—</div>
+              <span style={labelStyle}>Total Cost</span>
+              <div style={valueStyle} title={totalCost != null ? String(totalCost) : undefined}>
+                {totalCost != null && Number.isFinite(Number(totalCost))
+                  ? formatUsdUpToSixDecimals(Number(totalCost))
+                  : '—'}
+              </div>
             </div>
           </div>
         </section>
