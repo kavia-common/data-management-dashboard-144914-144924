@@ -42,8 +42,6 @@ describe('TenantSelection (restricted single-tenant)', () => {
         <TenantSelection />
       </AuthProvider>
     );
-    expect(
-      screen.getByText(/No tenant is associated with your account/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/No tenant is associated with your account/i)).toBeInTheDocument();
   });
-}
+});
