@@ -213,14 +213,21 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
               userFromList?.email ||
               id;
 
+            // `total_count` is what the bar chart renders (currently labelled "Sessions" in the UI).
             const total_count = Number.isFinite(Number(shapedUser?.total_count))
               ? Number(shapedUser.total_count)
               : 0;
 
-            return { id, name, total_count };
+            // Tooltip expects projects_count; batch response provides projects[].
+            const projects_count = Array.isArray(shapedUser?.projects) ? shapedUser.projects.length : 0;
+
+            return { id, name, total_count, projects_count };
           });
 
-          const totalSum = rows.reduce((acc, r) => acc + (Number.isFinite(r.total_count) ? r.total_count : 0), 0);
+          const totalSum = rows.reduce(
+            (acc, r) => acc + (Number.isFinite(r.total_count) ? r.total_count : 0),
+            0
+          );
 
           setDebugInfo({
             organization_id: activeTenantId,
@@ -271,8 +278,12 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       const res = projectsByUser?.[uid];
 
       // Latest backend shape: res is an object { total_count, projects, name?/user_name? }
-      // Ensure total_count is numeric (0 when missing) to prevent invisible bars.
+      // Ensure numeric fields to prevent invisible bars / tooltip NaNs.
       const total_count = Number.isFinite(Number(res?.total_count)) ? Number(res.total_count) : 0;
+
+      // Projects count is derived from the projects array returned by the batch endpoint.
+      // This powers the tooltip "Projects" value.
+      const projects_count = Array.isArray(res?.projects) ? res.projects.length : 0;
 
       const name =
         res?.name ||
@@ -282,7 +293,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
         u?.email ||
         uid;
 
-      activityByUserRows.push({ id: uid, name, total_count });
+      activityByUserRows.push({ id: uid, name, total_count, projects_count });
     }
 
     activityByUserRows.sort((a, b) => (b.total_count || 0) - (a.total_count || 0));
