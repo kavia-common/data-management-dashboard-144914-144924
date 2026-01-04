@@ -13,6 +13,7 @@ import {
 import { useUsers } from "../../hooks/useUsers";
 import { getUserProjects, getUsersProjectsBatch } from "../../api/users";
 import { getActiveTenant } from "../../utils/tenantClient";
+import { getOrganizationId } from "../../api/authTokenProvider";
 import Skeleton from "../../components/ui/Skeleton";
 
 /**
@@ -22,7 +23,7 @@ import Skeleton from "../../components/ui/Skeleton";
  *
  * Data source:
  * - Reuses /api/users to get users, then uses /api/users/:userId/projects
- *   to fetch per-user projects when available.
+ *   (or batch POST /api/users/projects) to fetch per-user projects/activity.
  *
  * Filters:
  * - Quick range + Custom date range.
@@ -39,8 +40,10 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   const [customEnd, setCustomEnd] = useState(null);
   const [dateLiveLabel, setDateLiveLabel] = useState("");
 
-  // Active tenant (scoped by client too, but visible here for explicit query params when needed)
-  const activeTenantId = getActiveTenant?.() || null;
+  // Active tenant/org id.
+  // IMPORTANT: some flows store it as `activeOrganization` (preferred),
+  // older flows store it as `activeTenant`. Read both.
+  const activeTenantId = getOrganizationId?.() || getActiveTenant?.() || null;
 
   /**
    * Compute date range ISO strings for API query params.
@@ -60,9 +63,9 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     let start;
     let end;
 
-    /** -------------------------
-     * CUSTOM DATE RANGE
-     * ------------------------*/
+    // -------------------------
+    // CUSTOM DATE RANGE
+    // -------------------------
     if (customStart && customEnd) {
       const s = parseYMD(customStart);
       const e = parseYMD(customEnd);
@@ -71,9 +74,9 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       end = utcEndOfDay(e.y, e.m0, e.d);
     }
 
-    /** -------------------------
-     * QUICK RANGE PRESETS
-     * ------------------------*/
+    // -------------------------
+    // QUICK RANGE PRESETS
+    // -------------------------
     else {
       const now = new Date();
       const y = now.getUTCFullYear();
@@ -126,7 +129,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   // Fetch users; table is unchanged elsewhere
   const { users, loading: usersLoading, error: usersError } = useUsers({ limit: 200 });
 
-  // Fetch projects per user when needed
+  // Fetch projects/activity per user when needed
   const [projectsByUser, setProjectsByUser] = useState({});
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState("");
@@ -156,19 +159,56 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
           to: endISO,
         });
 
-        const map = batchRes?.data && typeof batchRes.data === "object" ? batchRes.data : {};
+        const dataMap =
+          batchRes?.data && typeof batchRes.data === "object" ? batchRes.data : {};
 
-        // Normalize to the same per-user shape UsersAnalyticsPanel already expects:
-        // { [userId]: { projects: [...] } }
+        // Support totals maps if backend provides them separately.
+        const totalsMap =
+          (batchRes?.totals && typeof batchRes.totals === "object" && batchRes.totals) ||
+          (batchRes?.total_count &&
+            typeof batchRes.total_count === "object" &&
+            batchRes.total_count) ||
+          {};
+
+        // Normalize to a stable per-user shape:
+        // { [userId]: { projects: [...], total_count: number } }
         const acc = {};
         for (const uid of userIds) {
-          acc[uid] = { projects: Array.isArray(map?.[uid]) ? map[uid] : [] };
+          const raw = dataMap?.[uid];
+
+          // If backend already returns an object, preserve its fields.
+          if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+            const projects = Array.isArray(raw?.projects) ? raw.projects : [];
+            const totalCount =
+              typeof raw?.total_count === "number"
+                ? raw.total_count
+                : Number.isFinite(Number(raw?.total_count))
+                  ? Number(raw.total_count)
+                  : Number.isFinite(Number(totalsMap?.[uid]))
+                    ? Number(totalsMap[uid])
+                    : 0;
+
+            acc[uid] = { ...raw, projects, total_count: totalCount };
+            continue;
+          }
+
+          // Otherwise assume it's an array of projects.
+          const projects = Array.isArray(raw) ? raw : [];
+          const totalCount = Number.isFinite(Number(totalsMap?.[uid])) ? Number(totalsMap[uid]) : 0;
+
+          acc[uid] = { projects, total_count: totalCount };
+        }
+
+        // If batch returns no session counts at all, treat it as unusable for the chart
+        // and fall back to per-user.
+        const anySessionCounts = Object.values(acc).some((v) => Number(v?.total_count || 0) > 0);
+        if (!anySessionCounts) {
+          throw new Error("Batch projects response missing session counts");
         }
 
         if (!cancelled) setProjectsByUser(acc);
       } catch (e) {
-        // Safety fallback (keeps feature working even if batch route is unavailable):
-        // revert to per-user requests, but only when needed.
+        // Safety fallback: revert to per-user requests, but only when batch fails/unusable.
         try {
           const acc = {};
           const batchSize = 8;
@@ -186,9 +226,9 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                     from: startISO,
                     to: endISO,
                   });
-                  acc[String(u._id)] = res || { projects: [] };
+                  acc[String(u._id)] = res || { projects: [], total_count: 0 };
                 } catch {
-                  acc[String(u._id)] = acc[String(u._id)] || { projects: [] };
+                  acc[String(u._id)] = acc[String(u._id)] || { projects: [], total_count: 0 };
                 }
               })
             );
@@ -223,14 +263,14 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       const uid = String(u?._id || u?.id || "");
       const res = projectsByUser[uid];
 
-      // Existing behavior (Projects): derived from distinct projects list length
+      // Projects: derived from distinct projects list length
       const projectsCount = Array.isArray(res?.projects)
         ? res.projects.length
         : Array.isArray(res)
           ? res.length
           : 0;
 
-      // New behavior (Sessions): derived from backend total_count
+      // Sessions: derived from backend total_count
       const sessionsCount =
         typeof res?.total_count === "number"
           ? res.total_count
@@ -246,7 +286,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       });
     }
 
-    // IMPORTANT: Bars should be based on sessions count, so sort accordingly.
+    // Bars should be based on sessions count, so sort accordingly.
     projectsCountByUser.sort((a, b) => (b.total_count || 0) - (a.total_count || 0));
     return { projectsCountByUser };
   }, [users, projectsByUser]);

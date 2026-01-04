@@ -37,6 +37,7 @@
     ]
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.4.8",
     "cross-env": "^7.0.3",
     "http-proxy-middleware": "^2.0.6"
   }
