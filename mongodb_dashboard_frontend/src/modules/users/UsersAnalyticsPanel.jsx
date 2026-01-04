@@ -11,7 +11,7 @@ import {
   Legend,
 } from "recharts";
 import { useUsers } from "../../hooks/useUsers";
-import { getUserProjects, getUsersProjectsBatch } from "../../api/users";
+import { getUsersProjectsBatch } from "../../api/users";
 import { getActiveTenant } from "../../utils/tenantClient";
 import { getOrganizationId } from "../../api/authTokenProvider";
 import Skeleton from "../../components/ui/Skeleton";
@@ -194,71 +194,13 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
         if (!cancelled) setProjectsByUser(shaped);
       } catch (e) {
-        // Only fall back to per-user when the batch request truly fails (network/HTTP/etc).
-        // Avoid noisy per-user cascades on abort/cancel.
+        // IMPORTANT: Do not reintroduce per-user calls. If the batch request fails, surface an error.
+        // Avoid overwriting state on abort/cancel.
         if (e?.name === "AbortError" || cancelled) return;
 
-        const isHttpOrNetworkError =
-          typeof e?.status === "number" || // our fetch client attaches status for HTTP errors
-          e?.name === "TypeError" || // fetch network errors often surface as TypeError
-          /network|failed to fetch/i.test(String(e?.message || ""));
-
-        if (!isHttpOrNetworkError) {
-          if (!cancelled) {
-            setProjectsError(e?.message || "Failed to load user projects.");
-            setProjectsByUser({});
-          }
-          return;
-        }
-
-        if (debugEnabled && process.env.NODE_ENV !== "production") {
-          // eslint-disable-next-line no-console
-          console.debug("[UsersAnalyticsPanel] batch failed; falling back to per-user calls:", {
-            message: e?.message,
-            status: e?.status,
-          });
-        }
-
-        try {
-          const acc = {};
-          const batchSize = 8;
-
-          for (let i = 0; i < users.length; i += batchSize) {
-            const slice = users.slice(i, i + batchSize);
-
-            await Promise.all(
-              slice.map(async (u) => {
-                if (!u?._id) return;
-
-                try {
-                  const res = await getUserProjects(
-                    String(u._id),
-                    {
-                      organization_id: activeTenantId,
-                      from: startISO,
-                      to: endISO,
-                    },
-                    { signal: controller.signal }
-                  );
-                  acc[String(u._id)] = res || { projects: [], total_count: 0 };
-                } catch (innerErr) {
-                  if (innerErr?.name === "AbortError") return;
-                  acc[String(u._id)] = acc[String(u._id)] || { projects: [], total_count: 0 };
-                }
-              })
-            );
-
-            if (cancelled) return;
-          }
-
-          if (!cancelled) setProjectsByUser(acc);
-        } catch (fallbackErr) {
-          if (!cancelled) {
-            setProjectsError(
-              fallbackErr?.message || e?.message || "Failed to load user projects."
-            );
-            setProjectsByUser({});
-          }
+        if (!cancelled) {
+          setProjectsError(e?.message || "Failed to load user projects (batch).");
+          setProjectsByUser({});
         }
       } finally {
         if (!cancelled) setProjectsLoading(false);
@@ -411,7 +353,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 <div className="card-subtitle">Counts derived from associated activity</div>
               </div>
 
-              <div className="card-content" style={{ height: 340 }}>
+              <div className="card-content" style={{ height: 340, minHeight: 340 }}>
                 {usersLoading || projectsLoading ? (
                   <div aria-busy="true">
                     <Skeleton width="60%" height={14} className="mb-2" />
