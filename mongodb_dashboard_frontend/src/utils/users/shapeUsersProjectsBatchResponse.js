@@ -31,16 +31,40 @@
 export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
   const ids = Array.isArray(userIds) ? userIds.map(String).filter(Boolean) : [];
 
+  const toNumber = (v, fallback = 0) => {
+    const n = typeof v === "number" ? v : Number(v);
+    return Number.isFinite(n) ? n : fallback;
+  };
+
+  const normalizeEntriesToObject = (maybeEntries) => {
+    // Supports array-of-entries format:
+    // - [ [userId, payload], ... ]   (Object.entries / Map-like)
+    // - [ { key, value }, ... ] or [ { user_id, ... }, ... ] (looser)
+    if (!Array.isArray(maybeEntries)) return null;
+
+    const obj = {};
+    for (const entry of maybeEntries) {
+      if (Array.isArray(entry) && entry.length >= 2) {
+        const k = String(entry[0] ?? "");
+        if (!k) continue;
+        obj[k] = entry[1];
+        continue;
+      }
+      if (entry && typeof entry === "object") {
+        const k = String(entry.key ?? entry.user_id ?? entry.id ?? "");
+        if (!k) continue;
+        obj[k] = entry.value ?? entry;
+      }
+    }
+    return obj;
+  };
+
   /**
    * Detect whether batchResponse.data is an *envelope* (i.e. it contains `data/items/results`)
    * or whether it is already the *data map* itself.
    *
    * This distinction is critical for the latest backend change:
    *   { success, tenant_id, data: { [userId]: { total_count, projects } } }
-   *
-   * In that new shape, batchResponse.data is the per-user map and MUST NOT be treated
-   * as an envelope, otherwise we end up looking up `dataMapRaw[uid]` on the envelope itself
-   * and silently zero-fill all users.
    */
   const dataEnvelopeCandidate =
     (batchResponse?.data && typeof batchResponse.data === "object" && batchResponse.data) || null;
@@ -48,22 +72,28 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
   const isEnvelopeObject =
     !!dataEnvelopeCandidate &&
     typeof dataEnvelopeCandidate === "object" &&
+    !Array.isArray(dataEnvelopeCandidate) &&
     (Object.prototype.hasOwnProperty.call(dataEnvelopeCandidate, "data") ||
       Object.prototype.hasOwnProperty.call(dataEnvelopeCandidate, "items") ||
       Object.prototype.hasOwnProperty.call(dataEnvelopeCandidate, "results"));
 
   const dataEnvelope = isEnvelopeObject ? dataEnvelopeCandidate : null;
 
-  const dataMapRaw =
+  const dataMapRawCandidate =
     // Wrapped envelope variants
-    (dataEnvelope?.data && typeof dataEnvelope.data === "object" && dataEnvelope.data) ||
-    (dataEnvelope?.items && typeof dataEnvelope.items === "object" && dataEnvelope.items) ||
-    (dataEnvelope?.results && typeof dataEnvelope.results === "object" && dataEnvelope.results) ||
+    (dataEnvelope?.data ?? dataEnvelope?.items ?? dataEnvelope?.results) ??
     // Alternate top-level map keys
-    (batchResponse?.items && typeof batchResponse.items === "object" && batchResponse.items) ||
-    (batchResponse?.results && typeof batchResponse.results === "object" && batchResponse.results) ||
+    batchResponse?.items ??
+    batchResponse?.results ??
     // New/common case: batchResponse.data is already the per-user map
-    (dataEnvelopeCandidate && typeof dataEnvelopeCandidate === "object" ? dataEnvelopeCandidate : {}) ||
+    dataEnvelopeCandidate ??
+    {};
+
+  const dataMapRaw =
+    // Convert array-of-entries formats into an object map
+    normalizeEntriesToObject(dataMapRawCandidate) ||
+    // Allow plain object map
+    (dataMapRawCandidate && typeof dataMapRawCandidate === "object" ? dataMapRawCandidate : {}) ||
     {};
 
   /**
@@ -71,46 +101,31 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
    * NOTE: some variants return totals under `meta.data.totals`.
    */
   const totalsMapCandidate =
-    (dataEnvelope?.totals && typeof dataEnvelope.totals === "object" && dataEnvelope.totals) ||
-    (dataEnvelope?.counts && typeof dataEnvelope.counts === "object" && dataEnvelope.counts) ||
-    (dataEnvelope?.total_count &&
-      typeof dataEnvelope.total_count === "object" &&
-      dataEnvelope.total_count) ||
-    (batchResponse?.totals && typeof batchResponse.totals === "object" && batchResponse.totals) ||
-    (batchResponse?.counts && typeof batchResponse.counts === "object" && batchResponse.counts) ||
-    (batchResponse?.total_count &&
-      typeof batchResponse.total_count === "object" &&
-      batchResponse.total_count) ||
-    (batchResponse?.meta?.totals &&
-      typeof batchResponse.meta.totals === "object" &&
-      batchResponse.meta.totals) ||
-    (batchResponse?.meta?.counts &&
-      typeof batchResponse.meta.counts === "object" &&
-      batchResponse.meta.counts) ||
-    (batchResponse?.meta?.total_count &&
-      typeof batchResponse.meta.total_count === "object" &&
-      batchResponse.meta.total_count) ||
-    (batchResponse?.meta?.data?.totals &&
-      typeof batchResponse.meta.data.totals === "object" &&
-      batchResponse.meta.data.totals) ||
-    (batchResponse?.meta?.data?.counts &&
-      typeof batchResponse.meta.data.counts === "object" &&
-      batchResponse.meta.data.counts) ||
-    (dataMapRaw?.totals && typeof dataMapRaw.totals === "object" && dataMapRaw.totals) ||
-    (dataMapRaw?.counts && typeof dataMapRaw.counts === "object" && dataMapRaw.counts) ||
-    (dataMapRaw?.total_count &&
-      typeof dataMapRaw.total_count === "object" &&
-      dataMapRaw.total_count) ||
+    dataEnvelope?.totals ??
+    dataEnvelope?.counts ??
+    dataEnvelope?.total_count ??
+    batchResponse?.totals ??
+    batchResponse?.counts ??
+    batchResponse?.total_count ??
+    batchResponse?.meta?.totals ??
+    batchResponse?.meta?.counts ??
+    batchResponse?.meta?.total_count ??
+    batchResponse?.meta?.data?.totals ??
+    batchResponse?.meta?.data?.counts ??
+    dataMapRaw?.totals ??
+    dataMapRaw?.counts ??
+    dataMapRaw?.total_count ??
     {};
 
   const totalsMap =
-    totalsMapCandidate && typeof totalsMapCandidate === "object" ? totalsMapCandidate : {};
+    normalizeEntriesToObject(totalsMapCandidate) ||
+    (totalsMapCandidate && typeof totalsMapCandidate === "object" ? totalsMapCandidate : {}) ||
+    {};
 
   const out = {};
   for (const uid of ids) {
     const raw = dataMapRaw?.[uid];
 
-    // Helper: determine whether we have an explicit totals entry for this user.
     // Important: totals can legitimately be 0; presence is about the key, not truthiness.
     const hasExplicitTotalsEntry =
       totalsMap &&
@@ -123,17 +138,13 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
       const projects = Array.isArray(raw?.projects) ? raw.projects : [];
 
       // Prefer per-user total_count if present, else totals map, else fallback to projects.length.
-      // NOTE: Some backend versions for the batch endpoint return only projects lists (no totals map).
       const totalCount =
-        typeof raw?.total_count === "number"
-          ? raw.total_count
-          : Number.isFinite(Number(raw?.total_count))
-            ? Number(raw.total_count)
-            : hasExplicitTotalsEntry && Number.isFinite(Number(totalsMap?.[uid]))
-              ? Number(totalsMap[uid])
-              : projects.length;
+        raw?.total_count != null
+          ? toNumber(raw.total_count, projects.length)
+          : hasExplicitTotalsEntry
+            ? toNumber(totalsMap?.[uid], projects.length)
+            : projects.length;
 
-      // Always output the fields the chart relies on, while preserving other keys.
       out[uid] = { ...raw, projects, total_count: totalCount };
       continue;
     }
@@ -141,11 +152,7 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
     // Shape A/C/D: data[uid] is an array of projects + totals stored separately
     const projects = Array.isArray(raw) ? raw : [];
 
-    // Prefer totals map when present; otherwise fall back to projects.length.
-    const totalCount =
-      hasExplicitTotalsEntry && Number.isFinite(Number(totalsMap?.[uid]))
-        ? Number(totalsMap[uid])
-        : projects.length;
+    const totalCount = hasExplicitTotalsEntry ? toNumber(totalsMap?.[uid], projects.length) : projects.length;
 
     // Always output the exact object shape expected by the chart: { projects: [], total_count: number }
     // This also zero-fills users missing from the response.

@@ -135,19 +135,34 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState("");
 
+  const debugEnabled =
+    String(process.env.REACT_APP_DEBUG_USERS_ANALYTICS || "").toLowerCase() === "1" ||
+    String(process.env.REACT_APP_DEBUG_USERS_ANALYTICS || "").toLowerCase() === "true";
+
+  const [debugInfo, setDebugInfo] = useState({
+    organization_id: null,
+    from: null,
+    to: null,
+    requestedUserIdsCount: 0,
+    top5: [],
+  });
+
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
 
-    // Debug logging (console-safe and off by default).
-    // Enable by setting REACT_APP_DEBUG_USERS_ANALYTICS=1
-    const debugEnabled =
-      String(process.env.REACT_APP_DEBUG_USERS_ANALYTICS || "").toLowerCase() === "1" ||
-      String(process.env.REACT_APP_DEBUG_USERS_ANALYTICS || "").toLowerCase() === "true";
-
     async function run() {
       if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
         setProjectsByUser({});
+        if (debugEnabled) {
+          setDebugInfo({
+            organization_id: activeTenantId,
+            from: startISO,
+            to: endISO,
+            requestedUserIdsCount: 0,
+            top5: [],
+          });
+        }
         return;
       }
 
@@ -177,18 +192,24 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
           batchResponse: batchRes,
         });
 
-        if (debugEnabled && process.env.NODE_ENV !== "production") {
-          // eslint-disable-next-line no-console
-          console.debug("[UsersAnalyticsPanel] batch shaped map size:", Object.keys(shaped || {}).length, {
-            requestedUserIds: userIds.length,
+        if (debugEnabled) {
+          const top5 = userIds
+            .map((id) => ({
+              id,
+              name: users.find((u) => String(u?._id || "") === id)?.name || id,
+              total_count: Number.isFinite(Number(shaped?.[id]?.total_count))
+                ? Number(shaped[id].total_count)
+                : 0,
+            }))
+            .sort((a, b) => b.total_count - a.total_count)
+            .slice(0, 5);
+
+          setDebugInfo({
+            organization_id: activeTenantId,
             from: startISO,
             to: endISO,
-            // Sample a few entries to validate `total_count` and key presence.
-            sample: userIds.slice(0, 3).map((id) => ({
-              id,
-              total_count: shaped?.[id]?.total_count,
-              projects_len: Array.isArray(shaped?.[id]?.projects) ? shaped[id].projects.length : null,
-            })),
+            requestedUserIdsCount: userIds.length,
+            top5,
           });
         }
 
@@ -212,19 +233,14 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       cancelled = true;
       controller.abort();
     };
-  }, [users, activeTenantId, startISO, endISO]);
+  }, [users, activeTenantId, startISO, endISO, debugEnabled]);
 
   const aggregates = useMemo(() => {
     /**
      * The Recharts <Bar dataKey="total_count" /> requires every row to include `total_count`.
-     * The "no bars" symptom is commonly caused by:
-     * - dataKey mismatch (e.g., rows have `count` but Bar expects `total_count`)
-     * - rows missing/undefined `total_count` (NaN coerces to 0)
-     * - chart container height resolving to 0
      *
      * This builder outputs a stable row shape:
      *   { id, name, total_count, projects_count }
-     * and we keep backwards-compatible aliases used by tooltip/axes in this file.
      */
     const activityByUserRows = [];
 
@@ -234,58 +250,45 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
       const res = projectsByUser?.[uid];
 
-      // Projects: derived from distinct projects list length (never triggers extra calls).
       const projectsCount = Array.isArray(res?.projects)
         ? res.projects.length
         : Array.isArray(res)
           ? res.length
           : 0;
 
-      // Sessions: derived from backend-provided total_count (inclusive date bounds already handled server-side).
-      const sessionsCount =
-        typeof res?.total_count === "number"
-          ? res.total_count
-          : Number.isFinite(Number(res?.total_count))
-            ? Number(res.total_count)
-            : 0;
+      const sessionsCount = Number.isFinite(Number(res?.total_count)) ? Number(res.total_count) : 0;
 
       const displayName = u?.name || u?.full_name || u?.email || uid;
 
       activityByUserRows.push({
-        // Preferred stable fields (explicitly requested by task)
         id: uid,
         name: displayName,
         total_count: sessionsCount,
-
-        // Keep these for local usage (XAxis/Tooltip in this file)
         user_id: uid,
         user: displayName,
         projects_count: projectsCount,
-        // legacy alias (tooltip previously used row.count)
         count: projectsCount,
       });
     }
 
-    // Bars are based on sessions count, so sort accordingly.
     activityByUserRows.sort((a, b) => (b.total_count || 0) - (a.total_count || 0));
 
-    const debugEnabled =
-      String(process.env.REACT_APP_DEBUG_USERS_ANALYTICS || "").toLowerCase() === "1" ||
-      String(process.env.REACT_APP_DEBUG_USERS_ANALYTICS || "").toLowerCase() === "true";
-
+    // Step (1) logging: final shaped rows right before rendering (gated).
     if (debugEnabled && process.env.NODE_ENV !== "production") {
-      // Targeted log: right before rendering, print the final rows and keys used by the chart.
       // eslint-disable-next-line no-console
-      console.debug("[UsersAnalyticsPanel] Activity by User chart debug", {
-        barDataKey: "total_count",
-        xAxisDataKey: "name",
-        rowsCount: activityByUserRows.length,
-        firstRows: activityByUserRows.slice(0, 20),
+      console.debug("[UsersAnalyticsPanel] ActivityByUser rows (final)", {
+        length: activityByUserRows.length,
+        keys: activityByUserRows[0] ? Object.keys(activityByUserRows[0]) : [],
+        first3: activityByUserRows.slice(0, 3),
+        nonNumericTotalCount: activityByUserRows
+          .filter((r) => !Number.isFinite(Number(r?.total_count)))
+          .slice(0, 5)
+          .map((r) => ({ id: r?.id, total_count: r?.total_count })),
       });
     }
 
     return { activityByUserRows };
-  }, [users, projectsByUser]);
+  }, [users, projectsByUser, debugEnabled]);
 
   // Theme colors
   const primary = "#2563EB";
@@ -377,6 +380,63 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 <h4 className="card-title">Activity by User</h4>
                 <div className="card-subtitle">Counts derived from associated activity</div>
               </div>
+
+              {debugEnabled ? (
+                <div
+                  className="card-content"
+                  style={{
+                    paddingTop: 8,
+                    paddingBottom: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      border: "1px dashed #F59E0B",
+                      background: "rgba(245, 158, 11, 0.08)",
+                      borderRadius: 10,
+                      padding: "10px 12px",
+                      fontSize: 12,
+                      color: "#111827",
+                    }}
+                  >
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>Users Analytics Debug</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", rowGap: 4 }}>
+                      <div style={{ color: "#6B7280" }}>organization_id</div>
+                      <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                        {String(debugInfo.organization_id ?? "")}
+                      </div>
+
+                      <div style={{ color: "#6B7280" }}>from</div>
+                      <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                        {String(debugInfo.from ?? "")}
+                      </div>
+
+                      <div style={{ color: "#6B7280" }}>to</div>
+                      <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
+                        {String(debugInfo.to ?? "")}
+                      </div>
+
+                      <div style={{ color: "#6B7280" }}>userIds sent</div>
+                      <div>{Number(debugInfo.requestedUserIdsCount || 0)}</div>
+
+                      <div style={{ color: "#6B7280" }}>top 5 totals</div>
+                      <div>
+                        {(debugInfo.top5 || []).length === 0 ? (
+                          <span style={{ color: "#6B7280" }}>n/a</span>
+                        ) : (
+                          <ol style={{ margin: "4px 0 0 18px", padding: 0 }}>
+                            {(debugInfo.top5 || []).map((u) => (
+                              <li key={u.id}>
+                                {u.name}: <strong>{u.total_count}</strong>
+                              </li>
+                            ))}
+                          </ol>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               <div className="card-content" style={{ height: 360, minHeight: 360 }}>
                 {usersLoading || projectsLoading ? (
