@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
 import PropTypes from "prop-types";
 import {
   ResponsiveContainer,
@@ -13,7 +13,6 @@ import {
 import { useUsers } from "../../hooks/useUsers";
 import { getUserProjects } from "../../api/users";
 import { getActiveTenant } from "../../utils/tenantClient";
-import useDebouncedValue from "../../hooks/useDebouncedValue";
 import Skeleton from "../../components/ui/Skeleton";
 
 /**
@@ -21,14 +20,9 @@ import Skeleton from "../../components/ui/Skeleton";
  * UsersAnalyticsPanel
  * A charts/analytics panel for the Users page, with independent filters.
  *
- * Optimization goals:
- * - When switching quick date ranges rapidly, only ONE final API request should be executed
- *   (debounced selection), and in-flight requests are cancelled (AbortController).
- * - All data fetching is centralized in a single effect keyed by the selected/debounced range.
- *
  * Data source:
- * - Uses /api/users to get users, then uses /api/users/:userId/projects
- *   to fetch per-user projects (time-scoped).
+ * - Reuses /api/users to get users, then uses /api/users/:userId/projects
+ *   to fetch per-user projects when available.
  *
  * Filters:
  * - Quick range + Custom date range.
@@ -116,12 +110,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     return { startISO: start.toISOString(), endISO: end.toISOString() };
   }, [customStart, customEnd, days]);
 
-  // Debounce date bounds so rapid selections only trigger the final fetch.
-  // 250ms is a good balance between responsiveness and eliminating redundant calls.
-  const debouncedStartISO = useDebouncedValue(startISO, 250);
-  const debouncedEndISO = useDebouncedValue(endISO, 250);
-
-  // Live label for date range for accessibility (reflect immediate selection, not debounced)
+  // Live label for date range for accessibility
   useEffect(() => {
     const start = new Date(startISO);
     const end = new Date(endISO);
@@ -137,218 +126,74 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   // Fetch users; table is unchanged elsewhere
   const { users, loading: usersLoading, error: usersError } = useUsers({ limit: 200 });
 
-  // Stable dependency to avoid re-running fetch due to array identity changes
-  const userIdsKey = useMemo(() => {
-    return Array.isArray(users) ? users.map((u) => String(u._id)).sort().join(",") : "";
-  }, [users]);
-
   // Fetch projects per user when needed
   const [projectsByUser, setProjectsByUser] = useState({});
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState("");
-  const [wasCancelled, setWasCancelled] = useState(false);
 
-  // Cache to avoid refetching same date-range data
-  const projectsCacheRef = useRef({});
-  // Store controller to abort in-flight requests on rapid changes/unmount
-  const abortRef = useRef(null);
-
-  /**
-   * Used to avoid redundant fetch starts:
-   * - `inFlightKeyRef`: identifies the currently running request inputs.
-   * - `lastStartedKeyRef`: identifies the last request we actually started.
-   * - `strictModeFirstDuplicateGuardRef`: helps suppress the second effect run
-   *   in React 18 StrictMode *dev-only* when it would issue the exact same request
-   *   twice on initial mount.
-   */
-  const inFlightKeyRef = useRef(null);
-  const lastStartedKeyRef = useRef(null);
-  const strictModeFirstDuplicateGuardRef = useRef({ key: null, used: false });
-
-  const isAbortError = (err) => {
-    // Axios/fetch abort errors show up differently depending on versions.
-    const name = err?.name || err?.cause?.name;
-    const code = err?.code;
-    const message = String(err?.message || "");
-    return (
-      name === "AbortError" ||
-      code === "ERR_CANCELED" ||
-      message.toLowerCase().includes("canceled")
-    );
-  };
-
-  const fetchProjectsForUsers = useCallback(
-    async ({ signal, tenantId, from, to }) => {
-      /**
-       * NOTE:
-       * - This function does NOT read from component state except `users`.
-       * - It is invoked by a single effect that controls cancellation/debouncing.
-       */
-      const acc = {};
-      const batchSize = 8;
-
-      for (let i = 0; i < users.length; i += batchSize) {
-        const slice = users.slice(i, i + batchSize);
-
-        await Promise.all(
-          slice.map(async (u) => {
-            if (!u?._id) return;
-
-            // If we already got aborted, fail fast before issuing more requests.
-            if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-
-            try {
-              const res = await getUserProjects(
-                String(u._id),
-                {
-                  organization_id: tenantId,
-                  from,
-                  to,
-                },
-                { signal }
-              );
-
-              acc[String(u._id)] = res || { projects: [] };
-            } catch (e) {
-              // If aborted, propagate so the effect can mark cancellation distinctly.
-              if (isAbortError(e) || signal?.aborted) throw e;
-              // Preserve prior behavior: user still exists, but no projects response.
-              acc[String(u._id)] = { projects: [] };
-            }
-          })
-        );
-
-        // Allow abort between batches.
-        if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-      }
-
-      return acc;
-    },
-    [users]
-  );
-
-  /**
-   * Centralized chart data loading effect.
-   * - Tied ONLY to: tenant, debounced date range, and users identity (via userIdsKey).
-   * - Cancels in-flight requests on changes (AbortController).
-   * - Uses a cache keyed by tenant+range+usersKey to avoid refetching.
-   */
   useEffect(() => {
-    // Reset transient UI states
-    setProjectsError("");
-    setWasCancelled(false);
-
-    // Guard: if not ready, clear out dependent state
-    if (
-      !userIdsKey ||
-      !activeTenantId ||
-      !Array.isArray(users) ||
-      users.length === 0
-    ) {
-      // Abort any in-flight request because dependent inputs are no longer valid
-      if (abortRef.current) {
-        abortRef.current.abort();
-        abortRef.current = null;
-      }
-      inFlightKeyRef.current = null;
-      setProjectsByUser({});
-      setProjectsLoading(false);
-      return;
-    }
-
-    const cacheKey = `${activeTenantId}_${debouncedStartISO}_${debouncedEndISO}_${userIdsKey}`;
-
-    // Serve from cache immediately
-    if (projectsCacheRef.current[cacheKey]) {
-      // Abort any older request and just show cached data
-      if (abortRef.current) {
-        abortRef.current.abort();
-        abortRef.current = null;
-      }
-      inFlightKeyRef.current = null;
-      setProjectsByUser(projectsCacheRef.current[cacheKey]);
-      setProjectsLoading(false);
-      return;
-    }
-
-    /**
-     * StrictMode dev guard:
-     * React 18 StrictMode intentionally double-invokes effects on mount in development.
-     * That can lead to seeing two identical network requests in the devtools even if the
-     * code is correct for production.
-     *
-     * We suppress ONLY the second identical initial-run for the same cacheKey.
-     */
-    if (
-      strictModeFirstDuplicateGuardRef.current.key === cacheKey &&
-      strictModeFirstDuplicateGuardRef.current.used === false &&
-      lastStartedKeyRef.current === cacheKey
-    ) {
-      strictModeFirstDuplicateGuardRef.current.used = true;
-      return;
-    }
-
-    // No-op guard: if we already have an in-flight request for this exact key, do nothing.
-    if (inFlightKeyRef.current === cacheKey) return;
-
-    // Cancel any in-flight request before starting a new one
-    if (abortRef.current) abortRef.current.abort();
-
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    inFlightKeyRef.current = cacheKey;
-    lastStartedKeyRef.current = cacheKey;
-    strictModeFirstDuplicateGuardRef.current = { key: cacheKey, used: false };
-
-    let didFinish = false;
+    let cancelled = false;
 
     async function run() {
+      if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
+        setProjectsByUser({});
+        return;
+      }
+
       setProjectsLoading(true);
       setProjectsError("");
-      setWasCancelled(false);
+      const acc = {};
 
       try {
-        const acc = await fetchProjectsForUsers({
-          signal: controller.signal,
-          tenantId: activeTenantId,
-          from: debouncedStartISO,
-          to: debouncedEndISO,
-        });
+        // Fetch in small batches to avoid overloading backend
+        const batchSize = 8;
 
-        if (controller.signal.aborted) return;
+        for (let i = 0; i < users.length; i += batchSize) {
+          const slice = users.slice(i, i + batchSize);
 
-        projectsCacheRef.current[cacheKey] = acc;
-        setProjectsByUser(acc);
-      } catch (e) {
-        if (controller.signal.aborted || isAbortError(e)) {
-          // Cancellation is not an error; keep UI responsive and distinguish from failures.
-          setWasCancelled(true);
-          return;
+          await Promise.all(
+            slice.map(async (u) => {
+              if (!u?._id) return;
+
+              try {
+                // IMPORTANT: startISO/endISO are full-day UTC bounds by construction.
+                // Use shared API helper so ISODate wrapping stays consistent.
+                const res = await getUserProjects(String(u._id), {
+                  organization_id: activeTenantId,
+                  from: startISO,
+                  to: endISO,
+                });
+
+                // Preserve full response so we can access:
+                // - res.projects (distinct projects)
+                // - res.total_count (sessions count)
+                acc[String(u._id)] = res || { projects: [] };
+              } catch {
+                // Preserve prior behavior: user still exists, but no projects response.
+                acc[String(u._id)] = acc[String(u._id)] || { projects: [] };
+              }
+            })
+          );
+
+          if (cancelled) return;
         }
-        setProjectsError(e?.message || "Failed to load user projects.");
-        setProjectsByUser({});
+
+        if (!cancelled) setProjectsByUser(acc);
+      } catch (e) {
+        if (!cancelled) {
+          setProjectsError(e?.message || "Failed to load user projects.");
+          setProjectsByUser({});
+        }
       } finally {
-        didFinish = true;
-        if (!controller.signal.aborted) setProjectsLoading(false);
-        // Clear in-flight marker if this request is the current one.
-        if (inFlightKeyRef.current === cacheKey) inFlightKeyRef.current = null;
+        if (!cancelled) setProjectsLoading(false);
       }
     }
 
     run();
-
     return () => {
-      // Only abort if request is still in flight; avoids aborting completed requests.
-      if (!didFinish) controller.abort();
+      cancelled = true;
     };
-  }, [
-    userIdsKey,
-    activeTenantId,
-    debouncedStartISO,
-    debouncedEndISO,
-    fetchProjectsForUsers,
-  ]);
+  }, [users, activeTenantId, startISO, endISO]);
 
   const aggregates = useMemo(() => {
     const projectsCountByUser = [];
@@ -364,7 +209,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
           ? res.length
           : 0;
 
-      // Sessions: derived from backend total_count
+      // New behavior (Sessions): derived from backend total_count
       const sessionsCount =
         typeof res?.total_count === "number"
           ? res.total_count
@@ -380,7 +225,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       });
     }
 
-    // Bars are based on sessions count, so sort accordingly.
+    // IMPORTANT: Bars should be based on sessions count, so sort accordingly.
     projectsCountByUser.sort((a, b) => (b.total_count || 0) - (a.total_count || 0));
     return { projectsCountByUser };
   }, [users, projectsByUser]);
@@ -393,7 +238,6 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   const ariaDateId = "users-analytics-date-label";
 
   const handlePreset = (d) => {
-    // IMPORTANT: do not call fetch here; fetching is centralized in effect.
     setCustomStart(null);
     setCustomEnd(null);
     setDays(d);
@@ -492,10 +336,6 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                   <div className="error" role="alert">
                     {projectsError}
                   </div>
-                ) : wasCancelled ? (
-                  <div className="screen-center" style={{ color: "#6B7280" }}>
-                    Updating range…
-                  </div>
                 ) : aggregates.projectsCountByUser.length === 0 ? (
                   <div className="screen-center">No sessions data</div>
                 ) : (
@@ -519,9 +359,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                           if (!active || !Array.isArray(payload) || payload.length === 0) return null;
 
                           const row = payload?.[0]?.payload || {};
-                          const projectsCount = Number.isFinite(Number(row?.count))
-                            ? Number(row.count)
-                            : 0;
+                          const projectsCount = Number.isFinite(Number(row?.count)) ? Number(row.count) : 0;
                           const sessionsCount = Number.isFinite(Number(row?.total_count))
                             ? Number(row.total_count)
                             : 0;
