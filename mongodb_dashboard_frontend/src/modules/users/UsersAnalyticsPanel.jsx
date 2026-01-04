@@ -153,12 +153,28 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   // Store controller to abort in-flight requests on rapid changes/unmount
   const abortRef = useRef(null);
 
+  /**
+   * Used to avoid redundant fetch starts:
+   * - `inFlightKeyRef`: identifies the currently running request inputs.
+   * - `lastStartedKeyRef`: identifies the last request we actually started.
+   * - `strictModeFirstDuplicateGuardRef`: helps suppress the second effect run
+   *   in React 18 StrictMode *dev-only* when it would issue the exact same request
+   *   twice on initial mount.
+   */
+  const inFlightKeyRef = useRef(null);
+  const lastStartedKeyRef = useRef(null);
+  const strictModeFirstDuplicateGuardRef = useRef({ key: null, used: false });
+
   const isAbortError = (err) => {
     // Axios/fetch abort errors show up differently depending on versions.
     const name = err?.name || err?.cause?.name;
     const code = err?.code;
     const message = String(err?.message || "");
-    return name === "AbortError" || code === "ERR_CANCELED" || message.toLowerCase().includes("canceled");
+    return (
+      name === "AbortError" ||
+      code === "ERR_CANCELED" ||
+      message.toLowerCase().includes("canceled")
+    );
   };
 
   const fetchProjectsForUsers = useCallback(
@@ -223,12 +239,18 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     setWasCancelled(false);
 
     // Guard: if not ready, clear out dependent state
-    if (!userIdsKey || !activeTenantId || !Array.isArray(users) || users.length === 0) {
+    if (
+      !userIdsKey ||
+      !activeTenantId ||
+      !Array.isArray(users) ||
+      users.length === 0
+    ) {
       // Abort any in-flight request because dependent inputs are no longer valid
       if (abortRef.current) {
         abortRef.current.abort();
         abortRef.current = null;
       }
+      inFlightKeyRef.current = null;
       setProjectsByUser({});
       setProjectsLoading(false);
       return;
@@ -243,15 +265,41 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
         abortRef.current.abort();
         abortRef.current = null;
       }
+      inFlightKeyRef.current = null;
       setProjectsByUser(projectsCacheRef.current[cacheKey]);
       setProjectsLoading(false);
       return;
     }
 
+    /**
+     * StrictMode dev guard:
+     * React 18 StrictMode intentionally double-invokes effects on mount in development.
+     * That can lead to seeing two identical network requests in the devtools even if the
+     * code is correct for production.
+     *
+     * We suppress ONLY the second identical initial-run for the same cacheKey.
+     */
+    if (
+      strictModeFirstDuplicateGuardRef.current.key === cacheKey &&
+      strictModeFirstDuplicateGuardRef.current.used === false &&
+      lastStartedKeyRef.current === cacheKey
+    ) {
+      strictModeFirstDuplicateGuardRef.current.used = true;
+      return;
+    }
+
+    // No-op guard: if we already have an in-flight request for this exact key, do nothing.
+    if (inFlightKeyRef.current === cacheKey) return;
+
     // Cancel any in-flight request before starting a new one
     if (abortRef.current) abortRef.current.abort();
+
     const controller = new AbortController();
     abortRef.current = controller;
+
+    inFlightKeyRef.current = cacheKey;
+    lastStartedKeyRef.current = cacheKey;
+    strictModeFirstDuplicateGuardRef.current = { key: cacheKey, used: false };
 
     let didFinish = false;
 
@@ -283,6 +331,8 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       } finally {
         didFinish = true;
         if (!controller.signal.aborted) setProjectsLoading(false);
+        // Clear in-flight marker if this request is the current one.
+        if (inFlightKeyRef.current === cacheKey) inFlightKeyRef.current = null;
       }
     }
 
@@ -294,7 +344,6 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     };
   }, [
     userIdsKey,
-    users,
     activeTenantId,
     debouncedStartISO,
     debouncedEndISO,
