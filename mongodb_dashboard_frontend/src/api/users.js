@@ -58,6 +58,46 @@ export async function getUserProjects(userId, params = {}) {
 
 /**
  * PUBLIC_INTERFACE
+ * getUsersProjectsBatch
+ * Fetch distinct projects for multiple users in a single request.
+ *
+ * Backend endpoint:
+ *   POST /api/users/projects
+ *
+ * Body:
+ *   {
+ *     userIds: string[],
+ *     organization_id?: string,
+ *     tenant_id?: string,
+ *     from?: string (ISO date-time),
+ *     to?: string (ISO date-time)
+ *   }
+ *
+ * Response:
+ *   {
+ *     success: true,
+ *     tenant_id: string,
+ *     data: Record<string, Array<{project_id, project_name, last_activity}>>
+ *   }
+ *
+ * Note:
+ * - This endpoint expects plain ISO strings for from/to (not ISODate("...")).
+ */
+export async function getUsersProjectsBatch(body = {}) {
+  const api = getApiClient();
+
+  const userIds = Array.isArray(body?.userIds) ? body.userIds.map(String) : [];
+  const payload = {
+    ...body,
+    userIds,
+  };
+
+  const { data } = await api.post('/api/users/projects', payload);
+  return data;
+}
+
+/**
+ * PUBLIC_INTERFACE
  * getUserSessionDetails
  * Fetch aggregated session details for a given user.
  *

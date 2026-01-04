@@ -11,7 +11,7 @@ import {
   Legend,
 } from "recharts";
 import { useUsers } from "../../hooks/useUsers";
-import { getUserProjects } from "../../api/users";
+import { getUserProjects, getUsersProjectsBatch } from "../../api/users";
 import { getActiveTenant } from "../../utils/tenantClient";
 import Skeleton from "../../components/ui/Skeleton";
 
@@ -142,47 +142,68 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
       setProjectsLoading(true);
       setProjectsError("");
-      const acc = {};
+
+      const userIds = users.map((u) => String(u?._id || "")).filter(Boolean);
 
       try {
-        // Fetch in small batches to avoid overloading backend
-        const batchSize = 8;
+        // Optimization:
+        // Use the backend batch endpoint so the chart triggers ONE request for N users,
+        // instead of N requests for N users.
+        const batchRes = await getUsersProjectsBatch({
+          userIds,
+          organization_id: activeTenantId,
+          from: startISO,
+          to: endISO,
+        });
 
-        for (let i = 0; i < users.length; i += batchSize) {
-          const slice = users.slice(i, i + batchSize);
+        const map = batchRes?.data && typeof batchRes.data === "object" ? batchRes.data : {};
 
-          await Promise.all(
-            slice.map(async (u) => {
-              if (!u?._id) return;
-
-              try {
-                // IMPORTANT: startISO/endISO are full-day UTC bounds by construction.
-                // Use shared API helper so ISODate wrapping stays consistent.
-                const res = await getUserProjects(String(u._id), {
-                  organization_id: activeTenantId,
-                  from: startISO,
-                  to: endISO,
-                });
-
-                // Preserve full response so we can access:
-                // - res.projects (distinct projects)
-                // - res.total_count (sessions count)
-                acc[String(u._id)] = res || { projects: [] };
-              } catch {
-                // Preserve prior behavior: user still exists, but no projects response.
-                acc[String(u._id)] = acc[String(u._id)] || { projects: [] };
-              }
-            })
-          );
-
-          if (cancelled) return;
+        // Normalize to the same per-user shape UsersAnalyticsPanel already expects:
+        // { [userId]: { projects: [...] } }
+        const acc = {};
+        for (const uid of userIds) {
+          acc[uid] = { projects: Array.isArray(map?.[uid]) ? map[uid] : [] };
         }
 
         if (!cancelled) setProjectsByUser(acc);
       } catch (e) {
-        if (!cancelled) {
-          setProjectsError(e?.message || "Failed to load user projects.");
-          setProjectsByUser({});
+        // Safety fallback (keeps feature working even if batch route is unavailable):
+        // revert to per-user requests, but only when needed.
+        try {
+          const acc = {};
+          const batchSize = 8;
+
+          for (let i = 0; i < users.length; i += batchSize) {
+            const slice = users.slice(i, i + batchSize);
+
+            await Promise.all(
+              slice.map(async (u) => {
+                if (!u?._id) return;
+
+                try {
+                  const res = await getUserProjects(String(u._id), {
+                    organization_id: activeTenantId,
+                    from: startISO,
+                    to: endISO,
+                  });
+                  acc[String(u._id)] = res || { projects: [] };
+                } catch {
+                  acc[String(u._id)] = acc[String(u._id)] || { projects: [] };
+                }
+              })
+            );
+
+            if (cancelled) return;
+          }
+
+          if (!cancelled) setProjectsByUser(acc);
+        } catch (fallbackErr) {
+          if (!cancelled) {
+            setProjectsError(
+              fallbackErr?.message || e?.message || "Failed to load user projects."
+            );
+            setProjectsByUser({});
+          }
         }
       } finally {
         if (!cancelled) setProjectsLoading(false);
