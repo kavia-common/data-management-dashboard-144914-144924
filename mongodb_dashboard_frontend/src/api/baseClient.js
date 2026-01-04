@@ -324,11 +324,40 @@ export async function listSessions(params = {}) {
   return normalizeListPayload(res.data);
 }
 
-// PUBLIC_INTERFACE
+/**
+ * PUBLIC_INTERFACE
+ * listDeployments
+ * Lists app deployments normalized to { items, total, meta }.
+ */
 export async function listDeployments(params = {}) {
   /** Lists app deployments normalized to { items, total, meta }. */
   const res = await httpGet("/api/app-deployments", { params });
   return normalizeListPayload(res.data);
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * listDashboardUsersAnalytics
+ * Fetches fully aggregated per-user analytics from GET /api/dashboard/users.
+ *
+ * IMPORTANT CONTRACT:
+ * - This endpoint is the sole source of user analytics for the Users Analytics panel.
+ * - The backend returns already-aggregated per-user totals; frontend must not batch
+ *   per-user calls or do client-side aggregation.
+ *
+ * Query params:
+ *  - from?: ISO date-time or YYYY-MM-DD (backend expands date-only to UTC day bounds)
+ *  - to?: ISO date-time or YYYY-MM-DD
+ *
+ * Default:
+ *  - If from/to are omitted, backend defaults to TODAY in UTC.
+ *
+ * Returns:
+ *  - Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt }>
+ */
+export async function listDashboardUsersAnalytics(params = {}, options = {}) {
+  const res = await httpGet("/api/dashboard/users", { params, signal: options?.signal });
+  return Array.isArray(res.data) ? res.data : [];
 }
 
 /**

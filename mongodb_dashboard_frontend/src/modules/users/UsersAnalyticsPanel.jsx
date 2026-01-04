@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import {
   ResponsiveContainer,
@@ -10,232 +10,168 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
-import { useUsers } from "../../hooks/useUsers";
-import { getUserProjects } from "../../api/users";
-import { getActiveTenant } from "../../utils/tenantClient";
 import Skeleton from "../../components/ui/Skeleton";
+import { listDashboardUsersAnalytics } from "../../api/baseClient";
 
 /**
  * PUBLIC_INTERFACE
  * UsersAnalyticsPanel
- * A charts/analytics panel for the Users page, with independent filters.
+ * A charts/analytics panel for the Users page.
  *
- * Data source:
- * - Reuses /api/users to get users, then uses /api/users/:userId/projects
- *   to fetch per-user projects when available.
+ * Requirements (enforced by implementation):
+ * - Exactly ONE request on initial load for analytics:
+ *     GET /api/dashboard/users
+ * - No per-user requests, no batching, and no frontend aggregation.
+ * - The backend is responsible for date filtering, grouping, counting, joining user metadata,
+ *   and sorting by activity.
  *
- * Filters:
- * - Quick range + Custom date range.
- *
- * Date normalization requirement:
- * - Always send full-day UTC bounds:
- *   - from = YYYY-MM-DDT00:00:00.000Z
- *   - to   = YYYY-MM-DDT23:59:59.999Z
+ * Date filtering:
+ * - When no from/to are supplied, the backend defaults to TODAY in UTC
+ *   (00:00:00.000Z -> 23:59:59.999Z).
+ * - When date-only values are selected, we pass YYYY-MM-DD; backend expands to full-day UTC bounds.
  */
 export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 }) {
-  // Filter state (independent from Overview)
+  // Filter state
   const [days, setDays] = useState(defaultDays);
   const [customStart, setCustomStart] = useState(null);
   const [customEnd, setCustomEnd] = useState(null);
   const [dateLiveLabel, setDateLiveLabel] = useState("");
 
-  // Active tenant (scoped by client too, but visible here for explicit query params when needed)
-  const activeTenantId = getActiveTenant?.() || null;
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
 
   /**
-   * Compute date range ISO strings for API query params.
-   * IMPORTANT: Avoid local timezone when deriving these bounds. We construct
-   * dates using UTC components via Date.UTC(...).
+   * Compute date params.
+   * - If quick range is used, we send explicit from/to as ISO strings (UTC bounds).
+   * - If custom range is used, we send YYYY-MM-DD strings to let backend expand to full-day UTC bounds.
+   * - If nothing is set, we omit both and backend will default to TODAY UTC.
    */
-  const { startISO, endISO } = useMemo(() => {
+  const { fromParam, toParam } = useMemo(() => {
+    const fmtYmd = (dt) => {
+      const y = dt.getUTCFullYear();
+      const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
+      const d = String(dt.getUTCDate()).padStart(2, "0");
+      return `${y}-${m}-${d}`;
+    };
+
     const utcStartOfDay = (y, m, d) => new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
     const utcEndOfDay = (y, m, d) => new Date(Date.UTC(y, m, d, 23, 59, 59, 999));
 
-    const parseYMD = (ymd) => {
-      if (!ymd) return null;
-      const [y, m, d] = ymd.split("-").map(Number);
-      return { y, m0: m - 1, d };
-    };
-
-    let start;
-    let end;
-
-    /** -------------------------
-     * CUSTOM DATE RANGE
-     * ------------------------*/
+    // Custom range => send YYYY-MM-DD values (backend expands)
     if (customStart && customEnd) {
-      const s = parseYMD(customStart);
-      const e = parseYMD(customEnd);
-
-      start = utcStartOfDay(s.y, s.m0, s.d);
-      end = utcEndOfDay(e.y, e.m0, e.d);
+      return { fromParam: customStart, toParam: customEnd };
     }
 
-    /** -------------------------
-     * QUICK RANGE PRESETS
-     * ------------------------*/
-    else {
-      const now = new Date();
-      const y = now.getUTCFullYear();
-      const m = now.getUTCMonth();
-      const d = now.getUTCDate();
+    // Quick range => send ISO bounds
+    const now = new Date();
+    const y = now.getUTCFullYear();
+    const m = now.getUTCMonth();
+    const d = now.getUTCDate();
 
-      // Today
-      if (days === 0) {
-        start = utcStartOfDay(y, m, d);
-        end = utcEndOfDay(y, m, d);
-      }
-
-      // Yesterday
-      else if (days === -1) {
-        const yd = new Date(Date.UTC(y, m, d - 1));
-        start = utcStartOfDay(yd.getUTCFullYear(), yd.getUTCMonth(), yd.getUTCDate());
-        end = utcEndOfDay(yd.getUTCFullYear(), yd.getUTCMonth(), yd.getUTCDate());
-      }
-
-      // Last N days (inclusive)
-      else {
-        end = utcEndOfDay(y, m, d);
-
-        const sd = new Date(Date.UTC(y, m, d));
-        sd.setUTCDate(sd.getUTCDate() - (days - 1));
-
-        start = utcStartOfDay(sd.getUTCFullYear(), sd.getUTCMonth(), sd.getUTCDate());
-      }
+    // Today
+    if (days === 0) {
+      return {
+        fromParam: utcStartOfDay(y, m, d).toISOString(),
+        toParam: utcEndOfDay(y, m, d).toISOString(),
+      };
     }
 
-    // Safety guard
-    if (start > end) [start, end] = [end, start];
+    // Yesterday
+    if (days === -1) {
+      const yd = new Date(Date.UTC(y, m, d - 1));
+      return {
+        fromParam: utcStartOfDay(yd.getUTCFullYear(), yd.getUTCMonth(), yd.getUTCDate()).toISOString(),
+        toParam: utcEndOfDay(yd.getUTCFullYear(), yd.getUTCMonth(), yd.getUTCDate()).toISOString(),
+      };
+    }
 
-    return { startISO: start.toISOString(), endISO: end.toISOString() };
+    // Last N days (inclusive)
+    if (Number.isFinite(Number(days)) && Number(days) > 0) {
+      const end = utcEndOfDay(y, m, d);
+      const sd = new Date(Date.UTC(y, m, d));
+      sd.setUTCDate(sd.getUTCDate() - (Number(days) - 1));
+      const start = utcStartOfDay(sd.getUTCFullYear(), sd.getUTCMonth(), sd.getUTCDate());
+
+      return { fromParam: start.toISOString(), toParam: end.toISOString() };
+    }
+
+    // Fallback: omit params and let backend default
+    return { fromParam: null, toParam: null };
   }, [customStart, customEnd, days]);
 
   // Live label for date range for accessibility
   useEffect(() => {
-    const start = new Date(startISO);
-    const end = new Date(endISO);
-    const fmt = (d) =>
-      d.toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      });
-    setDateLiveLabel(`${fmt(start)} \u2013 ${fmt(end)}`);
-  }, [startISO, endISO]);
-
-  // Fetch users; table is unchanged elsewhere
-  const { users, loading: usersLoading, error: usersError } = useUsers({ limit: 200 });
-
-  // Fetch projects per user when needed
-  const [projectsByUser, setProjectsByUser] = useState({});
-  const [projectsLoading, setProjectsLoading] = useState(false);
-  const [projectsError, setProjectsError] = useState("");
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function run() {
-      if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
-        setProjectsByUser({});
+    try {
+      // If both are absent, backend defaults to TODAY UTC. Label it as "Today (UTC)".
+      if (!fromParam && !toParam) {
+        setDateLiveLabel("Today (UTC)");
         return;
       }
 
-      setProjectsLoading(true);
-      setProjectsError("");
-      const acc = {};
+      const fmt = (d) =>
+        d.toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+        });
 
+      // If YYYY-MM-DD, render as date-only label.
+      const isYmd = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+      const start = isYmd(fromParam) ? new Date(`${fromParam}T00:00:00.000Z`) : new Date(fromParam);
+      const end = isYmd(toParam) ? new Date(`${toParam}T23:59:59.999Z`) : new Date(toParam);
+
+      setDateLiveLabel(`${fmt(start)} – ${fmt(end)}`);
+    } catch {
+      setDateLiveLabel("");
+    }
+  }, [fromParam, toParam]);
+
+  // Single aggregated fetch (no per-user calls)
+  useEffect(() => {
+    const controller = new AbortController();
+
+    async function run() {
+      setLoading(true);
+      setErr("");
       try {
-        // Fetch in small batches to avoid overloading backend
-        const batchSize = 8;
-
-        for (let i = 0; i < users.length; i += batchSize) {
-          const slice = users.slice(i, i + batchSize);
-
-          await Promise.all(
-            slice.map(async (u) => {
-              if (!u?._id) return;
-
-              try {
-                // IMPORTANT: startISO/endISO are full-day UTC bounds by construction.
-                // Use shared API helper so ISODate wrapping stays consistent.
-                const res = await getUserProjects(String(u._id), {
-                  organization_id: activeTenantId,
-                  from: startISO,
-                  to: endISO,
-                });
-
-                // Preserve full response so we can access:
-                // - res.projects (distinct projects)
-                // - res.total_count (sessions count)
-                acc[String(u._id)] = res || { projects: [] };
-              } catch {
-                // Preserve prior behavior: user still exists, but no projects response.
-                acc[String(u._id)] = acc[String(u._id)] || { projects: [] };
-              }
-            })
-          );
-
-          if (cancelled) return;
-        }
-
-        if (!cancelled) setProjectsByUser(acc);
+        const data = await listDashboardUsersAnalytics(
+          { from: fromParam || undefined, to: toParam || undefined },
+          { signal: controller.signal }
+        );
+        setRows(Array.isArray(data) ? data : []);
       } catch (e) {
-        if (!cancelled) {
-          setProjectsError(e?.message || "Failed to load user projects.");
-          setProjectsByUser({});
+        if (e?.name !== "AbortError") {
+          setErr(e?.message || "Failed to load users analytics.");
+          setRows([]);
         }
       } finally {
-        if (!cancelled) setProjectsLoading(false);
+        setLoading(false);
       }
     }
 
     run();
-    return () => {
-      cancelled = true;
-    };
-  }, [users, activeTenantId, startISO, endISO]);
+    return () => controller.abort();
+  }, [fromParam, toParam]);
 
-  const aggregates = useMemo(() => {
-    const projectsCountByUser = [];
-
-    for (const u of users || []) {
-      const uid = String(u?._id || u?.id || "");
-      const res = projectsByUser[uid];
-
-      // Existing behavior (Projects): derived from distinct projects list length
-      const projectsCount = Array.isArray(res?.projects)
-        ? res.projects.length
-        : Array.isArray(res)
-          ? res.length
-          : 0;
-
-      // New behavior (Sessions): derived from backend total_count
-      const sessionsCount =
-        typeof res?.total_count === "number"
-          ? res.total_count
-          : Number.isFinite(Number(res?.total_count))
-            ? Number(res.total_count)
-            : 0;
-
-      projectsCountByUser.push({
-        user: u?.name || u?.full_name || u?.email || uid,
-        user_id: uid,
-        count: projectsCount,
-        total_count: sessionsCount,
-      });
-    }
-
-    // IMPORTANT: Bars should be based on sessions count, so sort accordingly.
-    projectsCountByUser.sort((a, b) => (b.total_count || 0) - (a.total_count || 0));
-    return { projectsCountByUser };
-  }, [users, projectsByUser]);
+  const chartRows = useMemo(() => {
+    // Backend already sorts by activity; keep it stable but ensure numbers are numbers.
+    return (rows || []).map((r) => ({
+      user: r?.name || r?.email || r?.userId || "",
+      userId: r?.userId || "",
+      totalSessions: Number(r?.totalSessions || 0),
+      distinctProjects: Number(r?.distinctProjects || 0),
+      lastActivityAt: r?.lastActivityAt || null,
+      email: r?.email || "",
+    }));
+  }, [rows]);
 
   // Theme colors
   const primary = "#2563EB";
+  const secondary = "#F59E0B";
   const grid = "#E5E7EB";
-  const subtle = "#e2750eff";
-
-  const ariaDateId = "users-analytics-date-label";
+  const subtle = "#6B7280";
 
   const handlePreset = (d) => {
     setCustomStart(null);
@@ -252,7 +188,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
         <div className="card-header" style={{ paddingBottom: 0, gap: 12 }}>
           <div>
             <h3 className="card-title">Users Analytics</h3>
-            <div className="card-subtitle">User activity distribution</div>
+            <div className="card-subtitle">Per-user activity (server-aggregated)</div>
           </div>
 
           <div className="card-actions" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -263,7 +199,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 value={customStart && customEnd ? "custom" : String(days)}
                 onChange={(e) => {
                   if (e.target.value === "custom") {
-                    // leave as-is; user will pick dates below
+                    // leave custom controls to user below
                   } else {
                     handlePreset(Number(e.target.value));
                   }
@@ -271,8 +207,8 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 className="ui-input"
                 style={{ minWidth: 140 }}
               >
-                <option value="0">Today</option>
-                <option value="-1">Yesterday</option>
+                <option value="0">Today (UTC)</option>
+                <option value="-1">Yesterday (UTC)</option>
                 <option value="7">Last 7 days</option>
                 <option value="14">Last 14 days</option>
                 <option value="30">Last 30 days</option>
@@ -286,31 +222,17 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
               aria-label="Custom date range"
               style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
             >
-              <input
-                type="date"
-                aria-label="Start date"
-                className="ui-input"
-                onChange={onCustomStartChange}
-              />
+              <input type="date" aria-label="Start date" className="ui-input" onChange={onCustomStartChange} />
               <span aria-hidden="true" style={{ color: subtle }}>
                 to
               </span>
-              <input
-                type="date"
-                aria-label="End date"
-                className="ui-input"
-                onChange={onCustomEndChange}
-              />
+              <input type="date" aria-label="End date" className="ui-input" onChange={onCustomEndChange} />
             </div>
           </div>
         </div>
 
         <div className="card-content" style={{ paddingTop: 8 }}>
-          <div
-            id={ariaDateId}
-            aria-live="polite"
-            style={{ fontSize: 12, color: subtle, marginBottom: 8 }}
-          >
+          <div aria-live="polite" style={{ fontSize: 12, color: subtle, marginBottom: 8 }}>
             {dateLiveLabel}
           </div>
 
@@ -318,32 +240,27 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
             <div className="card" aria-label="Activity by User">
               <div className="card-header" style={{ paddingBottom: 0 }}>
                 <h4 className="card-title">Activity by User</h4>
-                <div className="card-subtitle">Counts derived from associated activity</div>
+                <div className="card-subtitle">
+                  Sessions and distinct projects (computed server-side; sorted by last activity)
+                </div>
               </div>
 
-              <div className="card-content" style={{ height: 340 }}>
-                {usersLoading || projectsLoading ? (
+              <div className="card-content" style={{ height: 360 }}>
+                {loading ? (
                   <div aria-busy="true">
                     <Skeleton width="60%" height={14} className="mb-2" />
                     <Skeleton width="50%" height={12} className="mb-2" />
-                    <Skeleton width="100%" height={300} />
+                    <Skeleton width="100%" height={320} />
                   </div>
-                ) : usersError ? (
+                ) : err ? (
                   <div className="error" role="alert">
-                    {usersError.message || "Failed to load users"}
+                    {err}
                   </div>
-                ) : projectsError ? (
-                  <div className="error" role="alert">
-                    {projectsError}
-                  </div>
-                ) : aggregates.projectsCountByUser.length === 0 ? (
-                  <div className="screen-center">No sessions data</div>
+                ) : chartRows.length === 0 ? (
+                  <div className="screen-center">No analytics data</div>
                 ) : (
                   <ResponsiveContainer>
-                    <BarChart
-                      data={aggregates.projectsCountByUser.slice(0, 20)}
-                      margin={{ top: 8, right: 16, bottom: 24, left: 8 }}
-                    >
+                    <BarChart data={chartRows.slice(0, 20)} margin={{ top: 8, right: 16, bottom: 24, left: 8 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke={grid} />
                       <XAxis
                         dataKey="user"
@@ -351,18 +268,15 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                         interval={0}
                         angle={-25}
                         textAnchor="end"
-                        height={50}
+                        height={60}
                       />
                       <YAxis tick={{ fill: subtle, fontSize: 12 }} allowDecimals={false} />
                       <Tooltip
                         content={({ active, payload, label }) => {
                           if (!active || !Array.isArray(payload) || payload.length === 0) return null;
-
                           const row = payload?.[0]?.payload || {};
-                          const projectsCount = Number.isFinite(Number(row?.count)) ? Number(row.count) : 0;
-                          const sessionsCount = Number.isFinite(Number(row?.total_count))
-                            ? Number(row.total_count)
-                            : 0;
+                          const sessions = Number.isFinite(Number(row?.totalSessions)) ? Number(row.totalSessions) : 0;
+                          const projects = Number.isFinite(Number(row?.distinctProjects)) ? Number(row.distinctProjects) : 0;
 
                           return (
                             <div
@@ -380,31 +294,34 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                               <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
 
                               <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                                <span style={{ color: "#6B7280" }}>Projects:</span>
-                                <span style={{ fontWeight: 600 }}>{projectsCount}</span>
+                                <span style={{ color: "#6B7280" }}>Sessions:</span>
+                                <span style={{ fontWeight: 600 }}>{sessions}</span>
                               </div>
 
-                              <div
-                                style={{
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                  gap: 12,
-                                  marginTop: 4,
-                                }}
-                              >
-                                <span style={{ color: "#6B7280" }}>Sessions:</span>
-                                <span style={{ fontWeight: 600 }}>{sessionsCount}</span>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 4 }}>
+                                <span style={{ color: "#6B7280" }}>Distinct projects:</span>
+                                <span style={{ fontWeight: 600 }}>{projects}</span>
                               </div>
+
+                              {row?.lastActivityAt ? (
+                                <div style={{ marginTop: 6, color: "#6B7280" }}>
+                                  Last activity:{" "}
+                                  <span style={{ color: "#111827" }}>
+                                    {new Date(row.lastActivityAt).toLocaleString()}
+                                  </span>
+                                </div>
+                              ) : null}
                             </div>
                           );
                         }}
                       />
                       <Legend />
+                      <Bar dataKey="totalSessions" name="Sessions" fill={primary} stroke={primary} radius={[6, 6, 0, 0]} />
                       <Bar
-                        dataKey="total_count"
-                        name="Sessions"
-                        fill={primary}
-                        stroke={primary}
+                        dataKey="distinctProjects"
+                        name="Distinct projects"
+                        fill={secondary}
+                        stroke={secondary}
                         radius={[6, 6, 0, 0]}
                       />
                     </BarChart>
