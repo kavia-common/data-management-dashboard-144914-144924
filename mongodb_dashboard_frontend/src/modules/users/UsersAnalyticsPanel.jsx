@@ -472,6 +472,32 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 ) : (
                   // IMPORTANT: ResponsiveContainer needs a measurable parent. Enforce minHeight and 100% height.
                   <div style={{ height: "100%", minHeight: 320 }}>
+                    {(() => {
+                      // One-time gated debug immediately before the chart render:
+                      // prints first 5 rows and sum(total_count) for the *final rows passed to Recharts*.
+                      if (
+                        debugEnabled &&
+                        process.env.NODE_ENV !== "production" &&
+                        typeof window !== "undefined" &&
+                        !window.__usersActivityByUserChartLogged
+                      ) {
+                        const rows = (aggregates.activityByUserRows || []).slice(0, 20);
+                        const sum = rows.reduce(
+                          (acc, r) => acc + (Number.isFinite(Number(r?.total_count)) ? Number(r.total_count) : 0),
+                          0
+                        );
+
+                        // eslint-disable-next-line no-console
+                        console.log("[UsersAnalyticsPanel] ActivityByUser BarChart rows (first 5) + sum(total_count)", {
+                          first5: rows.slice(0, 5),
+                          sum,
+                          length: rows.length,
+                        });
+
+                        window.__usersActivityByUserChartLogged = true;
+                      }
+                      return null;
+                    })()}
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart
                         data={(aggregates.activityByUserRows || []).slice(0, 20)}

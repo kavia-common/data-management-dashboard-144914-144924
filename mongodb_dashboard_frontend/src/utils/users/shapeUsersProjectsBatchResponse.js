@@ -61,15 +61,24 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
 
   /**
    * Detect whether batchResponse.data is an *envelope* (i.e. it contains `data/items/results`)
-   * or whether it is already the *data map* itself.
+   * or whether it is already the *per-user data map*.
    *
-   * This distinction is critical for the latest backend change:
-   *   { success, tenant_id, data: { [userId]: { total_count, projects } } }
+   * IMPORTANT BUGFIX:
+   * The new backend shape is:
+   *   { success, tenant_id, data: { [userId]: { total_count, projects, name? } } }
+   *
+   * That means `batchResponse.data` is an object which *may itself contain a "data" key*
+   * if (and only if) one of the requested userIds happens to literally be "data".
+   * Previous logic treated the presence of a "data" property as an envelope, which can
+   * mis-route the parsing and yield an empty map => chart renders no bars.
+   *
+   * We now consider it an envelope ONLY when it has envelope-like keys AND it is NOT
+   * also a per-user map for our requested ids.
    */
   const dataEnvelopeCandidate =
     (batchResponse?.data && typeof batchResponse.data === "object" && batchResponse.data) || null;
 
-  const isEnvelopeObject =
+  const looksLikeEnvelope =
     !!dataEnvelopeCandidate &&
     typeof dataEnvelopeCandidate === "object" &&
     !Array.isArray(dataEnvelopeCandidate) &&
@@ -77,7 +86,14 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
       Object.prototype.hasOwnProperty.call(dataEnvelopeCandidate, "items") ||
       Object.prototype.hasOwnProperty.call(dataEnvelopeCandidate, "results"));
 
-  const dataEnvelope = isEnvelopeObject ? dataEnvelopeCandidate : null;
+  // Heuristic: if any requested uid exists as a key on batchResponse.data, treat it as the per-user map.
+  const looksLikePerUserMap =
+    !!dataEnvelopeCandidate &&
+    typeof dataEnvelopeCandidate === "object" &&
+    !Array.isArray(dataEnvelopeCandidate) &&
+    ids.some((uid) => Object.prototype.hasOwnProperty.call(dataEnvelopeCandidate, uid));
+
+  const dataEnvelope = looksLikeEnvelope && !looksLikePerUserMap ? dataEnvelopeCandidate : null;
 
   const dataMapRawCandidate =
     // Wrapped envelope variants
@@ -85,7 +101,7 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
     // Alternate top-level map keys
     batchResponse?.items ??
     batchResponse?.results ??
-    // New/common case: batchResponse.data is already the per-user map
+    // Common case: batchResponse.data is already the per-user map
     dataEnvelopeCandidate ??
     {};
 
@@ -133,7 +149,7 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
       (Object.prototype.hasOwnProperty.call(totalsMap, uid) ||
         Object.prototype.hasOwnProperty.call(totalsMap, String(uid)));
 
-    // Shape B: data[uid] is an object { projects, total_count }
+    // Shape B: data[uid] is an object { projects, total_count, name? }
     if (raw && typeof raw === "object" && !Array.isArray(raw)) {
       const projects = Array.isArray(raw?.projects) ? raw.projects : [];
 
