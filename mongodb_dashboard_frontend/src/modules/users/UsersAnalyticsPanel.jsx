@@ -279,8 +279,25 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
      *
      * We keep the chart row shape minimal and explicit:
      *   { id, name, total_count }
+     *
+     * Bugfix note:
+     * - The tooltip must show UNIQUE project counts (distinct project ids).
+     * - Some backend data shapes can include duplicate project entries; therefore
+     *   `projects.length` is not always a safe "unique projects" count.
+     * - We keep session counting flow untouched: bar dataKey remains `total_count`.
      */
     const activityByUserRows = [];
+
+    const getUniqueProjectCount = (projects) => {
+      if (!Array.isArray(projects) || projects.length === 0) return 0;
+      const ids = new Set();
+      for (const p of projects) {
+        const pid = p?.project_id ?? p?.projectId ?? p?.id ?? null;
+        if (!pid) continue;
+        ids.add(String(pid));
+      }
+      return ids.size;
+    };
 
     for (const u of users || []) {
       const uid = String(u?._id || u?.id || "");
@@ -302,9 +319,9 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 ? Number(res.count)
                 : 0;
 
-      // Projects MUST be derived from the projects list returned by the batch endpoint.
+      // Projects count must reflect UNIQUE projects (distinct project ids).
       // This intentionally differs from sessions total_count.
-      const projects_count = Array.isArray(res?.projects) ? res.projects.length : 0;
+      const projects_count = getUniqueProjectCount(res?.projects);
 
       const name =
         res?.name ||
@@ -323,7 +340,10 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       // eslint-disable-next-line no-console
       console.debug("[UsersAnalyticsPanel] ActivityByUser rows (final)", {
         length: activityByUserRows.length,
-        sum: activityByUserRows.reduce((acc, r) => acc + (Number.isFinite(r.total_count) ? r.total_count : 0), 0),
+        sum: activityByUserRows.reduce(
+          (acc, r) => acc + (Number.isFinite(r.total_count) ? r.total_count : 0),
+          0
+        ),
         first3: activityByUserRows.slice(0, 3),
       });
     }
@@ -550,15 +570,15 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                             if (!active || !Array.isArray(payload) || payload.length === 0) return null;
 
                             const row = payload?.[0]?.payload || {};
-                            // const projectsCount = Number.isFinite(Number(row?.projects_count))
-                            //   ? Number(row.projects_count)
-                            //   : Number.isFinite(Number(row?.count))
-                            //     ? Number(row.count)
-                            //     : 0;
+
+                            // IMPORTANT:
+                            // - "Projects" must be UNIQUE projects count only.
+                            // - Do not fall back to any "count" fields (those are often session/event counts).
                             const projectsCount = Number.isFinite(Number(row?.projects_count))
                               ? Number(row.projects_count)
                               : 0;
 
+                            // Sessions count flow must remain unchanged.
                             const sessionsCount = Number.isFinite(Number(row?.total_count))
                               ? Number(row.total_count)
                               : 0;
