@@ -88,17 +88,28 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
   for (const uid of ids) {
     const raw = dataMapRaw?.[uid];
 
+    // Helper: determine whether we have an explicit totals entry for this user.
+    // Important: totals can legitimately be 0; presence is about the key, not truthiness.
+    const hasExplicitTotalsEntry =
+      totalsMap &&
+      typeof totalsMap === "object" &&
+      (Object.prototype.hasOwnProperty.call(totalsMap, uid) ||
+        Object.prototype.hasOwnProperty.call(totalsMap, String(uid)));
+
     // Shape B: data[uid] is an object { projects, total_count }
     if (raw && typeof raw === "object" && !Array.isArray(raw)) {
       const projects = Array.isArray(raw?.projects) ? raw.projects : [];
+
+      // Prefer per-user total_count if present, else totals map, else fallback to projects.length.
+      // NOTE: Some backend versions for the batch endpoint return only projects lists (no totals map).
       const totalCount =
         typeof raw?.total_count === "number"
           ? raw.total_count
           : Number.isFinite(Number(raw?.total_count))
             ? Number(raw.total_count)
-            : Number.isFinite(Number(totalsMap?.[uid]))
+            : hasExplicitTotalsEntry && Number.isFinite(Number(totalsMap?.[uid]))
               ? Number(totalsMap[uid])
-              : 0;
+              : projects.length;
 
       // Always output the fields the chart relies on, while preserving other keys.
       out[uid] = { ...raw, projects, total_count: totalCount };
@@ -107,7 +118,12 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
 
     // Shape A/C/D: data[uid] is an array of projects + totals stored separately
     const projects = Array.isArray(raw) ? raw : [];
-    const totalCount = Number.isFinite(Number(totalsMap?.[uid])) ? Number(totalsMap[uid]) : 0;
+
+    // Prefer totals map when present; otherwise fall back to projects.length.
+    const totalCount =
+      hasExplicitTotalsEntry && Number.isFinite(Number(totalsMap?.[uid]))
+        ? Number(totalsMap[uid])
+        : projects.length;
 
     // Always output the exact object shape expected by the chart: { projects: [], total_count: number }
     // This also zero-fills users missing from the response.

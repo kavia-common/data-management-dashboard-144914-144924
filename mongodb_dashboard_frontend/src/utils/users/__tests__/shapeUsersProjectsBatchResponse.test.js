@@ -50,6 +50,25 @@ describe("shapeUsersProjectsBatchResponse", () => {
     expect(out.u1.total_count).toBe(7);
   });
 
+  test("supports shape H: data map arrays with no totals (falls back to projects.length)", () => {
+    const out = shapeUsersProjectsBatchResponse({
+      userIds: ["u1", "u2"],
+      batchResponse: {
+        success: true,
+        tenant_id: "t1",
+        data: {
+          u1: [{ project_id: "p1" }, { project_id: "p2" }],
+          u2: [],
+        },
+      },
+    });
+
+    expect(out.u1.projects).toHaveLength(2);
+    expect(out.u1.total_count).toBe(2);
+    expect(out.u2.projects).toHaveLength(0);
+    expect(out.u2.total_count).toBe(0);
+  });
+
   test("supports wrapped results under `items`", () => {
     const out = shapeUsersProjectsBatchResponse({
       userIds: ["u1"],
