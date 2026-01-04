@@ -21,15 +21,22 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
 
   // Some backend handlers may wrap results under different keys.
   // Prefer `data` (current contract), but accept `items`/`results` as fallbacks.
+  // Also accept nested "data.items" / "data.results" envelope variants.
   const dataMapRaw =
     (batchResponse?.data && typeof batchResponse.data === "object" && batchResponse.data) ||
     (batchResponse?.items && typeof batchResponse.items === "object" && batchResponse.items) ||
     (batchResponse?.results &&
       typeof batchResponse.results === "object" &&
       batchResponse.results) ||
+    (batchResponse?.data?.items &&
+      typeof batchResponse.data.items === "object" &&
+      batchResponse.data.items) ||
+    (batchResponse?.data?.results &&
+      typeof batchResponse.data.results === "object" &&
+      batchResponse.data.results) ||
     {};
 
-  // Accept totals under a few aliases, and importantly, accept nested totals under `data`.
+  // Accept totals under a few aliases, and importantly, accept nested totals under `data` and `meta`.
   // This prevents the chart from showing "empty bars" when totals are present but not found.
   const totalsMapCandidate =
     (batchResponse?.totals && typeof batchResponse.totals === "object" && batchResponse.totals) ||
@@ -37,6 +44,11 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
     (batchResponse?.total_count &&
       typeof batchResponse.total_count === "object" &&
       batchResponse.total_count) ||
+    (batchResponse?.meta?.totals && typeof batchResponse.meta.totals === "object" && batchResponse.meta.totals) ||
+    (batchResponse?.meta?.counts && typeof batchResponse.meta.counts === "object" && batchResponse.meta.counts) ||
+    (batchResponse?.meta?.total_count &&
+      typeof batchResponse.meta.total_count === "object" &&
+      batchResponse.meta.total_count) ||
     (dataMapRaw?.totals && typeof dataMapRaw.totals === "object" && dataMapRaw.totals) ||
     (dataMapRaw?.counts && typeof dataMapRaw.counts === "object" && dataMapRaw.counts) ||
     (dataMapRaw?.total_count &&

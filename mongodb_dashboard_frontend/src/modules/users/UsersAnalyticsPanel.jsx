@@ -429,7 +429,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 ) : !Array.isArray(users) || users.length === 0 ? (
                   <div className="screen-center">No users</div>
                 ) : (
-                  <ResponsiveContainer>
+                  <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={aggregates.projectsCountByUser.slice(0, 20)}
                       margin={{ top: 8, right: 16, bottom: 24, left: 8 }}
