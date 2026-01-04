@@ -169,7 +169,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
   // Theme colors
   const primary = "#2563EB";
-  const secondary = "#F59E0B";
+  const secondary = "#f57c0bff";
   const grid = "#E5E7EB";
   const subtle = "#6B7280";
 
@@ -241,7 +241,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
               <div className="card-header" style={{ paddingBottom: 0 }}>
                 <h4 className="card-title">Activity by User</h4>
                 <div className="card-subtitle">
-                  Sessions and distinct projects (computed server-side; sorted by last activity)
+                  Sessions and Projects (computed server-side; sorted by last activity)
                 </div>
               </div>
 
@@ -299,7 +299,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                               </div>
 
                               <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 4 }}>
-                                <span style={{ color: "#6B7280" }}>Distinct projects:</span>
+                                <span style={{ color: "#6B7280" }}> Projects:</span>
                                 <span style={{ fontWeight: 600 }}>{projects}</span>
                               </div>
 
@@ -319,7 +319,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                       <Bar dataKey="totalSessions" name="Sessions" fill={primary} stroke={primary} radius={[6, 6, 0, 0]} />
                       <Bar
                         dataKey="distinctProjects"
-                        name="Distinct projects"
+                        name=" Projects"
                         fill={secondary}
                         stroke={secondary}
                         radius={[6, 6, 0, 0]}
