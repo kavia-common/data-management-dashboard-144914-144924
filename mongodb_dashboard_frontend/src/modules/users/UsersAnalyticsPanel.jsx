@@ -144,7 +144,9 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     from: null,
     to: null,
     requestedUserIdsCount: 0,
-    top5: [],
+    // Minimal “trust but verify” debug: show first rows and totals right above chart
+    first5Rows: [],
+    totalSum: 0,
   });
 
   useEffect(() => {
@@ -160,7 +162,8 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
             from: startISO,
             to: endISO,
             requestedUserIdsCount: 0,
-            top5: [],
+            first5Rows: [],
+            totalSum: 0,
           });
         }
         return;
@@ -192,28 +195,42 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
           batchResponse: batchRes,
         });
 
+        if (!cancelled) setProjectsByUser(shaped);
+
         if (debugEnabled) {
-          const top5 = userIds
-            .map((id) => ({
-              id,
-              name: users.find((u) => String(u?._id || "") === id)?.name || id,
-              total_count: Number.isFinite(Number(shaped?.[id]?.total_count))
-                ? Number(shaped[id].total_count)
-                : 0,
-            }))
-            .sort((a, b) => b.total_count - a.total_count)
-            .slice(0, 5);
+          // Build the exact chart rows here too (so debug shows the same values the chart uses).
+          const rows = userIds.map((id) => {
+            const userFromList = users.find((u) => String(u?._id || "") === id);
+            const shapedUser = shaped?.[id];
+
+            // Prefer backend-provided name when present (useful for super-admin multi-tenant results),
+            // otherwise fall back to users list fields.
+            const name =
+              shapedUser?.name ||
+              shapedUser?.user_name ||
+              userFromList?.name ||
+              userFromList?.full_name ||
+              userFromList?.email ||
+              id;
+
+            const total_count = Number.isFinite(Number(shapedUser?.total_count))
+              ? Number(shapedUser.total_count)
+              : 0;
+
+            return { id, name, total_count };
+          });
+
+          const totalSum = rows.reduce((acc, r) => acc + (Number.isFinite(r.total_count) ? r.total_count : 0), 0);
 
           setDebugInfo({
             organization_id: activeTenantId,
             from: startISO,
             to: endISO,
             requestedUserIdsCount: userIds.length,
-            top5,
+            first5Rows: rows.slice(0, 5),
+            totalSum,
           });
         }
-
-        if (!cancelled) setProjectsByUser(shaped);
       } catch (e) {
         // IMPORTANT: Do not reintroduce per-user calls. If the batch request fails, surface an error.
         // Avoid overwriting state on abort/cancel.
@@ -237,10 +254,13 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
   const aggregates = useMemo(() => {
     /**
-     * The Recharts <Bar dataKey="total_count" /> requires every row to include `total_count`.
+     * IMPORTANT:
+     * Recharts BarChart renders bars only when:
+     * - `data` is a non-empty array
+     * - the Bar's `dataKey` exists on each datum AND is numeric
      *
-     * This builder outputs a stable row shape:
-     *   { id, name, total_count, projects_count }
+     * We keep the chart row shape minimal and explicit:
+     *   { id, name, total_count }
      */
     const activityByUserRows = [];
 
@@ -250,40 +270,29 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
       const res = projectsByUser?.[uid];
 
-      const projectsCount = Array.isArray(res?.projects)
-        ? res.projects.length
-        : Array.isArray(res)
-          ? res.length
-          : 0;
+      // Latest backend shape: res is an object { total_count, projects, name?/user_name? }
+      // Ensure total_count is numeric (0 when missing) to prevent invisible bars.
+      const total_count = Number.isFinite(Number(res?.total_count)) ? Number(res.total_count) : 0;
 
-      const sessionsCount = Number.isFinite(Number(res?.total_count)) ? Number(res.total_count) : 0;
+      const name =
+        res?.name ||
+        res?.user_name ||
+        u?.name ||
+        u?.full_name ||
+        u?.email ||
+        uid;
 
-      const displayName = u?.name || u?.full_name || u?.email || uid;
-
-      activityByUserRows.push({
-        id: uid,
-        name: displayName,
-        total_count: sessionsCount,
-        user_id: uid,
-        user: displayName,
-        projects_count: projectsCount,
-        count: projectsCount,
-      });
+      activityByUserRows.push({ id: uid, name, total_count });
     }
 
     activityByUserRows.sort((a, b) => (b.total_count || 0) - (a.total_count || 0));
 
-    // Step (1) logging: final shaped rows right before rendering (gated).
     if (debugEnabled && process.env.NODE_ENV !== "production") {
       // eslint-disable-next-line no-console
       console.debug("[UsersAnalyticsPanel] ActivityByUser rows (final)", {
         length: activityByUserRows.length,
-        keys: activityByUserRows[0] ? Object.keys(activityByUserRows[0]) : [],
+        sum: activityByUserRows.reduce((acc, r) => acc + (Number.isFinite(r.total_count) ? r.total_count : 0), 0),
         first3: activityByUserRows.slice(0, 3),
-        nonNumericTotalCount: activityByUserRows
-          .filter((r) => !Number.isFinite(Number(r?.total_count)))
-          .slice(0, 5)
-          .map((r) => ({ id: r?.id, total_count: r?.total_count })),
       });
     }
 
@@ -419,15 +428,20 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                       <div style={{ color: "#6B7280" }}>userIds sent</div>
                       <div>{Number(debugInfo.requestedUserIdsCount || 0)}</div>
 
-                      <div style={{ color: "#6B7280" }}>top 5 totals</div>
+                      <div style={{ color: "#6B7280" }}>sum(total_count)</div>
                       <div>
-                        {(debugInfo.top5 || []).length === 0 ? (
+                        <strong>{Number(debugInfo.totalSum || 0)}</strong>
+                      </div>
+
+                      <div style={{ color: "#6B7280" }}>first 5 rows</div>
+                      <div>
+                        {(debugInfo.first5Rows || []).length === 0 ? (
                           <span style={{ color: "#6B7280" }}>n/a</span>
                         ) : (
                           <ol style={{ margin: "4px 0 0 18px", padding: 0 }}>
-                            {(debugInfo.top5 || []).map((u) => (
-                              <li key={u.id}>
-                                {u.name}: <strong>{u.total_count}</strong>
+                            {(debugInfo.first5Rows || []).map((r) => (
+                              <li key={r.id}>
+                                {r.name}: <strong>{r.total_count}</strong>
                               </li>
                             ))}
                           </ol>

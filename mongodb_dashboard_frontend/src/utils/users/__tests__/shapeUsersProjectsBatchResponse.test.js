@@ -1,6 +1,27 @@
 import { shapeUsersProjectsBatchResponse } from "../shapeUsersProjectsBatchResponse";
 
 describe("shapeUsersProjectsBatchResponse", () => {
+  it("handles latest backend shape: data[userId] = { total_count, projects, name? }", () => {
+    const userIds = ["u1", "u2"];
+    const batchResponse = {
+      success: true,
+      tenant_id: "t1",
+      data: {
+        u1: { total_count: 3, projects: [{ project_id: "p1" }], name: "Alice" },
+        u2: { total_count: "0", projects: [], user_name: "Bob" },
+      },
+    };
+
+    const shaped = shapeUsersProjectsBatchResponse({ userIds, batchResponse });
+
+    expect(shaped).toEqual({
+      u1: { total_count: 3, projects: [{ project_id: "p1" }], name: "Alice" },
+      u2: { total_count: 0, projects: [], user_name: "Bob" },
+    });
+
+    expect(typeof shaped.u1.total_count).toBe("number");
+    expect(typeof shaped.u2.total_count).toBe("number");
+  });
   test("supports shape A: data map arrays + totals map", () => {
     const out = shapeUsersProjectsBatchResponse({
       userIds: ["u1", "u2"],
