@@ -42,6 +42,7 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
     (dataEnvelope?.results && typeof dataEnvelope.results === "object" && dataEnvelope.results) ||
     (batchResponse?.items && typeof batchResponse.items === "object" && batchResponse.items) ||
     (batchResponse?.results && typeof batchResponse.results === "object" && batchResponse.results) ||
+    // Common case: backend returns { success, tenant_id, data: { [uid]: ... }, totals?: ... }
     (batchResponse?.data && typeof batchResponse.data === "object" && batchResponse.data) ||
     {};
 
@@ -82,7 +83,8 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
       dataMapRaw.total_count) ||
     {};
 
-  const totalsMap = totalsMapCandidate && typeof totalsMapCandidate === "object" ? totalsMapCandidate : {};
+  const totalsMap =
+    totalsMapCandidate && typeof totalsMapCandidate === "object" ? totalsMapCandidate : {};
 
   const out = {};
   for (const uid of ids) {

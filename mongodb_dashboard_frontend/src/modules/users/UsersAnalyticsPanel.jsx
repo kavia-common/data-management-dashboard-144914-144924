@@ -228,7 +228,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
           ? res.length
           : 0;
 
-      // Sessions: derived from backend total_count
+      // Sessions: derived from backend total_count (from shaping util)
       const sessionsCount =
         typeof res?.total_count === "number"
           ? res.total_count
@@ -239,7 +239,9 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       projectsCountByUser.push({
         user: u?.name || u?.full_name || u?.email || uid,
         user_id: uid,
+        // keep `count` for tooltip display (projects count)
         count: projectsCount,
+        // CRITICAL: keep `total_count` for the bar chart `dataKey`
         total_count: sessionsCount,
       });
     }
@@ -252,10 +254,12 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       String(process.env.REACT_APP_DEBUG_USERS_ANALYTICS || "").toLowerCase() === "true";
 
     if (debugEnabled && process.env.NODE_ENV !== "production") {
+      // Targeted log: right before rendering, print the final rows and keys used by the chart.
       // eslint-disable-next-line no-console
-      console.debug("[UsersAnalyticsPanel] chart rows:", projectsCountByUser.length, {
-        missingTotalCountRows: projectsCountByUser.filter((r) => typeof r.total_count !== "number").length,
-        top5: projectsCountByUser.slice(0, 5).map((r) => ({ user: r.user, total_count: r.total_count })),
+      console.debug("[UsersAnalyticsPanel] Activity by User chart debug", {
+        barDataKey: "total_count",
+        xAxisDataKey: "user",
+        rows: projectsCountByUser.slice(0, 20),
       });
     }
 
@@ -353,7 +357,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 <div className="card-subtitle">Counts derived from associated activity</div>
               </div>
 
-              <div className="card-content" style={{ height: 340, minHeight: 340 }}>
+              <div className="card-content" style={{ height: 360, minHeight: 360 }}>
                 {usersLoading || projectsLoading ? (
                   <div aria-busy="true">
                     <Skeleton width="60%" height={14} className="mb-2" />
