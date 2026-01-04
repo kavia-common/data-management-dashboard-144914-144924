@@ -15,6 +15,7 @@ import { getUserProjects, getUsersProjectsBatch } from "../../api/users";
 import { getActiveTenant } from "../../utils/tenantClient";
 import { getOrganizationId } from "../../api/authTokenProvider";
 import Skeleton from "../../components/ui/Skeleton";
+import { shapeUsersProjectsBatchResponse } from "../../utils/users/shapeUsersProjectsBatchResponse";
 
 /**
  * PUBLIC_INTERFACE
@@ -150,8 +151,9 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
       try {
         // Optimization:
-        // Use the backend batch endpoint so the chart triggers ONE request for N users,
-        // instead of N requests for N users.
+        // Use the backend batch endpoint so the chart triggers ONE request for N users.
+        // IMPORTANT:
+        // - Do NOT treat "all zero counts" as a batch failure; it's a valid state for quick ranges.
         const batchRes = await getUsersProjectsBatch({
           userIds,
           organization_id: activeTenantId,
@@ -159,56 +161,17 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
           to: endISO,
         });
 
-        const dataMap =
-          batchRes?.data && typeof batchRes.data === "object" ? batchRes.data : {};
+        const shaped = shapeUsersProjectsBatchResponse({
+          userIds,
+          batchResponse: batchRes,
+        });
 
-        // Support totals maps if backend provides them separately.
-        const totalsMap =
-          (batchRes?.totals && typeof batchRes.totals === "object" && batchRes.totals) ||
-          (batchRes?.total_count &&
-            typeof batchRes.total_count === "object" &&
-            batchRes.total_count) ||
-          {};
-
-        // Normalize to a stable per-user shape:
-        // { [userId]: { projects: [...], total_count: number } }
-        const acc = {};
-        for (const uid of userIds) {
-          const raw = dataMap?.[uid];
-
-          // If backend already returns an object, preserve its fields.
-          if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-            const projects = Array.isArray(raw?.projects) ? raw.projects : [];
-            const totalCount =
-              typeof raw?.total_count === "number"
-                ? raw.total_count
-                : Number.isFinite(Number(raw?.total_count))
-                  ? Number(raw.total_count)
-                  : Number.isFinite(Number(totalsMap?.[uid]))
-                    ? Number(totalsMap[uid])
-                    : 0;
-
-            acc[uid] = { ...raw, projects, total_count: totalCount };
-            continue;
-          }
-
-          // Otherwise assume it's an array of projects.
-          const projects = Array.isArray(raw) ? raw : [];
-          const totalCount = Number.isFinite(Number(totalsMap?.[uid])) ? Number(totalsMap[uid]) : 0;
-
-          acc[uid] = { projects, total_count: totalCount };
-        }
-
-        // If batch returns no session counts at all, treat it as unusable for the chart
-        // and fall back to per-user.
-        const anySessionCounts = Object.values(acc).some((v) => Number(v?.total_count || 0) > 0);
-        if (!anySessionCounts) {
-          throw new Error("Batch projects response missing session counts");
-        }
-
-        if (!cancelled) setProjectsByUser(acc);
+        if (!cancelled) setProjectsByUser(shaped);
       } catch (e) {
-        // Safety fallback: revert to per-user requests, but only when batch fails/unusable.
+        // Only fall back to per-user when the batch request truly fails (network/HTTP/etc).
+        // Avoid noisy per-user cascades on abort/cancel.
+        if (e?.name === "AbortError" || cancelled) return;
+
         try {
           const acc = {};
           const batchSize = 8;
@@ -239,9 +202,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
           if (!cancelled) setProjectsByUser(acc);
         } catch (fallbackErr) {
           if (!cancelled) {
-            setProjectsError(
-              fallbackErr?.message || e?.message || "Failed to load user projects."
-            );
+            setProjectsError(fallbackErr?.message || e?.message || "Failed to load user projects.");
             setProjectsByUser({});
           }
         }
@@ -397,8 +358,8 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                   <div className="error" role="alert">
                     {projectsError}
                   </div>
-                ) : aggregates.projectsCountByUser.length === 0 ? (
-                  <div className="screen-center">No sessions data</div>
+                ) : !Array.isArray(users) || users.length === 0 ? (
+                  <div className="screen-center">No users</div>
                 ) : (
                   <ResponsiveContainer>
                     <BarChart
