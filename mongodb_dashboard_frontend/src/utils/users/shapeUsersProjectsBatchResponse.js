@@ -5,6 +5,10 @@
  * Normalizes the evolving `POST /api/users/projects` batch response into a stable per-user map:
  *   { [userId]: { projects: Array, total_count: number } }
  *
+ * Expected current backend shape (most common):
+ *   { success: true, tenant_id, data: { [userId]: { total_count, projects, user_name? } } }
+ * where `total_count` is the authoritative sessions count (inclusive date bounds handled server-side).
+ *
  * Why this exists:
  * - The backend envelope for this endpoint has historically varied across versions and environments.
  * - The "Activity by User" chart expects a numeric `total_count` per userId for its Bar `dataKey`.

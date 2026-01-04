@@ -215,20 +215,33 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   }, [users, activeTenantId, startISO, endISO]);
 
   const aggregates = useMemo(() => {
-    const projectsCountByUser = [];
+    /**
+     * The Recharts <Bar dataKey="total_count" /> requires every row to include `total_count`.
+     * The "no bars" symptom is commonly caused by:
+     * - dataKey mismatch (e.g., rows have `count` but Bar expects `total_count`)
+     * - rows missing/undefined `total_count` (NaN coerces to 0)
+     * - chart container height resolving to 0
+     *
+     * This builder outputs a stable row shape:
+     *   { id, name, total_count, projects_count }
+     * and we keep backwards-compatible aliases used by tooltip/axes in this file.
+     */
+    const activityByUserRows = [];
 
     for (const u of users || []) {
       const uid = String(u?._id || u?.id || "");
-      const res = projectsByUser[uid];
+      if (!uid) continue;
 
-      // Projects: derived from distinct projects list length
+      const res = projectsByUser?.[uid];
+
+      // Projects: derived from distinct projects list length (never triggers extra calls).
       const projectsCount = Array.isArray(res?.projects)
         ? res.projects.length
         : Array.isArray(res)
           ? res.length
           : 0;
 
-      // Sessions: derived from backend total_count (from shaping util)
+      // Sessions: derived from backend-provided total_count (inclusive date bounds already handled server-side).
       const sessionsCount =
         typeof res?.total_count === "number"
           ? res.total_count
@@ -236,18 +249,25 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
             ? Number(res.total_count)
             : 0;
 
-      projectsCountByUser.push({
-        user: u?.name || u?.full_name || u?.email || uid,
-        user_id: uid,
-        // keep `count` for tooltip display (projects count)
-        count: projectsCount,
-        // CRITICAL: keep `total_count` for the bar chart `dataKey`
+      const displayName = u?.name || u?.full_name || u?.email || uid;
+
+      activityByUserRows.push({
+        // Preferred stable fields (explicitly requested by task)
+        id: uid,
+        name: displayName,
         total_count: sessionsCount,
+
+        // Keep these for local usage (XAxis/Tooltip in this file)
+        user_id: uid,
+        user: displayName,
+        projects_count: projectsCount,
+        // legacy alias (tooltip previously used row.count)
+        count: projectsCount,
       });
     }
 
-    // Bars should be based on sessions count, so sort accordingly.
-    projectsCountByUser.sort((a, b) => (b.total_count || 0) - (a.total_count || 0));
+    // Bars are based on sessions count, so sort accordingly.
+    activityByUserRows.sort((a, b) => (b.total_count || 0) - (a.total_count || 0));
 
     const debugEnabled =
       String(process.env.REACT_APP_DEBUG_USERS_ANALYTICS || "").toLowerCase() === "1" ||
@@ -258,12 +278,13 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       // eslint-disable-next-line no-console
       console.debug("[UsersAnalyticsPanel] Activity by User chart debug", {
         barDataKey: "total_count",
-        xAxisDataKey: "user",
-        rows: projectsCountByUser.slice(0, 20),
+        xAxisDataKey: "name",
+        rowsCount: activityByUserRows.length,
+        firstRows: activityByUserRows.slice(0, 20),
       });
     }
 
-    return { projectsCountByUser };
+    return { activityByUserRows };
   }, [users, projectsByUser]);
 
   // Theme colors
@@ -375,76 +396,84 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 ) : !Array.isArray(users) || users.length === 0 ? (
                   <div className="screen-center">No users</div>
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart
-                      data={aggregates.projectsCountByUser.slice(0, 20)}
-                      margin={{ top: 8, right: 16, bottom: 24, left: 8 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke={grid} />
-                      <XAxis
-                        dataKey="user"
-                        tick={{ fill: subtle, fontSize: 12 }}
-                        interval={0}
-                        angle={-25}
-                        textAnchor="end"
-                        height={50}
-                      />
-                      <YAxis tick={{ fill: subtle, fontSize: 12 }} allowDecimals={false} />
-                      <Tooltip
-                        content={({ active, payload, label }) => {
-                          if (!active || !Array.isArray(payload) || payload.length === 0) return null;
+                  // IMPORTANT: ResponsiveContainer needs a measurable parent. Enforce minHeight and 100% height.
+                  <div style={{ height: "100%", minHeight: 320 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={(aggregates.activityByUserRows || []).slice(0, 20)}
+                        margin={{ top: 8, right: 16, bottom: 24, left: 8 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+                        <XAxis
+                          dataKey="name"
+                          tick={{ fill: subtle, fontSize: 12 }}
+                          interval={0}
+                          angle={-25}
+                          textAnchor="end"
+                          height={50}
+                        />
+                        <YAxis tick={{ fill: subtle, fontSize: 12 }} allowDecimals={false} />
+                        <Tooltip
+                          content={({ active, payload, label }) => {
+                            if (!active || !Array.isArray(payload) || payload.length === 0) return null;
 
-                          const row = payload?.[0]?.payload || {};
-                          const projectsCount = Number.isFinite(Number(row?.count)) ? Number(row.count) : 0;
-                          const sessionsCount = Number.isFinite(Number(row?.total_count))
-                            ? Number(row.total_count)
-                            : 0;
+                            const row = payload?.[0]?.payload || {};
+                            const projectsCount = Number.isFinite(Number(row?.projects_count))
+                              ? Number(row.projects_count)
+                              : Number.isFinite(Number(row?.count))
+                                ? Number(row.count)
+                                : 0;
 
-                          return (
-                            <div
-                              style={{
-                                background: "#ffffff",
-                                border: "1px solid #E5E7EB",
-                                borderRadius: 8,
-                                padding: "10px 12px",
-                                boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-                                color: "#111827",
-                                fontSize: 12,
-                                lineHeight: 1.35,
-                              }}
-                            >
-                              <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
+                            const sessionsCount = Number.isFinite(Number(row?.total_count))
+                              ? Number(row.total_count)
+                              : 0;
 
-                              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                                <span style={{ color: "#6B7280" }}>Projects:</span>
-                                <span style={{ fontWeight: 600 }}>{projectsCount}</span>
-                              </div>
-
+                            return (
                               <div
                                 style={{
-                                  display: "flex",
-                                  justifyContent: "space-between",
-                                  gap: 12,
-                                  marginTop: 4,
+                                  background: "#ffffff",
+                                  border: "1px solid #E5E7EB",
+                                  borderRadius: 8,
+                                  padding: "10px 12px",
+                                  boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+                                  color: "#111827",
+                                  fontSize: 12,
+                                  lineHeight: 1.35,
                                 }}
                               >
-                                <span style={{ color: "#6B7280" }}>Sessions:</span>
-                                <span style={{ fontWeight: 600 }}>{sessionsCount}</span>
+                                <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
+
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                                  <span style={{ color: "#6B7280" }}>Projects:</span>
+                                  <span style={{ fontWeight: 600 }}>{projectsCount}</span>
+                                </div>
+
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    gap: 12,
+                                    marginTop: 4,
+                                  }}
+                                >
+                                  <span style={{ color: "#6B7280" }}>Sessions:</span>
+                                  <span style={{ fontWeight: 600 }}>{sessionsCount}</span>
+                                </div>
                               </div>
-                            </div>
-                          );
-                        }}
-                      />
-                      <Legend />
-                      <Bar
-                        dataKey="total_count"
-                        name="Sessions"
-                        fill={primary}
-                        stroke={primary}
-                        radius={[6, 6, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
+                            );
+                          }}
+                        />
+                        <Legend />
+                        <Bar
+                          dataKey="total_count"
+                          name="Sessions"
+                          fill={primary}
+                          stroke={primary}
+                          radius={[6, 6, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
                 )}
               </div>
             </div>
