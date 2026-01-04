@@ -37,6 +37,26 @@ describe("shapeUsersProjectsBatchResponse", () => {
     expect(out.u1.total_count).toBe(3);
   });
 
+  test("supports NEW backend shape: per-user objects under `data` and does not mis-treat `data` as an envelope", () => {
+    const out = shapeUsersProjectsBatchResponse({
+      userIds: ["u1", "u2"],
+      batchResponse: {
+        success: true,
+        tenant_id: "T0000",
+        data: {
+          u1: { projects: [{ project_id: "p1" }], total_count: 4 },
+          u2: { projects: [], total_count: 0 },
+        },
+      },
+    });
+
+    expect(out.u1.projects).toHaveLength(1);
+    expect(out.u1.total_count).toBe(4);
+
+    expect(out.u2.projects).toHaveLength(0);
+    expect(out.u2.total_count).toBe(0);
+  });
+
   test("supports shape C: data map arrays + total_count map", () => {
     const out = shapeUsersProjectsBatchResponse({
       userIds: ["u1"],

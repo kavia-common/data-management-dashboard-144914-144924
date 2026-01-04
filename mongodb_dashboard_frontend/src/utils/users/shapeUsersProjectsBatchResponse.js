@@ -28,22 +28,38 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
   const ids = Array.isArray(userIds) ? userIds.map(String).filter(Boolean) : [];
 
   /**
-   * Prefer mapping objects under `data`, but accept nested envelope variants:
-   * - batchResponse.data.data
-   * - batchResponse.data.items / batchResponse.data.results
-   * - batchResponse.items / batchResponse.results
+   * Detect whether batchResponse.data is an *envelope* (i.e. it contains `data/items/results`)
+   * or whether it is already the *data map* itself.
+   *
+   * This distinction is critical for the latest backend change:
+   *   { success, tenant_id, data: { [userId]: { total_count, projects } } }
+   *
+   * In that new shape, batchResponse.data is the per-user map and MUST NOT be treated
+   * as an envelope, otherwise we end up looking up `dataMapRaw[uid]` on the envelope itself
+   * and silently zero-fill all users.
    */
-  const dataEnvelope =
+  const dataEnvelopeCandidate =
     (batchResponse?.data && typeof batchResponse.data === "object" && batchResponse.data) || null;
 
+  const isEnvelopeObject =
+    !!dataEnvelopeCandidate &&
+    typeof dataEnvelopeCandidate === "object" &&
+    (Object.prototype.hasOwnProperty.call(dataEnvelopeCandidate, "data") ||
+      Object.prototype.hasOwnProperty.call(dataEnvelopeCandidate, "items") ||
+      Object.prototype.hasOwnProperty.call(dataEnvelopeCandidate, "results"));
+
+  const dataEnvelope = isEnvelopeObject ? dataEnvelopeCandidate : null;
+
   const dataMapRaw =
+    // Wrapped envelope variants
     (dataEnvelope?.data && typeof dataEnvelope.data === "object" && dataEnvelope.data) ||
     (dataEnvelope?.items && typeof dataEnvelope.items === "object" && dataEnvelope.items) ||
     (dataEnvelope?.results && typeof dataEnvelope.results === "object" && dataEnvelope.results) ||
+    // Alternate top-level map keys
     (batchResponse?.items && typeof batchResponse.items === "object" && batchResponse.items) ||
     (batchResponse?.results && typeof batchResponse.results === "object" && batchResponse.results) ||
-    // Common case: backend returns { success, tenant_id, data: { [uid]: ... }, totals?: ... }
-    (batchResponse?.data && typeof batchResponse.data === "object" && batchResponse.data) ||
+    // New/common case: batchResponse.data is already the per-user map
+    (dataEnvelopeCandidate && typeof dataEnvelopeCandidate === "object" ? dataEnvelopeCandidate : {}) ||
     {};
 
   /**
