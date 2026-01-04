@@ -64,6 +64,34 @@ describe("shapeUsersProjectsBatchResponse", () => {
     expect(out.u1.total_count).toBe(2);
   });
 
+  test("supports extra data envelope: data.data + data.totals", () => {
+    const out = shapeUsersProjectsBatchResponse({
+      userIds: ["u1"],
+      batchResponse: {
+        data: {
+          data: { u1: [{ project_id: "p1" }] },
+          totals: { u1: 9 },
+        },
+      },
+    });
+
+    expect(out.u1.projects).toHaveLength(1);
+    expect(out.u1.total_count).toBe(9);
+  });
+
+  test("supports totals nested in meta.data.totals", () => {
+    const out = shapeUsersProjectsBatchResponse({
+      userIds: ["u1"],
+      batchResponse: {
+        data: { u1: [{ project_id: "p1" }] },
+        meta: { data: { totals: { u1: 4 } } },
+      },
+    });
+
+    expect(out.u1.projects).toHaveLength(1);
+    expect(out.u1.total_count).toBe(4);
+  });
+
   test("returns default zeros for missing users", () => {
     const out = shapeUsersProjectsBatchResponse({
       userIds: ["u_missing"],

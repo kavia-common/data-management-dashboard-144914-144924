@@ -5,11 +5,19 @@
  * Normalizes the evolving `POST /api/users/projects` batch response into a stable per-user map:
  *   { [userId]: { projects: Array, total_count: number } }
  *
+ * Why this exists:
+ * - The backend envelope for this endpoint has historically varied across versions and environments.
+ * - The "Activity by User" chart expects a numeric `total_count` per userId for its Bar `dataKey`.
+ * - If totals are hidden under an unexpected envelope, bars render as 0 even when the API returned data.
+ *
  * Supported batch response shapes (observed variants):
  *  A) { data: { [userId]: Array<Project> }, totals?: { [userId]: number } }
  *  B) { data: { [userId]: { projects: Array<Project>, total_count: number } } }
  *  C) { data: { [userId]: Array<Project> }, total_count?: { [userId]: number } }
- *  D) { data: { [userId]: Array<Project>, totals: { [userId]: number } } }   <-- totals nested under data
+ *  D) { data: { [userId]: Array<Project>, totals: { [userId]: number } } }         <-- totals nested under data
+ *  E) { data: { data: { [userId]: ... }, totals?: { ... } }, meta?: {...} }        <-- extra `data` envelope
+ *  F) { meta: { totals: { ... } } } OR { meta: { data: { totals: { ... } } } }     <-- totals in meta envelope
+ *  G) { items/results: { [userId]: ... } }                                         <-- alternate map key
  *
  * @param {object} params
  * @param {Array<string>} params.userIds - The list of userIds requested.
@@ -19,36 +27,54 @@
 export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
   const ids = Array.isArray(userIds) ? userIds.map(String).filter(Boolean) : [];
 
-  // Some backend handlers may wrap results under different keys.
-  // Prefer `data` (current contract), but accept `items`/`results` as fallbacks.
-  // Also accept nested "data.items" / "data.results" envelope variants.
+  /**
+   * Prefer mapping objects under `data`, but accept nested envelope variants:
+   * - batchResponse.data.data
+   * - batchResponse.data.items / batchResponse.data.results
+   * - batchResponse.items / batchResponse.results
+   */
+  const dataEnvelope =
+    (batchResponse?.data && typeof batchResponse.data === "object" && batchResponse.data) || null;
+
   const dataMapRaw =
-    (batchResponse?.data && typeof batchResponse.data === "object" && batchResponse.data) ||
+    (dataEnvelope?.data && typeof dataEnvelope.data === "object" && dataEnvelope.data) ||
+    (dataEnvelope?.items && typeof dataEnvelope.items === "object" && dataEnvelope.items) ||
+    (dataEnvelope?.results && typeof dataEnvelope.results === "object" && dataEnvelope.results) ||
     (batchResponse?.items && typeof batchResponse.items === "object" && batchResponse.items) ||
-    (batchResponse?.results &&
-      typeof batchResponse.results === "object" &&
-      batchResponse.results) ||
-    (batchResponse?.data?.items &&
-      typeof batchResponse.data.items === "object" &&
-      batchResponse.data.items) ||
-    (batchResponse?.data?.results &&
-      typeof batchResponse.data.results === "object" &&
-      batchResponse.data.results) ||
+    (batchResponse?.results && typeof batchResponse.results === "object" && batchResponse.results) ||
+    (batchResponse?.data && typeof batchResponse.data === "object" && batchResponse.data) ||
     {};
 
-  // Accept totals under a few aliases, and importantly, accept nested totals under `data` and `meta`.
-  // This prevents the chart from showing "empty bars" when totals are present but not found.
+  /**
+   * Totals can also be wrapped or nested. Collect candidates in order of preference.
+   * NOTE: some variants return totals under `meta.data.totals`.
+   */
   const totalsMapCandidate =
+    (dataEnvelope?.totals && typeof dataEnvelope.totals === "object" && dataEnvelope.totals) ||
+    (dataEnvelope?.counts && typeof dataEnvelope.counts === "object" && dataEnvelope.counts) ||
+    (dataEnvelope?.total_count &&
+      typeof dataEnvelope.total_count === "object" &&
+      dataEnvelope.total_count) ||
     (batchResponse?.totals && typeof batchResponse.totals === "object" && batchResponse.totals) ||
     (batchResponse?.counts && typeof batchResponse.counts === "object" && batchResponse.counts) ||
     (batchResponse?.total_count &&
       typeof batchResponse.total_count === "object" &&
       batchResponse.total_count) ||
-    (batchResponse?.meta?.totals && typeof batchResponse.meta.totals === "object" && batchResponse.meta.totals) ||
-    (batchResponse?.meta?.counts && typeof batchResponse.meta.counts === "object" && batchResponse.meta.counts) ||
+    (batchResponse?.meta?.totals &&
+      typeof batchResponse.meta.totals === "object" &&
+      batchResponse.meta.totals) ||
+    (batchResponse?.meta?.counts &&
+      typeof batchResponse.meta.counts === "object" &&
+      batchResponse.meta.counts) ||
     (batchResponse?.meta?.total_count &&
       typeof batchResponse.meta.total_count === "object" &&
       batchResponse.meta.total_count) ||
+    (batchResponse?.meta?.data?.totals &&
+      typeof batchResponse.meta.data.totals === "object" &&
+      batchResponse.meta.data.totals) ||
+    (batchResponse?.meta?.data?.counts &&
+      typeof batchResponse.meta.data.counts === "object" &&
+      batchResponse.meta.data.counts) ||
     (dataMapRaw?.totals && typeof dataMapRaw.totals === "object" && dataMapRaw.totals) ||
     (dataMapRaw?.counts && typeof dataMapRaw.counts === "object" && dataMapRaw.counts) ||
     (dataMapRaw?.total_count &&
@@ -56,7 +82,6 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
       dataMapRaw.total_count) ||
     {};
 
-  // Ensure we only treat it as a map.
   const totalsMap = totalsMapCandidate && typeof totalsMapCandidate === "object" ? totalsMapCandidate : {};
 
   const out = {};
@@ -75,6 +100,7 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
               ? Number(totalsMap[uid])
               : 0;
 
+      // Always output the fields the chart relies on, while preserving other keys.
       out[uid] = { ...raw, projects, total_count: totalCount };
       continue;
     }
