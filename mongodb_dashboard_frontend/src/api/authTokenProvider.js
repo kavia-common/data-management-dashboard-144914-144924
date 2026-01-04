@@ -9,18 +9,46 @@ const ACTIVE_ORG_KEY = 'activeOrganization';
 const ACTIVE_TENANT_KEY = 'activeTenant'; // legacy alias kept for backward compatibility
 const ACTIVE_TENANT_NAME_KEY = 'activeTenantName'; // new: persist tenant display name from login
 
+/**
+ * Internal helper: read a raw token from a set of legacy storage keys.
+ * This keeps backward compatibility with older parts of the app that used
+ * keys like `auth_token` or `access_token`.
+ */
+function getLegacyToken() {
+  try {
+    const legacyKeys = [
+      'auth_token',
+      'token',
+      'access_token',
+      'session_token',
+      'jwt',
+    ];
+    for (const k of legacyKeys) {
+      const v = localStorage.getItem(k);
+      if (v && String(v).trim()) return String(v).trim();
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 // PUBLIC_INTERFACE
 export function getToken() {
   /** Returns the stored JWT token or null if not logged in. */
   try {
     const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    const token = parsed?.token || null;
-    return token || null;
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const token = parsed?.token || null;
+      if (token) return token;
+    }
   } catch {
-    return null;
+    // fall through to legacy keys
   }
+
+  // Backward compat: support older token storage keys.
+  return getLegacyToken();
 }
 
 /**
