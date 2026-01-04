@@ -137,6 +137,13 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
+
+    // Debug logging (console-safe and off by default).
+    // Enable by setting REACT_APP_DEBUG_USERS_ANALYTICS=1
+    const debugEnabled =
+      String(process.env.REACT_APP_DEBUG_USERS_ANALYTICS || "").toLowerCase() === "1" ||
+      String(process.env.REACT_APP_DEBUG_USERS_ANALYTICS || "").toLowerCase() === "true";
 
     async function run() {
       if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
@@ -154,23 +161,63 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
         // Use the backend batch endpoint so the chart triggers ONE request for N users.
         // IMPORTANT:
         // - Do NOT treat "all zero counts" as a batch failure; it's a valid state for quick ranges.
-        const batchRes = await getUsersProjectsBatch({
-          userIds,
-          organization_id: activeTenantId,
-          from: startISO,
-          to: endISO,
-        });
+        // - Abort stale in-flight requests on quick range change to avoid race overwrites.
+        const batchRes = await getUsersProjectsBatch(
+          {
+            userIds,
+            organization_id: activeTenantId,
+            from: startISO,
+            to: endISO,
+          },
+          { signal: controller.signal }
+        );
 
         const shaped = shapeUsersProjectsBatchResponse({
           userIds,
           batchResponse: batchRes,
         });
 
+        if (debugEnabled && process.env.NODE_ENV !== "production") {
+          // eslint-disable-next-line no-console
+          console.debug("[UsersAnalyticsPanel] batch shaped map size:", Object.keys(shaped || {}).length, {
+            requestedUserIds: userIds.length,
+            from: startISO,
+            to: endISO,
+            // Sample a few entries to validate `total_count` and key presence.
+            sample: userIds.slice(0, 3).map((id) => ({
+              id,
+              total_count: shaped?.[id]?.total_count,
+              projects_len: Array.isArray(shaped?.[id]?.projects) ? shaped[id].projects.length : null,
+            })),
+          });
+        }
+
         if (!cancelled) setProjectsByUser(shaped);
       } catch (e) {
         // Only fall back to per-user when the batch request truly fails (network/HTTP/etc).
         // Avoid noisy per-user cascades on abort/cancel.
         if (e?.name === "AbortError" || cancelled) return;
+
+        const isHttpOrNetworkError =
+          typeof e?.status === "number" || // our fetch client attaches status for HTTP errors
+          e?.name === "TypeError" || // fetch network errors often surface as TypeError
+          /network|failed to fetch/i.test(String(e?.message || ""));
+
+        if (!isHttpOrNetworkError) {
+          if (!cancelled) {
+            setProjectsError(e?.message || "Failed to load user projects.");
+            setProjectsByUser({});
+          }
+          return;
+        }
+
+        if (debugEnabled && process.env.NODE_ENV !== "production") {
+          // eslint-disable-next-line no-console
+          console.debug("[UsersAnalyticsPanel] batch failed; falling back to per-user calls:", {
+            message: e?.message,
+            status: e?.status,
+          });
+        }
 
         try {
           const acc = {};
@@ -184,13 +231,18 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 if (!u?._id) return;
 
                 try {
-                  const res = await getUserProjects(String(u._id), {
-                    organization_id: activeTenantId,
-                    from: startISO,
-                    to: endISO,
-                  });
+                  const res = await getUserProjects(
+                    String(u._id),
+                    {
+                      organization_id: activeTenantId,
+                      from: startISO,
+                      to: endISO,
+                    },
+                    { signal: controller.signal }
+                  );
                   acc[String(u._id)] = res || { projects: [], total_count: 0 };
-                } catch {
+                } catch (innerErr) {
+                  if (innerErr?.name === "AbortError") return;
                   acc[String(u._id)] = acc[String(u._id)] || { projects: [], total_count: 0 };
                 }
               })
@@ -202,7 +254,9 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
           if (!cancelled) setProjectsByUser(acc);
         } catch (fallbackErr) {
           if (!cancelled) {
-            setProjectsError(fallbackErr?.message || e?.message || "Failed to load user projects.");
+            setProjectsError(
+              fallbackErr?.message || e?.message || "Failed to load user projects."
+            );
             setProjectsByUser({});
           }
         }
@@ -214,6 +268,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     run();
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [users, activeTenantId, startISO, endISO]);
 
@@ -249,6 +304,19 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
     // Bars should be based on sessions count, so sort accordingly.
     projectsCountByUser.sort((a, b) => (b.total_count || 0) - (a.total_count || 0));
+
+    const debugEnabled =
+      String(process.env.REACT_APP_DEBUG_USERS_ANALYTICS || "").toLowerCase() === "1" ||
+      String(process.env.REACT_APP_DEBUG_USERS_ANALYTICS || "").toLowerCase() === "true";
+
+    if (debugEnabled && process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.debug("[UsersAnalyticsPanel] chart rows:", projectsCountByUser.length, {
+        missingTotalCountRows: projectsCountByUser.filter((r) => typeof r.total_count !== "number").length,
+        top5: projectsCountByUser.slice(0, 5).map((r) => ({ user: r.user, total_count: r.total_count })),
+      });
+    }
+
     return { projectsCountByUser };
   }, [users, projectsByUser]);
 

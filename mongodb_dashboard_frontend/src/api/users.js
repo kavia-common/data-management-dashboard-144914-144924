@@ -39,7 +39,7 @@ export async function getUserBasic(userId, params = {}) {
  * Accepts a params object that can carry tenant scoping and optional time range:
  * { organization_id?: string, tenant_id?: string, from?: string, to?: string }
  */
-export async function getUserProjects(userId, params = {}) {
+export async function getUserProjects(userId, params = {}, options = {}) {
   if (!userId) throw new Error('userId is required');
   const api = getApiClient();
 
@@ -52,6 +52,7 @@ export async function getUserProjects(userId, params = {}) {
 
   const { data } = await api.get(`/api/users/${encodeURIComponent(userId)}/projects`, {
     params: formattedParams,
+    signal: options?.signal,
   });
   return data;
 }
@@ -83,7 +84,7 @@ export async function getUserProjects(userId, params = {}) {
  * Note:
  * - This endpoint expects plain ISO strings for from/to (not ISODate("...")).
  */
-export async function getUsersProjectsBatch(body = {}) {
+export async function getUsersProjectsBatch(body = {}, options = {}) {
   const api = getApiClient();
 
   const userIds = Array.isArray(body?.userIds) ? body.userIds.map(String) : [];
@@ -92,7 +93,7 @@ export async function getUsersProjectsBatch(body = {}) {
     userIds,
   };
 
-  const { data } = await api.post('/api/users/projects', payload);
+  const { data } = await api.post('/api/users/projects', payload, { signal: options?.signal });
   return data;
 }
 

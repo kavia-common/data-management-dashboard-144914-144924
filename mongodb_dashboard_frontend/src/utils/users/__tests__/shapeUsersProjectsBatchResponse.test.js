@@ -50,6 +50,20 @@ describe("shapeUsersProjectsBatchResponse", () => {
     expect(out.u1.total_count).toBe(7);
   });
 
+  test("supports wrapped results under `items`", () => {
+    const out = shapeUsersProjectsBatchResponse({
+      userIds: ["u1"],
+      batchResponse: {
+        items: {
+          u1: { projects: [{ project_id: "p1" }], total_count: "2" },
+        },
+      },
+    });
+
+    expect(out.u1.projects).toHaveLength(1);
+    expect(out.u1.total_count).toBe(2);
+  });
+
   test("returns default zeros for missing users", () => {
     const out = shapeUsersProjectsBatchResponse({
       userIds: ["u_missing"],
