@@ -103,9 +103,9 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   // Live label for date range for accessibility
   useEffect(() => {
     try {
-      // If both are absent, backend defaults to TODAY UTC. Label it as "Today (UTC)".
+      // If both are absent, backend defaults to TODAY (server-defined). Keep label simple.
       if (!fromParam && !toParam) {
-        setDateLiveLabel("Today (UTC)");
+        setDateLiveLabel("Today");
         return;
       }
 
@@ -207,8 +207,8 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 className="ui-input"
                 style={{ minWidth: 140 }}
               >
-                <option value="0">Today (UTC)</option>
-                <option value="-1">Yesterday (UTC)</option>
+                <option value="0">Today</option>
+                <option value="-1">Yesterday</option>
                 <option value="7">Last 7 days</option>
                 <option value="14">Last 14 days</option>
                 <option value="30">Last 30 days</option>
