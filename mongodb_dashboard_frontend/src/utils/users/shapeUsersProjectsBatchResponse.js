@@ -5,10 +5,11 @@
  * Normalizes the evolving `POST /api/users/projects` batch response into a stable per-user map:
  *   { [userId]: { projects: Array, total_count: number } }
  *
- * Supported batch response shapes:
+ * Supported batch response shapes (observed variants):
  *  A) { data: { [userId]: Array<Project> }, totals?: { [userId]: number } }
  *  B) { data: { [userId]: { projects: Array<Project>, total_count: number } } }
  *  C) { data: { [userId]: Array<Project> }, total_count?: { [userId]: number } }
+ *  D) { data: { [userId]: Array<Project>, totals: { [userId]: number } } }   <-- totals nested under data
  *
  * @param {object} params
  * @param {Array<string>} params.userIds - The list of userIds requested.
@@ -23,17 +24,28 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
   const dataMapRaw =
     (batchResponse?.data && typeof batchResponse.data === "object" && batchResponse.data) ||
     (batchResponse?.items && typeof batchResponse.items === "object" && batchResponse.items) ||
-    (batchResponse?.results && typeof batchResponse.results === "object" && batchResponse.results) ||
+    (batchResponse?.results &&
+      typeof batchResponse.results === "object" &&
+      batchResponse.results) ||
     {};
 
-  // Accept totals under `totals` or `total_count` map; also accept `counts` as a possible alias.
-  const totalsMap =
+  // Accept totals under a few aliases, and importantly, accept nested totals under `data`.
+  // This prevents the chart from showing "empty bars" when totals are present but not found.
+  const totalsMapCandidate =
     (batchResponse?.totals && typeof batchResponse.totals === "object" && batchResponse.totals) ||
     (batchResponse?.counts && typeof batchResponse.counts === "object" && batchResponse.counts) ||
     (batchResponse?.total_count &&
       typeof batchResponse.total_count === "object" &&
       batchResponse.total_count) ||
+    (dataMapRaw?.totals && typeof dataMapRaw.totals === "object" && dataMapRaw.totals) ||
+    (dataMapRaw?.counts && typeof dataMapRaw.counts === "object" && dataMapRaw.counts) ||
+    (dataMapRaw?.total_count &&
+      typeof dataMapRaw.total_count === "object" &&
+      dataMapRaw.total_count) ||
     {};
+
+  // Ensure we only treat it as a map.
+  const totalsMap = totalsMapCandidate && typeof totalsMapCandidate === "object" ? totalsMapCandidate : {};
 
   const out = {};
   for (const uid of ids) {
@@ -55,11 +67,12 @@ export function shapeUsersProjectsBatchResponse({ userIds, batchResponse }) {
       continue;
     }
 
-    // Shape A/C: data[uid] is an array of projects + totals stored separately
+    // Shape A/C/D: data[uid] is an array of projects + totals stored separately
     const projects = Array.isArray(raw) ? raw : [];
     const totalCount = Number.isFinite(Number(totalsMap?.[uid])) ? Number(totalsMap[uid]) : 0;
 
     // Always output the exact object shape expected by the chart: { projects: [], total_count: number }
+    // This also zero-fills users missing from the response.
     out[uid] = { projects, total_count: totalCount };
   }
 
