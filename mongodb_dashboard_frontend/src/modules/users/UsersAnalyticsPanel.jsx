@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import PropTypes from "prop-types";
 import {
   ResponsiveContainer,
@@ -11,20 +11,24 @@ import {
   Legend,
 } from "recharts";
 import { useUsers } from "../../hooks/useUsers";
-import { getUsersProjectsBatch } from "../../api/users";
+import { getUserProjects } from "../../api/users";
 import { getActiveTenant } from "../../utils/tenantClient";
-import { getOrganizationId } from "../../api/authTokenProvider";
+import useDebouncedValue from "../../hooks/useDebouncedValue";
 import Skeleton from "../../components/ui/Skeleton";
-import { shapeUsersProjectsBatchResponse } from "../../utils/users/shapeUsersProjectsBatchResponse";
 
 /**
  * PUBLIC_INTERFACE
  * UsersAnalyticsPanel
  * A charts/analytics panel for the Users page, with independent filters.
  *
+ * Optimization goals:
+ * - When switching quick date ranges rapidly, only ONE final API request should be executed
+ *   (debounced selection), and in-flight requests are cancelled (AbortController).
+ * - All data fetching is centralized in a single effect keyed by the selected/debounced range.
+ *
  * Data source:
- * - Reuses /api/users to get users, then uses /api/users/:userId/projects
- *   (or batch POST /api/users/projects) to fetch per-user projects/activity.
+ * - Uses /api/users to get users, then uses /api/users/:userId/projects
+ *   to fetch per-user projects (time-scoped).
  *
  * Filters:
  * - Quick range + Custom date range.
@@ -41,10 +45,8 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   const [customEnd, setCustomEnd] = useState(null);
   const [dateLiveLabel, setDateLiveLabel] = useState("");
 
-  // Active tenant/org id.
-  // IMPORTANT: some flows store it as `activeOrganization` (preferred),
-  // older flows store it as `activeTenant`. Read both.
-  const activeTenantId = getOrganizationId?.() || getActiveTenant?.() || null;
+  // Active tenant (scoped by client too, but visible here for explicit query params when needed)
+  const activeTenantId = getActiveTenant?.() || null;
 
   /**
    * Compute date range ISO strings for API query params.
@@ -64,9 +66,9 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     let start;
     let end;
 
-    // -------------------------
-    // CUSTOM DATE RANGE
-    // -------------------------
+    /** -------------------------
+     * CUSTOM DATE RANGE
+     * ------------------------*/
     if (customStart && customEnd) {
       const s = parseYMD(customStart);
       const e = parseYMD(customEnd);
@@ -75,9 +77,9 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
       end = utcEndOfDay(e.y, e.m0, e.d);
     }
 
-    // -------------------------
-    // QUICK RANGE PRESETS
-    // -------------------------
+    /** -------------------------
+     * QUICK RANGE PRESETS
+     * ------------------------*/
     else {
       const now = new Date();
       const y = now.getUTCFullYear();
@@ -114,7 +116,12 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
     return { startISO: start.toISOString(), endISO: end.toISOString() };
   }, [customStart, customEnd, days]);
 
-  // Live label for date range for accessibility
+  // Debounce date bounds so rapid selections only trigger the final fetch.
+  // 250ms is a good balance between responsiveness and eliminating redundant calls.
+  const debouncedStartISO = useDebouncedValue(startISO, 250);
+  const debouncedEndISO = useDebouncedValue(endISO, 250);
+
+  // Live label for date range for accessibility (reflect immediate selection, not debounced)
   useEffect(() => {
     const start = new Date(startISO);
     const end = new Date(endISO);
@@ -130,206 +137,204 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   // Fetch users; table is unchanged elsewhere
   const { users, loading: usersLoading, error: usersError } = useUsers({ limit: 200 });
 
-  // Fetch projects/activity per user when needed
+  // Stable dependency to avoid re-running fetch due to array identity changes
+  const userIdsKey = useMemo(() => {
+    return Array.isArray(users) ? users.map((u) => String(u._id)).sort().join(",") : "";
+  }, [users]);
+
+  // Fetch projects per user when needed
   const [projectsByUser, setProjectsByUser] = useState({});
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectsError, setProjectsError] = useState("");
+  const [wasCancelled, setWasCancelled] = useState(false);
 
-  const debugEnabled =
-    String(process.env.REACT_APP_DEBUG_USERS_ANALYTICS || "").toLowerCase() === "1" ||
-    String(process.env.REACT_APP_DEBUG_USERS_ANALYTICS || "").toLowerCase() === "true";
+  // Cache to avoid refetching same date-range data
+  const projectsCacheRef = useRef({});
+  // Store controller to abort in-flight requests on rapid changes/unmount
+  const abortRef = useRef(null);
 
-  const [debugInfo, setDebugInfo] = useState({
-    organization_id: null,
-    from: null,
-    to: null,
-    requestedUserIdsCount: 0,
-    // Minimal “trust but verify” debug: show first rows and totals right above chart
-    first5Rows: [],
-    totalSum: 0,
-  });
+  const isAbortError = (err) => {
+    // Axios/fetch abort errors show up differently depending on versions.
+    const name = err?.name || err?.cause?.name;
+    const code = err?.code;
+    const message = String(err?.message || "");
+    return name === "AbortError" || code === "ERR_CANCELED" || message.toLowerCase().includes("canceled");
+  };
 
-  useEffect(() => {
-    let cancelled = false;
-    const controller = new AbortController();
+  const fetchProjectsForUsers = useCallback(
+    async ({ signal, tenantId, from, to }) => {
+      /**
+       * NOTE:
+       * - This function does NOT read from component state except `users`.
+       * - It is invoked by a single effect that controls cancellation/debouncing.
+       */
+      const acc = {};
+      const batchSize = 8;
 
-    async function run() {
-      if (!Array.isArray(users) || users.length === 0 || !activeTenantId) {
-        setProjectsByUser({});
-        if (debugEnabled) {
-          setDebugInfo({
-            organization_id: activeTenantId,
-            from: startISO,
-            to: endISO,
-            requestedUserIdsCount: 0,
-            first5Rows: [],
-            totalSum: 0,
-          });
-        }
-        return;
-      }
+      for (let i = 0; i < users.length; i += batchSize) {
+        const slice = users.slice(i, i + batchSize);
 
-      setProjectsLoading(true);
-      setProjectsError("");
+        await Promise.all(
+          slice.map(async (u) => {
+            if (!u?._id) return;
 
-      const userIds = users.map((u) => String(u?._id || "")).filter(Boolean);
+            // If we already got aborted, fail fast before issuing more requests.
+            if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
 
-      try {
-        // Optimization:
-        // Use the backend batch endpoint so the chart triggers ONE request for N users.
-        // IMPORTANT:
-        // - Do NOT treat "all zero counts" as a batch failure; it's a valid state for quick ranges.
-        // - Abort stale in-flight requests on quick range change to avoid race overwrites.
-        const batchRes = await getUsersProjectsBatch(
-          {
-            userIds,
-            organization_id: activeTenantId,
-            from: startISO,
-            to: endISO,
-          },
-          { signal: controller.signal }
+            try {
+              const res = await getUserProjects(
+                String(u._id),
+                {
+                  organization_id: tenantId,
+                  from,
+                  to,
+                },
+                { signal }
+              );
+
+              acc[String(u._id)] = res || { projects: [] };
+            } catch (e) {
+              // If aborted, propagate so the effect can mark cancellation distinctly.
+              if (isAbortError(e) || signal?.aborted) throw e;
+              // Preserve prior behavior: user still exists, but no projects response.
+              acc[String(u._id)] = { projects: [] };
+            }
+          })
         );
 
-        const shaped = shapeUsersProjectsBatchResponse({
-          userIds,
-          batchResponse: batchRes,
+        // Allow abort between batches.
+        if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      }
+
+      return acc;
+    },
+    [users]
+  );
+
+  /**
+   * Centralized chart data loading effect.
+   * - Tied ONLY to: tenant, debounced date range, and users identity (via userIdsKey).
+   * - Cancels in-flight requests on changes (AbortController).
+   * - Uses a cache keyed by tenant+range+usersKey to avoid refetching.
+   */
+  useEffect(() => {
+    // Reset transient UI states
+    setProjectsError("");
+    setWasCancelled(false);
+
+    // Guard: if not ready, clear out dependent state
+    if (!userIdsKey || !activeTenantId || !Array.isArray(users) || users.length === 0) {
+      // Abort any in-flight request because dependent inputs are no longer valid
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
+      setProjectsByUser({});
+      setProjectsLoading(false);
+      return;
+    }
+
+    const cacheKey = `${activeTenantId}_${debouncedStartISO}_${debouncedEndISO}_${userIdsKey}`;
+
+    // Serve from cache immediately
+    if (projectsCacheRef.current[cacheKey]) {
+      // Abort any older request and just show cached data
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
+      setProjectsByUser(projectsCacheRef.current[cacheKey]);
+      setProjectsLoading(false);
+      return;
+    }
+
+    // Cancel any in-flight request before starting a new one
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    let didFinish = false;
+
+    async function run() {
+      setProjectsLoading(true);
+      setProjectsError("");
+      setWasCancelled(false);
+
+      try {
+        const acc = await fetchProjectsForUsers({
+          signal: controller.signal,
+          tenantId: activeTenantId,
+          from: debouncedStartISO,
+          to: debouncedEndISO,
         });
 
-        if (!cancelled) setProjectsByUser(shaped);
+        if (controller.signal.aborted) return;
 
-        if (debugEnabled) {
-          // Build the exact chart rows here too (so debug shows the same values the chart uses).
-          const rows = userIds.map((id) => {
-            const userFromList = users.find((u) => String(u?._id || "") === id);
-            const shapedUser = shaped?.[id];
-
-            // Prefer backend-provided name when present (useful for super-admin multi-tenant results),
-            // otherwise fall back to users list fields.
-            const name =
-              shapedUser?.name ||
-              shapedUser?.user_name ||
-              userFromList?.name ||
-              userFromList?.full_name ||
-              userFromList?.email ||
-              id;
-
-            // `total_count` is the authoritative sessions count for the selected date range.
-            // Keep defensive fallbacks to tolerate older/alternate backend shapes, but prefer `total_count`.
-            const total_count =
-              Number.isFinite(Number(shapedUser?.total_count))
-                ? Number(shapedUser.total_count)
-                : Array.isArray(shapedUser?.sessions)
-                  ? shapedUser.sessions.length
-                  : Array.isArray(shapedUser?.activities)
-                    ? shapedUser.activities.length
-                    : Number.isFinite(Number(shapedUser?.count))
-                      ? Number(shapedUser.count)
-                      : 0;
-
-            // Projects count must reflect number of distinct projects (derived from projects array).
-            // This intentionally differs from sessions total_count.
-            const projects_count = Array.isArray(shapedUser?.projects)
-              ? shapedUser.projects.length
-              : 0;
-
-            return { id, name, total_count, projects_count };
-          });
-
-          const totalSum = rows.reduce(
-            (acc, r) => acc + (Number.isFinite(r.total_count) ? r.total_count : 0),
-            0
-          );
-
-          setDebugInfo({
-            organization_id: activeTenantId,
-            from: startISO,
-            to: endISO,
-            requestedUserIdsCount: userIds.length,
-            first5Rows: rows.slice(0, 5),
-            totalSum,
-          });
-        }
+        projectsCacheRef.current[cacheKey] = acc;
+        setProjectsByUser(acc);
       } catch (e) {
-        // IMPORTANT: Do not reintroduce per-user calls. If the batch request fails, surface an error.
-        // Avoid overwriting state on abort/cancel.
-        if (e?.name === "AbortError" || cancelled) return;
-
-        if (!cancelled) {
-          setProjectsError(e?.message || "Failed to load user projects (batch).");
-          setProjectsByUser({});
+        if (controller.signal.aborted || isAbortError(e)) {
+          // Cancellation is not an error; keep UI responsive and distinguish from failures.
+          setWasCancelled(true);
+          return;
         }
+        setProjectsError(e?.message || "Failed to load user projects.");
+        setProjectsByUser({});
       } finally {
-        if (!cancelled) setProjectsLoading(false);
+        didFinish = true;
+        if (!controller.signal.aborted) setProjectsLoading(false);
       }
     }
 
     run();
+
     return () => {
-      cancelled = true;
-      controller.abort();
+      // Only abort if request is still in flight; avoids aborting completed requests.
+      if (!didFinish) controller.abort();
     };
-  }, [users, activeTenantId, startISO, endISO, debugEnabled]);
+  }, [
+    userIdsKey,
+    users,
+    activeTenantId,
+    debouncedStartISO,
+    debouncedEndISO,
+    fetchProjectsForUsers,
+  ]);
 
   const aggregates = useMemo(() => {
-    /**
-     * IMPORTANT:
-     * Recharts BarChart renders bars only when:
-     * - `data` is a non-empty array
-     * - the Bar's `dataKey` exists on each datum AND is numeric
-     *
-     * We keep the chart row shape minimal and explicit:
-     *   { id, name, total_count }
-     */
-    const activityByUserRows = [];
+    const projectsCountByUser = [];
 
     for (const u of users || []) {
       const uid = String(u?._id || u?.id || "");
-      if (!uid) continue;
+      const res = projectsByUser[uid];
 
-      const res = projectsByUser?.[uid];
+      // Existing behavior (Projects): derived from distinct projects list length
+      const projectsCount = Array.isArray(res?.projects)
+        ? res.projects.length
+        : Array.isArray(res)
+          ? res.length
+          : 0;
 
-      // Latest backend shape: res is an object { total_count, projects, name?/user_name? }
-      // Ensure numeric fields to prevent invisible bars / tooltip NaNs.
-      // Sessions MUST use total_count (authoritative). Keep light fallbacks for alternate shapes.
-      const total_count =
-        Number.isFinite(Number(res?.total_count))
-          ? Number(res.total_count)
-          : Array.isArray(res?.sessions)
-            ? res.sessions.length
-            : Array.isArray(res?.activities)
-              ? res.activities.length
-              : Number.isFinite(Number(res?.count))
-                ? Number(res.count)
-                : 0;
+      // Sessions: derived from backend total_count
+      const sessionsCount =
+        typeof res?.total_count === "number"
+          ? res.total_count
+          : Number.isFinite(Number(res?.total_count))
+            ? Number(res.total_count)
+            : 0;
 
-      // Projects MUST be derived from the projects list returned by the batch endpoint.
-      // This intentionally differs from sessions total_count.
-      const projects_count = Array.isArray(res?.projects) ? res.projects.length : 0;
-
-      const name =
-        res?.name ||
-        res?.user_name ||
-        u?.name ||
-        u?.full_name ||
-        u?.email ||
-        uid;
-
-      activityByUserRows.push({ id: uid, name, total_count, projects_count });
-    }
-
-    activityByUserRows.sort((a, b) => (b.total_count || 0) - (a.total_count || 0));
-
-    if (debugEnabled && process.env.NODE_ENV !== "production") {
-      // eslint-disable-next-line no-console
-      console.debug("[UsersAnalyticsPanel] ActivityByUser rows (final)", {
-        length: activityByUserRows.length,
-        sum: activityByUserRows.reduce((acc, r) => acc + (Number.isFinite(r.total_count) ? r.total_count : 0), 0),
-        first3: activityByUserRows.slice(0, 3),
+      projectsCountByUser.push({
+        user: u?.name || u?.full_name || u?.email || uid,
+        user_id: uid,
+        count: projectsCount,
+        total_count: sessionsCount,
       });
     }
 
-    return { activityByUserRows };
-  }, [users, projectsByUser, debugEnabled]);
+    // Bars are based on sessions count, so sort accordingly.
+    projectsCountByUser.sort((a, b) => (b.total_count || 0) - (a.total_count || 0));
+    return { projectsCountByUser };
+  }, [users, projectsByUser]);
 
   // Theme colors
   const primary = "#2563EB";
@@ -339,6 +344,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   const ariaDateId = "users-analytics-date-label";
 
   const handlePreset = (d) => {
+    // IMPORTANT: do not call fetch here; fetching is centralized in effect.
     setCustomStart(null);
     setCustomEnd(null);
     setDays(d);
@@ -422,69 +428,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 <div className="card-subtitle">Counts derived from associated activity</div>
               </div>
 
-              {debugEnabled ? (
-                <div
-                  className="card-content"
-                  style={{
-                    paddingTop: 8,
-                    paddingBottom: 0,
-                  }}
-                >
-                  <div
-                    style={{
-                      border: "1px dashed #F59E0B",
-                      background: "rgba(245, 158, 11, 0.08)",
-                      borderRadius: 10,
-                      padding: "10px 12px",
-                      fontSize: 12,
-                      color: "#111827",
-                    }}
-                  >
-                    <div style={{ fontWeight: 700, marginBottom: 6 }}>Users Analytics Debug</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", rowGap: 4 }}>
-                      <div style={{ color: "#6B7280" }}>organization_id</div>
-                      <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                        {String(debugInfo.organization_id ?? "")}
-                      </div>
-
-                      <div style={{ color: "#6B7280" }}>from</div>
-                      <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                        {String(debugInfo.from ?? "")}
-                      </div>
-
-                      <div style={{ color: "#6B7280" }}>to</div>
-                      <div style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace" }}>
-                        {String(debugInfo.to ?? "")}
-                      </div>
-
-                      <div style={{ color: "#6B7280" }}>userIds sent</div>
-                      <div>{Number(debugInfo.requestedUserIdsCount || 0)}</div>
-
-                      <div style={{ color: "#6B7280" }}>sum(total_count)</div>
-                      <div>
-                        <strong>{Number(debugInfo.totalSum || 0)}</strong>
-                      </div>
-
-                      <div style={{ color: "#6B7280" }}>first 5 rows</div>
-                      <div>
-                        {(debugInfo.first5Rows || []).length === 0 ? (
-                          <span style={{ color: "#6B7280" }}>n/a</span>
-                        ) : (
-                          <ol style={{ margin: "4px 0 0 18px", padding: 0 }}>
-                            {(debugInfo.first5Rows || []).map((r) => (
-                              <li key={r.id}>
-                                {r.name}: <strong>{r.total_count}</strong>
-                              </li>
-                            ))}
-                          </ol>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-
-              <div className="card-content" style={{ height: 360, minHeight: 360 }}>
+              <div className="card-content" style={{ height: 340 }}>
                 {usersLoading || projectsLoading ? (
                   <div aria-busy="true">
                     <Skeleton width="60%" height={14} className="mb-2" />
@@ -499,116 +443,85 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                   <div className="error" role="alert">
                     {projectsError}
                   </div>
-                ) : !Array.isArray(users) || users.length === 0 ? (
-                  <div className="screen-center">No users</div>
+                ) : wasCancelled ? (
+                  <div className="screen-center" style={{ color: "#6B7280" }}>
+                    Updating range…
+                  </div>
+                ) : aggregates.projectsCountByUser.length === 0 ? (
+                  <div className="screen-center">No sessions data</div>
                 ) : (
-                  // IMPORTANT: ResponsiveContainer needs a measurable parent. Enforce minHeight and 100% height.
-                  <div style={{ height: "100%", minHeight: 320 }}>
-                    {(() => {
-                      // One-time gated debug immediately before the chart render:
-                      // prints first 5 rows and sum(total_count) for the *final rows passed to Recharts*.
-                      if (
-                        debugEnabled &&
-                        process.env.NODE_ENV !== "production" &&
-                        typeof window !== "undefined" &&
-                        !window.__usersActivityByUserChartLogged
-                      ) {
-                        const rows = (aggregates.activityByUserRows || []).slice(0, 20);
-                        const sum = rows.reduce(
-                          (acc, r) => acc + (Number.isFinite(Number(r?.total_count)) ? Number(r.total_count) : 0),
-                          0
-                        );
+                  <ResponsiveContainer>
+                    <BarChart
+                      data={aggregates.projectsCountByUser.slice(0, 20)}
+                      margin={{ top: 8, right: 16, bottom: 24, left: 8 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+                      <XAxis
+                        dataKey="user"
+                        tick={{ fill: subtle, fontSize: 12 }}
+                        interval={0}
+                        angle={-25}
+                        textAnchor="end"
+                        height={50}
+                      />
+                      <YAxis tick={{ fill: subtle, fontSize: 12 }} allowDecimals={false} />
+                      <Tooltip
+                        content={({ active, payload, label }) => {
+                          if (!active || !Array.isArray(payload) || payload.length === 0) return null;
 
-                        // eslint-disable-next-line no-console
-                        console.log("[UsersAnalyticsPanel] ActivityByUser BarChart rows (first 5) + sum(total_count)", {
-                          first5: rows.slice(0, 5),
-                          sum,
-                          length: rows.length,
-                        });
+                          const row = payload?.[0]?.payload || {};
+                          const projectsCount = Number.isFinite(Number(row?.count))
+                            ? Number(row.count)
+                            : 0;
+                          const sessionsCount = Number.isFinite(Number(row?.total_count))
+                            ? Number(row.total_count)
+                            : 0;
 
-                        window.__usersActivityByUserChartLogged = true;
-                      }
-                      return null;
-                    })()}
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={(aggregates.activityByUserRows || []).slice(0, 20)}
-                        margin={{ top: 8, right: 16, bottom: 24, left: 8 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke={grid} />
-                        <XAxis
-                          dataKey="name"
-                          tick={{ fill: subtle, fontSize: 12 }}
-                          interval={0}
-                          angle={-25}
-                          textAnchor="end"
-                          height={50}
-                        />
-                        <YAxis tick={{ fill: subtle, fontSize: 12 }} allowDecimals={false} />
-                        <Tooltip
-                          content={({ active, payload, label }) => {
-                            if (!active || !Array.isArray(payload) || payload.length === 0) return null;
+                          return (
+                            <div
+                              style={{
+                                background: "#ffffff",
+                                border: "1px solid #E5E7EB",
+                                borderRadius: 8,
+                                padding: "10px 12px",
+                                boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+                                color: "#111827",
+                                fontSize: 12,
+                                lineHeight: 1.35,
+                              }}
+                            >
+                              <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
 
-                            const row = payload?.[0]?.payload || {};
-                            // const projectsCount = Number.isFinite(Number(row?.projects_count))
-                            //   ? Number(row.projects_count)
-                            //   : Number.isFinite(Number(row?.count))
-                            //     ? Number(row.count)
-                            //     : 0;
-                            const projectsCount = Number.isFinite(Number(row?.projects_count))
-                              ? Number(row.projects_count)
-                              : 0;
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                                <span style={{ color: "#6B7280" }}>Projects:</span>
+                                <span style={{ fontWeight: 600 }}>{projectsCount}</span>
+                              </div>
 
-                            const sessionsCount = Number.isFinite(Number(row?.total_count))
-                              ? Number(row.total_count)
-                              : 0;
-
-                            return (
                               <div
                                 style={{
-                                  background: "#ffffff",
-                                  border: "1px solid #E5E7EB",
-                                  borderRadius: 8,
-                                  padding: "10px 12px",
-                                  boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-                                  color: "#111827",
-                                  fontSize: 12,
-                                  lineHeight: 1.35,
+                                  display: "flex",
+                                  justifyContent: "space-between",
+                                  gap: 12,
+                                  marginTop: 4,
                                 }}
                               >
-                                <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
-
-                                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                                  <span style={{ color: "#6B7280" }}>Projects:</span>
-                                  <span style={{ fontWeight: 600 }}>{projectsCount}</span>
-                                </div>
-
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    gap: 12,
-                                    marginTop: 4,
-                                  }}
-                                >
-                                  <span style={{ color: "#6B7280" }}>Sessions:</span>
-                                  <span style={{ fontWeight: 600 }}>{sessionsCount}</span>
-                                </div>
+                                <span style={{ color: "#6B7280" }}>Sessions:</span>
+                                <span style={{ fontWeight: 600 }}>{sessionsCount}</span>
                               </div>
-                            );
-                          }}
-                        />
-                        <Legend />
-                        <Bar
-                          dataKey="total_count"
-                          name="Sessions"
-                          fill={primary}
-                          stroke={primary}
-                          radius={[6, 6, 0, 0]}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Legend />
+                      <Bar
+                        dataKey="total_count"
+                        name="Sessions"
+                        fill={primary}
+                        stroke={primary}
+                        radius={[6, 6, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
                 )}
               </div>
             </div>
