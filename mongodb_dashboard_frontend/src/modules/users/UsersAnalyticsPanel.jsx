@@ -213,13 +213,24 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
               userFromList?.email ||
               id;
 
-            // `total_count` is what the bar chart renders (currently labelled "Sessions" in the UI).
-            const total_count = Number.isFinite(Number(shapedUser?.total_count))
-              ? Number(shapedUser.total_count)
-              : 0;
+            // `total_count` is the authoritative sessions count for the selected date range.
+            // Keep defensive fallbacks to tolerate older/alternate backend shapes, but prefer `total_count`.
+            const total_count =
+              Number.isFinite(Number(shapedUser?.total_count))
+                ? Number(shapedUser.total_count)
+                : Array.isArray(shapedUser?.sessions)
+                  ? shapedUser.sessions.length
+                  : Array.isArray(shapedUser?.activities)
+                    ? shapedUser.activities.length
+                    : Number.isFinite(Number(shapedUser?.count))
+                      ? Number(shapedUser.count)
+                      : 0;
 
-            // Tooltip expects projects_count; batch response provides projects[].
-            const projects_count = Array.isArray(shapedUser?.projects) ? shapedUser.projects.length : 0;
+            // Projects count must reflect number of distinct projects (derived from projects array).
+            // This intentionally differs from sessions total_count.
+            const projects_count = Array.isArray(shapedUser?.projects)
+              ? shapedUser.projects.length
+              : 0;
 
             return { id, name, total_count, projects_count };
           });
@@ -279,10 +290,20 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
       // Latest backend shape: res is an object { total_count, projects, name?/user_name? }
       // Ensure numeric fields to prevent invisible bars / tooltip NaNs.
-      const total_count = Number.isFinite(Number(res?.total_count)) ? Number(res.total_count) : 0;
+      // Sessions MUST use total_count (authoritative). Keep light fallbacks for alternate shapes.
+      const total_count =
+        Number.isFinite(Number(res?.total_count))
+          ? Number(res.total_count)
+          : Array.isArray(res?.sessions)
+            ? res.sessions.length
+            : Array.isArray(res?.activities)
+              ? res.activities.length
+              : Number.isFinite(Number(res?.count))
+                ? Number(res.count)
+                : 0;
 
-      // Projects count is derived from the projects array returned by the batch endpoint.
-      // This powers the tooltip "Projects" value.
+      // Projects MUST be derived from the projects list returned by the batch endpoint.
+      // This intentionally differs from sessions total_count.
       const projects_count = Array.isArray(res?.projects) ? res.projects.length : 0;
 
       const name =
@@ -529,11 +550,14 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                             if (!active || !Array.isArray(payload) || payload.length === 0) return null;
 
                             const row = payload?.[0]?.payload || {};
+                            // const projectsCount = Number.isFinite(Number(row?.projects_count))
+                            //   ? Number(row.projects_count)
+                            //   : Number.isFinite(Number(row?.count))
+                            //     ? Number(row.count)
+                            //     : 0;
                             const projectsCount = Number.isFinite(Number(row?.projects_count))
                               ? Number(row.projects_count)
-                              : Number.isFinite(Number(row?.count))
-                                ? Number(row.count)
-                                : 0;
+                              : 0;
 
                             const sessionsCount = Number.isFinite(Number(row?.total_count))
                               ? Number(row.total_count)
