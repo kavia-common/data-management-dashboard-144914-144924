@@ -480,19 +480,34 @@ export default function TabbedUserModal({
     const [records, setRecords] = useState([]);
 
     const rows = useMemo(() => {
-      // The /api/llm_costs endpoint is expected to return per-entity summaries.
-      // We normalize to a predictable table shape while staying defensive.
-      return (Array.isArray(records) ? records : []).map((r, idx) => ({
-        _rowKey: r?._id ?? `${r?.user_id ?? 'user'}-${idx}`,
-        user_id: r?.user_id ?? userId ?? '',
-        user_name: r?.user_name ?? r?.name ?? r?.email ?? '—',
-        user_cost: Number(r?.user_cost ?? r?.cost ?? 0),
-      }));
+      // The /api/llm_costs endpoint is expected to return per-user summaries.
+      // Normalize to a stable table shape while staying defensive.
+      return (Array.isArray(records) ? records : []).map((r, idx) => {
+        const userCostNum = Number(r?.user_cost ?? r?.userCost ?? r?.cost ?? r?.total_cost ?? 0);
+
+        return {
+          _rowKey: r?._id ?? `${r?.user_id ?? userId ?? 'user'}-${idx}`,
+          user_id: r?.user_id ?? userId ?? '',
+          user_name: r?.user_name ?? r?.name ?? r?.email ?? '—',
+          // Keep both raw numeric and formatted field for rendering.
+          user_cost: Number.isFinite(userCostNum) ? userCostNum : 0,
+          user_cost_formatted: Number.isFinite(userCostNum) ? formatUsdUpToSixDecimals(userCostNum) : '—',
+        };
+      });
     }, [records, userId]);
 
-    const totalCost = useMemo(() => {
-      return rows.reduce((sum, r) => sum + (Number.isFinite(Number(r.user_cost)) ? Number(r.user_cost) : 0), 0);
+    const pageTotalCost = useMemo(() => {
+      return rows.reduce(
+        (sum, r) => sum + (Number.isFinite(Number(r.user_cost)) ? Number(r.user_cost) : 0),
+        0
+      );
     }, [rows]);
+
+    const overallTotalCost = useMemo(() => {
+      // Prefer server-provided total if present; else fall back to current page total.
+      const fromMeta = Number(meta?.total_cost ?? meta?.totalCost ?? meta?.sum_cost ?? meta?.sumCost);
+      return Number.isFinite(fromMeta) ? fromMeta : pageTotalCost;
+    }, [meta, pageTotalCost]);
 
     async function load(page = 1, limit = 10) {
       if (!userId) return;
@@ -526,31 +541,60 @@ export default function TabbedUserModal({
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userId, currentOrgId]);
 
+    const columns = useMemo(
+      () => [
+        { key: 'user_name', header: 'User', accessor: (r) => r.user_name },
+        {
+          key: 'user_cost',
+          header: 'Cost (USD)',
+          accessor: (r) => r.user_cost_formatted,
+          align: 'right',
+        },
+      ],
+      []
+    );
+
     return (
       <div data-testid="credits-consumed-tab">
         {/* Summary header */}
         <div
-          className="card"
           style={{
             marginBottom: 12,
-            padding: 12,
+            padding: 14,
             background: 'var(--bg-surface, #fff)',
             border: '1px solid var(--border-subtle,#e5e7eb)',
-            borderRadius: 10,
+            borderRadius: 12,
+            boxShadow: 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
           }}
         >
-          <div
-            style={{
-              fontSize: 12,
-              color: 'var(--text-tertiary,#64748B)',
-              fontWeight: 700,
-              letterSpacing: '.02em',
-            }}
-          >
-            Total Cost
+          <div>
+            <div
+              style={{
+                fontSize: 12,
+                color: 'var(--text-tertiary,#64748B)',
+                fontWeight: 700,
+                letterSpacing: '.02em',
+                marginBottom: 4,
+              }}
+            >
+              Total Credits Consumed (USD)
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary,#111827)' }}>
+              {formatUsdUpToSixDecimals(overallTotalCost)}
+            </div>
           </div>
-          <div style={{ fontSize: 20, fontWeight: 700 }}>
-            {formatUsdUpToSixDecimals(totalCost)}
+
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)', fontWeight: 700 }}>
+              This page
+            </div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>
+              {formatUsdUpToSixDecimals(pageTotalCost)}
+            </div>
           </div>
         </div>
 
@@ -579,6 +623,7 @@ export default function TabbedUserModal({
         ) : (
           <DataTable
             data={rows}
+            columns={columns}
             loading={false}
             pageSize={meta.limit || 10}
             initialPage={meta.page || 1}
@@ -601,7 +646,7 @@ export default function TabbedUserModal({
               Prev
             </button>
             <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)', fontWeight: 600 }}>
-              Page {meta.page || 1} • Limit {meta.limit || 10} • Total {meta.total || 0}
+              Page {meta.page || 1} • Limit {meta.limit || 10} • Total rows {meta.total || 0}
             </div>
             <button
               type="button"
