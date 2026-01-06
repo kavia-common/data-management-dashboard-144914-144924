@@ -11,6 +11,7 @@ import { listSessions } from '../../api/baseClient';
 import { getUserSessionDetails } from '../../api/users';
 import { fetchLlmCostsUnderscore } from '../../api/llmCostsUnderscore';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
+import useSessionUserId from '../../hooks/useSessionUserId';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
 import ProjectDetails from './ProjectDetails.jsx';
@@ -470,7 +471,7 @@ export default function TabbedUserModal({
   SessionDetailsTab.propTypes = { userId: PropTypes.string };
 
   // Credits Consumed Tab
-  function CreditsConsumedTab({ userId }) {
+  function CreditsConsumedTab({ sessionUserId }) {
     const currentOrgId = useCurrentOrgId();
 
     const [loading, setLoading] = useState(false);
@@ -480,21 +481,22 @@ export default function TabbedUserModal({
     const [records, setRecords] = useState([]);
 
     const rows = useMemo(() => {
-      // The /api/llm_costs endpoint is expected to return per-user summaries.
       // Normalize to a stable table shape while staying defensive.
+      // Expectation per user instruction: filter by user_id and render that user's user_cost.
       return (Array.isArray(records) ? records : []).map((r, idx) => {
         const userCostNum = Number(r?.user_cost ?? r?.userCost ?? r?.cost ?? r?.total_cost ?? 0);
 
         return {
-          _rowKey: r?._id ?? `${r?.user_id ?? userId ?? 'user'}-${idx}`,
-          user_id: r?.user_id ?? userId ?? '',
+          _rowKey: r?._id ?? `${r?.user_id ?? sessionUserId ?? 'user'}-${idx}`,
+          user_id: r?.user_id ?? sessionUserId ?? '',
           user_name: r?.user_name ?? r?.name ?? r?.email ?? '—',
-          // Keep both raw numeric and formatted field for rendering.
           user_cost: Number.isFinite(userCostNum) ? userCostNum : 0,
-          user_cost_formatted: Number.isFinite(userCostNum) ? formatUsdUpToSixDecimals(userCostNum) : '—',
+          user_cost_formatted: Number.isFinite(userCostNum)
+            ? formatUsdUpToSixDecimals(userCostNum)
+            : '—',
         };
       });
-    }, [records, userId]);
+    }, [records, sessionUserId]);
 
     const pageTotalCost = useMemo(() => {
       return rows.reduce(
@@ -510,7 +512,7 @@ export default function TabbedUserModal({
     }, [meta, pageTotalCost]);
 
     async function load(page = 1, limit = 10) {
-      if (!userId) return;
+      if (!sessionUserId) return;
 
       setLoading(true);
       setError('');
@@ -520,7 +522,8 @@ export default function TabbedUserModal({
           page,
           limit,
           organizationId: currentOrgId || undefined,
-          filter: { user_id: String(userId) },
+          // Critical: scope to signed-in session user id
+          filter: { user_id: String(sessionUserId) },
         });
 
         setRecords(Array.isArray(data?.data) ? data.data : []);
@@ -535,11 +538,11 @@ export default function TabbedUserModal({
     }
 
     useEffect(() => {
-      // Reset pagination when user changes
+      // Reset pagination when signed-in user changes
       setMeta((m) => ({ ...m, page: 1 }));
-      if (userId) load(1, meta.limit || 10);
+      if (sessionUserId) load(1, meta.limit || 10);
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [userId, currentOrgId]);
+    }, [sessionUserId, currentOrgId]);
 
     const columns = useMemo(
       () => [
@@ -616,8 +619,8 @@ export default function TabbedUserModal({
               Retry
             </button>
           </div>
-        ) : !userId ? (
-          <div className="table-empty">No user selected.</div>
+        ) : !sessionUserId ? (
+          <div className="table-empty">No signed-in user found.</div>
         ) : rows.length === 0 ? (
           <div className="table-empty">No credits consumed records found for this user.</div>
         ) : (
@@ -634,7 +637,7 @@ export default function TabbedUserModal({
         )}
 
         {/* Simple pagination controls (DataTable’s internal pagination varies by implementation) */}
-        {userId && !loading && rows.length > 0 ? (
+        {sessionUserId && !loading && rows.length > 0 ? (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
             <button
               type="button"
@@ -662,7 +665,9 @@ export default function TabbedUserModal({
       </div>
     );
   }
-  CreditsConsumedTab.propTypes = { userId: PropTypes.string };
+  CreditsConsumedTab.propTypes = { sessionUserId: PropTypes.string };
+
+  const sessionUserId = useSessionUserId();
 
   return (
     <Modal title={title} open={open} onClose={onClose} className="tabbed-user-modal">
@@ -677,7 +682,7 @@ export default function TabbedUserModal({
           {activeTab === 'details' && <UserDetailsView user={user} />}
           {activeTab === 'projects' && <ProjectDetails selectedUser={user || null} />}
           {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
-          {activeTab === 'credits' && <CreditsConsumedTab userId={userId} />}
+          {activeTab === 'credits' && <CreditsConsumedTab sessionUserId={sessionUserId} />}
           {activeTab === 'analytics' && (
             <UsersAnalyticsPanelModal
               userId={userId}
