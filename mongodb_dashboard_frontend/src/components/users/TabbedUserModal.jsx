@@ -9,6 +9,7 @@ import DataTable from '../DataTable.jsx';
 
 import { listSessions } from '../../api/baseClient';
 import { getUserSessionDetails } from '../../api/users';
+import { fetchLlmCostsUnderscore } from '../../api/llmCostsUnderscore';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
@@ -470,17 +471,60 @@ export default function TabbedUserModal({
 
   // Credits Consumed Tab
   function CreditsConsumedTab({ userId }) {
-    /**
-     * This tab previously fetched LLM cost records to compute per-user spend.
-     * Per request, the LLM costs API call has been removed.
-     *
-     * We keep the tab functional and stable by rendering a graceful empty state
-     * (no spinner, no API error/retry) while preserving the rest of the modal.
-     */
-    const rows = useMemo(() => [], []);
+    const currentOrgId = useCurrentOrgId();
 
-    // With no backing API call, the total is deterministically 0.
-    const totalCost = 0;
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
+
+    const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
+    const [records, setRecords] = useState([]);
+
+    const rows = useMemo(() => {
+      // The /api/llm_costs endpoint is expected to return per-entity summaries.
+      // We normalize to a predictable table shape while staying defensive.
+      return (Array.isArray(records) ? records : []).map((r, idx) => ({
+        _rowKey: r?._id ?? `${r?.user_id ?? 'user'}-${idx}`,
+        user_id: r?.user_id ?? userId ?? '',
+        user_name: r?.user_name ?? r?.name ?? r?.email ?? '—',
+        user_cost: Number(r?.user_cost ?? r?.cost ?? 0),
+      }));
+    }, [records, userId]);
+
+    const totalCost = useMemo(() => {
+      return rows.reduce((sum, r) => sum + (Number.isFinite(Number(r.user_cost)) ? Number(r.user_cost) : 0), 0);
+    }, [rows]);
+
+    async function load(page = 1, limit = 10) {
+      if (!userId) return;
+
+      setLoading(true);
+      setError('');
+
+      try {
+        const data = await fetchLlmCostsUnderscore({
+          page,
+          limit,
+          organizationId: currentOrgId || undefined,
+          filter: { user_id: String(userId) },
+        });
+
+        setRecords(Array.isArray(data?.data) ? data.data : []);
+        setMeta(data?.meta || { page, limit, total: 0 });
+      } catch (e) {
+        setRecords([]);
+        setMeta({ page, limit, total: 0 });
+        setError(e?.message || 'Failed to load credits consumed.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    useEffect(() => {
+      // Reset pagination when user changes
+      setMeta((m) => ({ ...m, page: 1 }));
+      if (userId) load(1, meta.limit || 10);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId, currentOrgId]);
 
     return (
       <div data-testid="credits-consumed-tab">
@@ -510,26 +554,65 @@ export default function TabbedUserModal({
           </div>
         </div>
 
-        {/* Keep a predictable UI with no dependency on removed LLM costs data */}
-        {userId ? (
-          <div className="table-empty">
-            Credits consumed details are currently unavailable.
+        {loading ? (
+          <div className="table-empty" role="status" aria-live="polite">
+            Loading credits consumed…
           </div>
-        ) : (
+        ) : error ? (
+          <div>
+            <div role="alert" className="error">
+              {error}
+            </div>
+            <button
+              type="button"
+              onClick={() => load(meta.page || 1, meta.limit || 10)}
+              className="btn btn-ghost"
+              style={{ height: 28, padding: '2px 8px' }}
+            >
+              Retry
+            </button>
+          </div>
+        ) : !userId ? (
           <div className="table-empty">No user selected.</div>
-        )}
-
-        {/* Preserve DataTable import usage pattern (if future data source is reintroduced) */}
-        {Array.isArray(rows) && rows.length > 0 ? (
+        ) : rows.length === 0 ? (
+          <div className="table-empty">No credits consumed records found for this user.</div>
+        ) : (
           <DataTable
             data={rows}
             loading={false}
-            pageSize={10}
-            initialPage={1}
-            paginationTitle="Costs pages"
+            pageSize={meta.limit || 10}
+            initialPage={meta.page || 1}
+            paginationTitle="Credits consumed pages"
             maxBodyHeight={360}
             forceHorizontalScroll
           />
+        )}
+
+        {/* Simple pagination controls (DataTable’s internal pagination varies by implementation) */}
+        {userId && !loading && rows.length > 0 ? (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ height: 30, padding: '4px 10px' }}
+              disabled={(meta.page || 1) <= 1}
+              onClick={() => load(Math.max(1, (meta.page || 1) - 1), meta.limit || 10)}
+            >
+              Prev
+            </button>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)', fontWeight: 600 }}>
+              Page {meta.page || 1} • Limit {meta.limit || 10} • Total {meta.total || 0}
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ height: 30, padding: '4px 10px' }}
+              disabled={rows.length < (meta.limit || 10)}
+              onClick={() => load((meta.page || 1) + 1, meta.limit || 10)}
+            >
+              Next
+            </button>
+          </div>
         ) : null}
       </div>
     );
