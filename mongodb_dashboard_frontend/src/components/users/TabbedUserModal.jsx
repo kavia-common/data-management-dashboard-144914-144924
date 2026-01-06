@@ -499,10 +499,12 @@ export default function TabbedUserModal({
         // Filter wiring fix:
         // The underscore endpoint expects cost-document filters; use `user_id` (not users.user_id).
         const data = await fetchLlmCostsUnderscore({
+          // User request: call /api/llm_costs with page + limit on Credits Consumed tab activation
           page: 1,
-          limit: 200,
+          limit: 10,
           organizationId: currentOrgId || undefined,
           filter: {
+            // Keep tenant + user scoping in filter (server may ignore tenant fields when JWT present)
             organization_id: String(currentOrgId || ''),
             user_id: String(sessionUserId || ''),
           },
