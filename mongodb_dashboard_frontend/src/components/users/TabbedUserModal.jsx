@@ -471,7 +471,7 @@ export default function TabbedUserModal({
   SessionDetailsTab.propTypes = { userId: PropTypes.string };
 
   // Credits Consumed Tab
-  function CreditsConsumedTab({ sessionUserId }) {
+  function CreditsConsumedTab({ sessionUserId, isActive }) {
     const currentOrgId = useCurrentOrgId();
 
     const [loading, setLoading] = useState(false);
@@ -479,22 +479,21 @@ export default function TabbedUserModal({
 
     const [totalCostUsd, setTotalCostUsd] = useState(0);
 
+    // Track whether we've already loaded for the current (org,user) pair, to avoid
+    // re-fetching on incidental re-renders while staying on the tab.
+    const [loadedKey, setLoadedKey] = useState('');
+
     async function load() {
-      if (!sessionUserId) return;
+      if (!sessionUserId || !currentOrgId) return;
 
       setLoading(true);
       setError('');
 
       try {
-        // Per request: call /api/llm_costs and ensure we derive the user's cost from llm_costs
-        // by scoping with organization_id and matching nested users.user_id to the session_tracking user id.
-        //
-        // NOTE: backend supports a JSON "filter" param; we pass the nested filter. If backend ignores
-        // unknown fields, it will still be tenant-scoped by JWT/x-organization-id and return safe data.
+        // IMPORTANT: user requested /api/llm_costs. In this frontend, the helper is
+        // fetchLlmCostsUnderscore -> /api/llm_costs.
         const data = await fetchLlmCostsUnderscore({
           page: 1,
-          // Fetch a larger first page to compute a total client-side without pagination UI.
-          // (If server provides an aggregated total in meta in some environments, we use it.)
           limit: 200,
           organizationId: currentOrgId || undefined,
           filter: {
@@ -503,6 +502,7 @@ export default function TabbedUserModal({
           },
         });
 
+        // Prefer any server-provided aggregate in meta if present.
         const metaSum = Number(
           data?.meta?.total_cost ??
             data?.meta?.totalCost ??
@@ -515,9 +515,17 @@ export default function TabbedUserModal({
           return;
         }
 
+        // Otherwise sum numeric fields from returned rows.
         const arr = Array.isArray(data?.data) ? data.data : [];
         const sum = arr.reduce((acc, r) => {
-          const n = Number(r?.user_cost ?? r?.userCost ?? r?.total_cost ?? r?.cost_usd ?? r?.cost ?? 0);
+          const n = Number(
+            r?.user_cost ??
+              r?.userCost ??
+              r?.total_cost ??
+              r?.cost_usd ??
+              r?.cost ??
+              0
+          );
           return acc + (Number.isFinite(n) ? n : 0);
         }, 0);
 
@@ -531,9 +539,22 @@ export default function TabbedUserModal({
     }
 
     useEffect(() => {
-      if (sessionUserId && currentOrgId) load();
+      // Lazy-load ONLY when the tab is actually activated.
+      if (!isActive) return;
+
+      const k = `${String(currentOrgId || '')}::${String(sessionUserId || '')}`;
+      if (!currentOrgId || !sessionUserId) {
+        setLoadedKey('');
+        return;
+      }
+
+      // If user/org changed, refetch on activation.
+      if (loadedKey !== k) {
+        setLoadedKey(k);
+        load();
+      }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [sessionUserId, currentOrgId]);
+    }, [isActive, currentOrgId, sessionUserId]);
 
     return (
       <div data-testid="credits-consumed-tab">
@@ -546,18 +567,6 @@ export default function TabbedUserModal({
             boxShadow: 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))',
           }}
         >
-          <div
-            style={{
-              fontSize: 12,
-              color: 'var(--text-tertiary,#64748B)',
-              fontWeight: 700,
-              letterSpacing: '.02em',
-              marginBottom: 6,
-            }}
-          >
-            Call the below llm_costs api in Users module in Users Table in Credits Consumed tabbed modal and make sure as per user_id you get user_cost from llm_costs collection
-          </div>
-
           {loading ? (
             <div role="status" aria-live="polite" className="table-empty">
               Loading credits consumed…
@@ -595,7 +604,10 @@ export default function TabbedUserModal({
       </div>
     );
   }
-  CreditsConsumedTab.propTypes = { sessionUserId: PropTypes.string };
+  CreditsConsumedTab.propTypes = {
+    sessionUserId: PropTypes.string,
+    isActive: PropTypes.bool,
+  };
 
   const sessionUserId = useSessionUserId();
 
@@ -612,7 +624,12 @@ export default function TabbedUserModal({
           {activeTab === 'details' && <UserDetailsView user={user} />}
           {activeTab === 'projects' && <ProjectDetails selectedUser={user || null} />}
           {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
-          {activeTab === 'credits' && <CreditsConsumedTab sessionUserId={sessionUserId} />}
+          {activeTab === 'credits' && (
+            <CreditsConsumedTab
+              sessionUserId={sessionUserId}
+              isActive={activeTab === 'credits'}
+            />
+          )}
           {activeTab === 'analytics' && (
             <UsersAnalyticsPanelModal
               userId={userId}
