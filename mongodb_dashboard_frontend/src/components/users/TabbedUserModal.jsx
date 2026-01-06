@@ -11,7 +11,6 @@ import { listSessions } from '../../api/baseClient';
 import { getUserSessionDetails } from '../../api/users';
 import { fetchLlmCostsUnderscore } from '../../api/llmCostsUnderscore';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
-import useSessionUserId from '../../hooks/useSessionUserId';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
 import ProjectDetails from './ProjectDetails.jsx';
@@ -47,20 +46,20 @@ function UserDetailsView({ user }) {
     <section
       aria-label="User details"
       style={{
-        background: "var(--bg-surface, #ffffff)",
-        border: "1px solid var(--border-subtle, #E6EAF0)",
+        background: 'var(--bg-surface, #ffffff)',
+        border: '1px solid var(--border-subtle, #E6EAF0)',
         borderRadius: 12,
-        boxShadow: "var(--shadow, 0 1px 2px rgba(16,24,40,0.04))",
+        boxShadow: 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))',
         padding: 24,
-        borderLeft: "1px solid var(--border-subtle, #E5E7EB)",
+        borderLeft: '1px solid var(--border-subtle, #E5E7EB)',
       }}
     >
       <div
         role="group"
         aria-label="Details grid"
         style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
           gap: 16,
         }}
       >
@@ -68,11 +67,11 @@ function UserDetailsView({ user }) {
         <div>
           <span
             style={{
-              display: "block",
+              display: 'block',
               fontSize: 12,
               fontWeight: 600,
-              color: "var(--text-tertiary, #64748B)",
-              letterSpacing: ".02em",
+              color: 'var(--text-tertiary, #64748B)',
+              letterSpacing: '.02em',
               marginBottom: 6,
             }}
           >
@@ -81,13 +80,13 @@ function UserDetailsView({ user }) {
           <div
             style={{
               margin: 0,
-              color: "var(--text-primary, #111827)",
+              color: 'var(--text-primary, #111827)',
               fontWeight: 600,
-              wordBreak: "break-word",
+              wordBreak: 'break-word',
             }}
             title={name || undefined}
           >
-            {name || "—"}
+            {name || '—'}
           </div>
         </div>
 
@@ -95,11 +94,11 @@ function UserDetailsView({ user }) {
         <div>
           <span
             style={{
-              display: "block",
+              display: 'block',
               fontSize: 12,
               fontWeight: 600,
-              color: "var(--text-tertiary, #64748B)",
-              letterSpacing: ".02em",
+              color: 'var(--text-tertiary, #64748B)',
+              letterSpacing: '.02em',
               marginBottom: 6,
             }}
           >
@@ -108,13 +107,13 @@ function UserDetailsView({ user }) {
           <div
             style={{
               margin: 0,
-              color: "var(--text-primary, #111827)",
+              color: 'var(--text-primary, #111827)',
               fontWeight: 600,
-              wordBreak: "break-word",
+              wordBreak: 'break-word',
             }}
             title={email || undefined}
           >
-            {email || "—"}
+            {email || '—'}
           </div>
         </div>
 
@@ -122,11 +121,11 @@ function UserDetailsView({ user }) {
         <div>
           <span
             style={{
-              display: "block",
+              display: 'block',
               fontSize: 12,
               fontWeight: 600,
-              color: "var(--text-tertiary, #64748B)",
-              letterSpacing: ".02em",
+              color: 'var(--text-tertiary, #64748B)',
+              letterSpacing: '.02em',
               marginBottom: 6,
             }}
           >
@@ -135,13 +134,13 @@ function UserDetailsView({ user }) {
           <div
             style={{
               margin: 0,
-              color: "var(--text-primary, #111827)",
+              color: 'var(--text-primary, #111827)',
               fontWeight: 600,
-              wordBreak: "break-word",
+              wordBreak: 'break-word',
             }}
             title={department || undefined}
           >
-            {department || "—"}
+            {department || '—'}
           </div>
         </div>
 
@@ -149,11 +148,11 @@ function UserDetailsView({ user }) {
         <div>
           <span
             style={{
-              display: "block",
+              display: 'block',
               fontSize: 12,
               fontWeight: 600,
-              color: "var(--text-tertiary, #64748B)",
-              letterSpacing: ".02em",
+              color: 'var(--text-tertiary, #64748B)',
+              letterSpacing: '.02em',
               marginBottom: 6,
             }}
           >
@@ -162,13 +161,13 @@ function UserDetailsView({ user }) {
           <div
             style={{
               margin: 0,
-              color: "var(--text-primary, #111827)",
+              color: 'var(--text-primary, #111827)',
               fontWeight: 600,
-              wordBreak: "break-word",
+              wordBreak: 'break-word',
             }}
             title={(tenant && String(tenant)) || undefined}
           >
-            {tenant ? String(tenant) : "—"}
+            {tenant ? String(tenant) : '—'}
           </div>
         </div>
       </div>
@@ -211,11 +210,21 @@ export default function TabbedUserModal({
     []
   );
 
-  const title = useMemo(() => user?.name || user?.full_name || user?.email || 'User', [user]);
+  const title = useMemo(
+    () => user?.name || user?.full_name || user?.email || 'User',
+    [user]
+  );
 
   function ThemedTabs({ activeKey, onChange }) {
     return (
-      <div role="tablist" style={{ display: "flex", gap: 8, borderBottom: "1px solid var(--border-subtle)" }}>
+      <div
+        role="tablist"
+        style={{
+          display: 'flex',
+          gap: 8,
+          borderBottom: '1px solid var(--border-subtle)',
+        }}
+      >
         {tabs.map((t) => {
           const isActive = String(activeKey) === String(t.key);
           return (
@@ -226,14 +235,16 @@ export default function TabbedUserModal({
               aria-selected={isActive}
               onClick={() => onChange(t.key)}
               style={{
-                appearance: "none",
-                border: "none",
-                background: isActive ? "rgba(15,23,42,0.04)" : "transparent",
-                color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
+                appearance: 'none',
+                border: 'none',
+                background: isActive ? 'rgba(15,23,42,0.04)' : 'transparent',
+                color: isActive
+                  ? 'var(--text-primary)'
+                  : 'var(--text-secondary)',
                 fontWeight: isActive ? 700 : 600,
-                padding: "8px 12px",
+                padding: '8px 12px',
                 borderRadius: 8,
-                cursor: "pointer",
+                cursor: 'pointer',
               }}
             >
               {t.label}
@@ -372,7 +383,8 @@ export default function TabbedUserModal({
         sessionDetails?.tenant_name ??
         null;
 
-      const rawServiceTypes = sessionDetails?.service_type ?? sessionDetails?.serviceType ?? [];
+      const rawServiceTypes =
+        sessionDetails?.service_type ?? sessionDetails?.serviceType ?? [];
       const serviceTypesDeduped = Array.from(
         new Set(
           (Array.isArray(rawServiceTypes) ? rawServiceTypes : [rawServiceTypes])
@@ -413,19 +425,22 @@ export default function TabbedUserModal({
               </div>
             </div>
 
-            {/* Kept for visual consistency; backend response doesn't provide this in the contract */}
-         
-
             <div>
               <span style={labelStyle}>Service Type</span>
-              <div style={valueStyle} title={serviceTypesDeduped.join(', ') || undefined}>
+              <div
+                style={valueStyle}
+                title={serviceTypesDeduped.join(', ') || undefined}
+              >
                 {serviceTypesDeduped.length ? serviceTypesDeduped.join(', ') : '—'}
               </div>
             </div>
 
             <div>
               <span style={labelStyle}>Organization</span>
-              <div style={valueStyle} title={organizationName ? String(organizationName) : undefined}>
+              <div
+                style={valueStyle}
+                title={organizationName ? String(organizationName) : undefined}
+              >
                 {organizationName ? String(organizationName) : '—'}
               </div>
             </div>
@@ -471,52 +486,32 @@ export default function TabbedUserModal({
   SessionDetailsTab.propTypes = { userId: PropTypes.string };
 
   // Credits Consumed Tab
-  function CreditsConsumedTab({ sessionUserId, isActive }) {
+  function CreditsConsumedTab({ isActive }) {
     const currentOrgId = useCurrentOrgId();
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-
-    // Total "credits consumed" for the signed-in user.
-    // Requirement: render only the total user_cost, no table, no pagination.
     const [totalUserCostUsd, setTotalUserCostUsd] = useState(0);
 
-    // Using a ref avoids timing issues around setState + immediately calling load()
-    // inside the same effect tick, and guarantees we only fetch once per (org,user)
-    // per tab-activation unless those values change.
+    // Fetch on tab activation; avoid refetch loops while tab remains active.
     const lastLoadedKeyRef = useRef('');
-
-    const effectiveKey = `${String(currentOrgId || '')}::${String(sessionUserId || '')}`;
+    const effectiveKey = `${String(currentOrgId || '')}::credits-consumed`;
 
     async function load() {
-      if (!sessionUserId || !currentOrgId) return;
-
       setLoading(true);
       setError('');
 
       try {
-        // IMPORTANT:
-        // The requirement explicitly says to call `/api/llm_costs` on activation.
-        // In this frontend, the helper `fetchLlmCostsUnderscore` calls `/api/llm_costs`.
-        //
-        // We intentionally request a large limit (max 200) and sum client-side,
-        // since the endpoint is paginated and does not provide a "total user_cost"
-        // aggregate in the contract.
+        // Per requirement/attachment: call /api/llm_costs?page=1&limit=10 when tab opens.
         const data = await fetchLlmCostsUnderscore({
           page: 1,
-          limit: 200,
+          limit: 10,
           organizationId: currentOrgId || undefined,
-          filter: {
-            // Keep tenant + user scoping in filter (server may ignore tenant fields when JWT present)
-            organization_id: String(currentOrgId || ''),
-            user_id: String(sessionUserId || ''),
-          },
         });
 
         const arr = Array.isArray(data?.data) ? data.data : [];
 
-        // Requirement: "only the total user_cost".
-        // We sum `user_cost` (with a couple of defensive aliases) from returned rows.
+        // Sum `user_cost` from the response.
         const sumUserCost = arr.reduce((acc, r) => {
           const n = Number(r?.user_cost ?? r?.userCost ?? 0);
           return acc + (Number.isFinite(n) ? n : 0);
@@ -532,23 +527,21 @@ export default function TabbedUserModal({
     }
 
     useEffect(() => {
-      // Lazy-load ONLY when the tab is actually activated.
+      // Trigger immediately upon tab activation.
       if (!isActive) return;
 
-      // If prerequisites are missing, don't attempt (and clear the last key so
-      // a future activation will fetch once prerequisites appear).
-      if (!currentOrgId || !sessionUserId) {
+      // If org isn't available yet, allow a future activation to fetch.
+      if (!currentOrgId) {
         lastLoadedKeyRef.current = '';
         return;
       }
 
-      // If user/org changed, refetch on activation.
       if (lastLoadedKeyRef.current !== effectiveKey) {
         lastLoadedKeyRef.current = effectiveKey;
         load();
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isActive, effectiveKey, currentOrgId, sessionUserId]);
+    }, [isActive, effectiveKey, currentOrgId]);
 
     return (
       <div data-testid="credits-consumed-tab">
@@ -579,8 +572,6 @@ export default function TabbedUserModal({
                 Retry
               </button>
             </div>
-          ) : !sessionUserId ? (
-            <div className="table-empty">No signed-in user found.</div>
           ) : !currentOrgId ? (
             <div className="table-empty">No organization selected.</div>
           ) : (
@@ -599,48 +590,47 @@ export default function TabbedUserModal({
     );
   }
   CreditsConsumedTab.propTypes = {
-    sessionUserId: PropTypes.string,
     isActive: PropTypes.bool,
   };
 
-  const sessionUserId = useSessionUserId();
-
   return (
     <Modal title={title} open={open} onClose={onClose} className="tabbed-user-modal">
-      <div className="sticky-header" style={{ boxShadow: "0 1px 0 var(--border-subtle)", background: "var(--bg-surface, #fff)" }}>
-        <div style={{ padding: "12px 20px" }}>
+      <div
+        className="sticky-header"
+        style={{
+          boxShadow: '0 1px 0 var(--border-subtle)',
+          background: 'var(--bg-surface, #fff)',
+        }}
+      >
+        <div style={{ padding: '12px 20px' }}>
           <ThemedTabs activeKey={activeTab} onChange={setActiveTab} />
         </div>
       </div>
 
-      <div role="region" style={{ flex: 1, overflow: "auto", background: "var(--bg-canvas, #f9fafb)" }}>
+      <div role="region" style={{ flex: 1, overflow: 'auto', background: 'var(--bg-canvas, #f9fafb)' }}>
         <div style={{ padding: 20 }}>
           {activeTab === 'details' && <UserDetailsView user={user} />}
           {activeTab === 'projects' && <ProjectDetails selectedUser={user || null} />}
           {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
-          {activeTab === 'credits' && (
-            <CreditsConsumedTab
-              sessionUserId={sessionUserId}
-              isActive={activeTab === 'credits'}
-            />
-          )}
+          {activeTab === 'credits' && <CreditsConsumedTab isActive={activeTab === 'credits'} />}
           {activeTab === 'analytics' && (
-            <UsersAnalyticsPanelModal
-              userId={userId}
-              tenantId={tenantId}
-              from={from}
-              to={to}
-            />
+            <UsersAnalyticsPanelModal userId={userId} tenantId={tenantId} from={from} to={to} />
           )}
         </div>
       </div>
 
-      <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border-subtle)", background: "var(--bg-surface, #fff)" }}>
+      <div
+        style={{
+          padding: '12px 16px',
+          borderTop: '1px solid var(--border-subtle)',
+          background: 'var(--bg-surface, #fff)',
+        }}
+      >
         <button
           type="button"
           onClick={onClose}
           className="btn-modal-close"
-          style={{ width: "100%", borderRadius: 10 }}
+          style={{ width: '100%', borderRadius: 10 }}
         >
           Close
         </button>
