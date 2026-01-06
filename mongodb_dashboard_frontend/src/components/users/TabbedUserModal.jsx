@@ -491,11 +491,19 @@ export default function TabbedUserModal({
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [totalUserCostUsd, setTotalUserCostUsd] = useState(0);
+
+    // Tenant-aware: indicate whether the active tenant has ANY costs at all (any user).
+    const [tenantHasAnyCosts, setTenantHasAnyCosts] = useState(false);
+
+    // Per-user: only show the current user's total cost inside the active tenant.
+    const [currentUserTotalCostUsd, setCurrentUserTotalCostUsd] = useState(0);
 
     // Fetch on tab activation; avoid refetch loops while tab remains active.
+    // Include both tenant (org) and user in the cache key so switching users re-fetches.
     const lastLoadedKeyRef = useRef('');
-    const effectiveKey = `${String(currentOrgId || '')}::credits-consumed`;
+    const effectiveKey = `${String(currentOrgId || '')}::${String(
+      userId || ''
+    )}::credits-consumed`;
 
     async function load() {
       setLoading(true);
@@ -503,6 +511,7 @@ export default function TabbedUserModal({
 
       try {
         // Per requirement/attachment: call /api/llm_costs?page=1&limit=10 when tab opens.
+        // Tenant-aware: scope to currentOrgId via query + header (handled in api wrapper).
         const data = await fetchLlmCostsUnderscore({
           page: 1,
           limit: 10,
@@ -511,15 +520,29 @@ export default function TabbedUserModal({
 
         const arr = Array.isArray(data?.data) ? data.data : [];
 
-        // Sum `user_cost` from the response.
-        const sumUserCost = arr.reduce((acc, r) => {
+        // Response is expected to contain per-user rows such as:
+        // { user_id, user_cost } (field names may vary slightly depending on backend).
+        // We consider the tenant to "have costs" if any row has a positive numeric user_cost.
+        const tenantHasCosts = arr.some((r) => {
+          const n = Number(r?.user_cost ?? r?.userCost ?? 0);
+          return Number.isFinite(n) && n > 0;
+        });
+
+        // Compute ONLY the current user's total cost by matching user_id.
+        const normalizedCurrentUserId = String(userId || '');
+        const currentUserCost = arr.reduce((acc, r) => {
+          const rowUserId = String(r?.user_id ?? r?.userId ?? '');
+          if (!rowUserId || rowUserId !== normalizedCurrentUserId) return acc;
+
           const n = Number(r?.user_cost ?? r?.userCost ?? 0);
           return acc + (Number.isFinite(n) ? n : 0);
         }, 0);
 
-        setTotalUserCostUsd(sumUserCost);
+        setTenantHasAnyCosts(tenantHasCosts);
+        setCurrentUserTotalCostUsd(currentUserCost);
       } catch (e) {
-        setTotalUserCostUsd(0);
+        setTenantHasAnyCosts(false);
+        setCurrentUserTotalCostUsd(0);
         setError(e?.message || 'Failed to load credits consumed.');
       } finally {
         setLoading(false);
@@ -536,12 +559,24 @@ export default function TabbedUserModal({
         return;
       }
 
+      // If user isn't available yet, allow a future activation to fetch.
+      if (!userId) {
+        lastLoadedKeyRef.current = '';
+        return;
+      }
+
       if (lastLoadedKeyRef.current !== effectiveKey) {
         lastLoadedKeyRef.current = effectiveKey;
         load();
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isActive, effectiveKey, currentOrgId]);
+    }, [isActive, effectiveKey, currentOrgId, userId]);
+
+    const valueStyle = {
+      fontSize: 22,
+      fontWeight: 800,
+      color: 'var(--text-primary,#111827)',
+    };
 
     return (
       <div data-testid="credits-consumed-tab">
@@ -574,15 +609,25 @@ export default function TabbedUserModal({
             </div>
           ) : !currentOrgId ? (
             <div className="table-empty">No organization selected.</div>
-          ) : (
+          ) : !tenantHasAnyCosts ? (
+            // Requirement: if selected tenant has no users with costs, show strike/empty state.
             <div
+              className="table-empty"
               style={{
-                fontSize: 22,
-                fontWeight: 800,
-                color: 'var(--text-primary,#111827)',
+                textDecoration: 'line-through',
+                textDecorationThickness: '2px',
+                textDecorationColor: 'rgba(239,68,68,0.9)',
+                color: 'var(--text-secondary, #64748B)',
+                fontWeight: 700,
               }}
+              aria-label="No costs found for this tenant"
             >
-              {formatUsdUpToSixDecimals(totalUserCostUsd)}
+              No costs found for this tenant
+            </div>
+          ) : (
+            // Requirement: render only the individual user's total (not org-wide).
+            <div style={valueStyle}>
+              {formatUsdUpToSixDecimals(currentUserTotalCostUsd)}
             </div>
           )}
         </div>

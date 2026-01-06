@@ -21,6 +21,7 @@ export async function fetchLlmCostsUnderscore({
   page = 1,
   limit = 10,
   organizationId,
+  tenantId,
   filter,
 } = {}) {
   const baseUrl = getApiBase()
@@ -29,8 +30,13 @@ export async function fetchLlmCostsUnderscore({
   url.searchParams.set('page', String(page))
   url.searchParams.set('limit', String(limit))
 
-  if (organizationId) {
-    url.searchParams.set('organization_id', String(organizationId))
+  // Tenant scoping:
+  // - Always send x-organization-id header when we have an org/tenant id.
+  // - Also provide query aliases, since some backends accept tenant_id vs organization_id.
+  const resolvedTenant = tenantId || organizationId
+  if (resolvedTenant) {
+    url.searchParams.set('organization_id', String(resolvedTenant))
+    url.searchParams.set('tenant_id', String(resolvedTenant))
   }
 
   if (filter && typeof filter === 'object') {
@@ -39,7 +45,7 @@ export async function fetchLlmCostsUnderscore({
   }
 
   const resp = await client.get(url.toString(), {
-    headers: organizationId ? { 'x-organization-id': String(organizationId) } : undefined,
+    headers: resolvedTenant ? { 'x-organization-id': String(resolvedTenant) } : undefined,
   })
 
   return resp?.data
