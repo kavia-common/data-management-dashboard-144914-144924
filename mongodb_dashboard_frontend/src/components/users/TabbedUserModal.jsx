@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 
 // Prefer existing UI primitives if available
@@ -479,9 +479,12 @@ export default function TabbedUserModal({
 
     const [totalCostUsd, setTotalCostUsd] = useState(0);
 
-    // Track whether we've already loaded for the current (org,user) pair, to avoid
-    // re-fetching on incidental re-renders while staying on the tab.
-    const [loadedKey, setLoadedKey] = useState('');
+    // Using a ref avoids timing issues around setState + immediately calling load()
+    // inside the same effect tick, and guarantees we only fetch once per (org,user)
+    // per tab-activation unless those values change.
+    const lastLoadedKeyRef = useRef('');
+
+    const effectiveKey = `${String(currentOrgId || '')}::${String(sessionUserId || '')}`;
 
     async function load() {
       if (!sessionUserId || !currentOrgId) return;
@@ -492,13 +495,16 @@ export default function TabbedUserModal({
       try {
         // IMPORTANT: user requested /api/llm_costs. In this frontend, the helper is
         // fetchLlmCostsUnderscore -> /api/llm_costs.
+        //
+        // Filter wiring fix:
+        // The underscore endpoint expects cost-document filters; use `user_id` (not users.user_id).
         const data = await fetchLlmCostsUnderscore({
           page: 1,
           limit: 200,
           organizationId: currentOrgId || undefined,
           filter: {
             organization_id: String(currentOrgId || ''),
-            'users.user_id': String(sessionUserId),
+            user_id: String(sessionUserId || ''),
           },
         });
 
@@ -542,19 +548,20 @@ export default function TabbedUserModal({
       // Lazy-load ONLY when the tab is actually activated.
       if (!isActive) return;
 
-      const k = `${String(currentOrgId || '')}::${String(sessionUserId || '')}`;
+      // If prerequisites are missing, don't attempt (and clear the last key so
+      // a future activation will fetch once prerequisites appear).
       if (!currentOrgId || !sessionUserId) {
-        setLoadedKey('');
+        lastLoadedKeyRef.current = '';
         return;
       }
 
       // If user/org changed, refetch on activation.
-      if (loadedKey !== k) {
-        setLoadedKey(k);
+      if (lastLoadedKeyRef.current !== effectiveKey) {
+        lastLoadedKeyRef.current = effectiveKey;
         load();
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isActive, currentOrgId, sessionUserId]);
+    }, [isActive, effectiveKey, currentOrgId, sessionUserId]);
 
     return (
       <div data-testid="credits-consumed-tab">
