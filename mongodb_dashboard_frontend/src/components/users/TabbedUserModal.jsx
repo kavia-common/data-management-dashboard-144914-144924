@@ -477,7 +477,9 @@ export default function TabbedUserModal({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    const [totalCostUsd, setTotalCostUsd] = useState(0);
+    // Total "credits consumed" for the signed-in user.
+    // Requirement: render only the total user_cost, no table, no pagination.
+    const [totalUserCostUsd, setTotalUserCostUsd] = useState(0);
 
     // Using a ref avoids timing issues around setState + immediately calling load()
     // inside the same effect tick, and guarantees we only fetch once per (org,user)
@@ -493,15 +495,16 @@ export default function TabbedUserModal({
       setError('');
 
       try {
-        // IMPORTANT: user requested /api/llm_costs. In this frontend, the helper is
-        // fetchLlmCostsUnderscore -> /api/llm_costs.
+        // IMPORTANT:
+        // The requirement explicitly says to call `/api/llm_costs` on activation.
+        // In this frontend, the helper `fetchLlmCostsUnderscore` calls `/api/llm_costs`.
         //
-        // Filter wiring fix:
-        // The underscore endpoint expects cost-document filters; use `user_id` (not users.user_id).
+        // We intentionally request a large limit (max 200) and sum client-side,
+        // since the endpoint is paginated and does not provide a "total user_cost"
+        // aggregate in the contract.
         const data = await fetchLlmCostsUnderscore({
-          // User request: call /api/llm_costs with page + limit on Credits Consumed tab activation
           page: 1,
-          limit: 10,
+          limit: 200,
           organizationId: currentOrgId || undefined,
           filter: {
             // Keep tenant + user scoping in filter (server may ignore tenant fields when JWT present)
@@ -510,36 +513,18 @@ export default function TabbedUserModal({
           },
         });
 
-        // Prefer any server-provided aggregate in meta if present.
-        const metaSum = Number(
-          data?.meta?.total_cost ??
-            data?.meta?.totalCost ??
-            data?.meta?.sum_cost ??
-            data?.meta?.sumCost
-        );
-
-        if (Number.isFinite(metaSum)) {
-          setTotalCostUsd(metaSum);
-          return;
-        }
-
-        // Otherwise sum numeric fields from returned rows.
         const arr = Array.isArray(data?.data) ? data.data : [];
-        const sum = arr.reduce((acc, r) => {
-          const n = Number(
-            r?.user_cost ??
-              r?.userCost ??
-              r?.total_cost ??
-              r?.cost_usd ??
-              r?.cost ??
-              0
-          );
+
+        // Requirement: "only the total user_cost".
+        // We sum `user_cost` (with a couple of defensive aliases) from returned rows.
+        const sumUserCost = arr.reduce((acc, r) => {
+          const n = Number(r?.user_cost ?? r?.userCost ?? 0);
           return acc + (Number.isFinite(n) ? n : 0);
         }, 0);
 
-        setTotalCostUsd(sum);
+        setTotalUserCostUsd(sumUserCost);
       } catch (e) {
-        setTotalCostUsd(0);
+        setTotalUserCostUsd(0);
         setError(e?.message || 'Failed to load credits consumed.');
       } finally {
         setLoading(false);
@@ -606,7 +591,7 @@ export default function TabbedUserModal({
                 color: 'var(--text-primary,#111827)',
               }}
             >
-              {formatUsdUpToSixDecimals(totalCostUsd)}
+              {formatUsdUpToSixDecimals(totalUserCostUsd)}
             </div>
           )}
         </div>
