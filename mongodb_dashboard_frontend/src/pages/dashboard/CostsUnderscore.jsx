@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react'
 import { useCurrentOrgId } from '../../hooks/useCurrentOrgId'
-import { fetchLlmCosts } from '../../api/llmCosts'
+import { fetchLlmCostsUnderscore } from '../../api/llmCostsUnderscore'
 import Card from '../../components/common/Card'
 import Button from '../../components/ui/Button'
 import DataTable from '../../components/DataTable'
@@ -56,7 +56,7 @@ export default function CostsUnderscore() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetchLlmCosts({
+      const res = await fetchLlmCostsUnderscore({
         organizationId,
         page,
         limit,
