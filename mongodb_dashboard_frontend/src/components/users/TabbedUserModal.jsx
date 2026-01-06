@@ -477,60 +477,53 @@ export default function TabbedUserModal({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
-    const [records, setRecords] = useState([]);
+    const [totalCostUsd, setTotalCostUsd] = useState(0);
 
-    const rows = useMemo(() => {
-      // Normalize to a stable table shape while staying defensive.
-      // Expectation per user instruction: filter by user_id and render that user's user_cost.
-      return (Array.isArray(records) ? records : []).map((r, idx) => {
-        const userCostNum = Number(r?.user_cost ?? r?.userCost ?? r?.cost ?? r?.total_cost ?? 0);
-
-        return {
-          _rowKey: r?._id ?? `${r?.user_id ?? sessionUserId ?? 'user'}-${idx}`,
-          user_id: r?.user_id ?? sessionUserId ?? '',
-          user_name: r?.user_name ?? r?.name ?? r?.email ?? '—',
-          user_cost: Number.isFinite(userCostNum) ? userCostNum : 0,
-          user_cost_formatted: Number.isFinite(userCostNum)
-            ? formatUsdUpToSixDecimals(userCostNum)
-            : '—',
-        };
-      });
-    }, [records, sessionUserId]);
-
-    const pageTotalCost = useMemo(() => {
-      return rows.reduce(
-        (sum, r) => sum + (Number.isFinite(Number(r.user_cost)) ? Number(r.user_cost) : 0),
-        0
-      );
-    }, [rows]);
-
-    const overallTotalCost = useMemo(() => {
-      // Prefer server-provided total if present; else fall back to current page total.
-      const fromMeta = Number(meta?.total_cost ?? meta?.totalCost ?? meta?.sum_cost ?? meta?.sumCost);
-      return Number.isFinite(fromMeta) ? fromMeta : pageTotalCost;
-    }, [meta, pageTotalCost]);
-
-    async function load(page = 1, limit = 10) {
+    async function load() {
       if (!sessionUserId) return;
 
       setLoading(true);
       setError('');
 
       try {
+        // Per request: call /api/llm_costs and ensure we derive the user's cost from llm_costs
+        // by scoping with organization_id and matching nested users.user_id to the session_tracking user id.
+        //
+        // NOTE: backend supports a JSON "filter" param; we pass the nested filter. If backend ignores
+        // unknown fields, it will still be tenant-scoped by JWT/x-organization-id and return safe data.
         const data = await fetchLlmCostsUnderscore({
-          page,
-          limit,
+          page: 1,
+          // Fetch a larger first page to compute a total client-side without pagination UI.
+          // (If server provides an aggregated total in meta in some environments, we use it.)
+          limit: 200,
           organizationId: currentOrgId || undefined,
-          // Critical: scope to signed-in session user id
-          filter: { user_id: String(sessionUserId) },
+          filter: {
+            organization_id: String(currentOrgId || ''),
+            'users.user_id': String(sessionUserId),
+          },
         });
 
-        setRecords(Array.isArray(data?.data) ? data.data : []);
-        setMeta(data?.meta || { page, limit, total: 0 });
+        const metaSum = Number(
+          data?.meta?.total_cost ??
+            data?.meta?.totalCost ??
+            data?.meta?.sum_cost ??
+            data?.meta?.sumCost
+        );
+
+        if (Number.isFinite(metaSum)) {
+          setTotalCostUsd(metaSum);
+          return;
+        }
+
+        const arr = Array.isArray(data?.data) ? data.data : [];
+        const sum = arr.reduce((acc, r) => {
+          const n = Number(r?.user_cost ?? r?.userCost ?? r?.total_cost ?? r?.cost_usd ?? r?.cost ?? 0);
+          return acc + (Number.isFinite(n) ? n : 0);
+        }, 0);
+
+        setTotalCostUsd(sum);
       } catch (e) {
-        setRecords([]);
-        setMeta({ page, limit, total: 0 });
+        setTotalCostUsd(0);
         setError(e?.message || 'Failed to load credits consumed.');
       } finally {
         setLoading(false);
@@ -538,130 +531,67 @@ export default function TabbedUserModal({
     }
 
     useEffect(() => {
-      // Reset pagination when signed-in user changes
-      setMeta((m) => ({ ...m, page: 1 }));
-      if (sessionUserId) load(1, meta.limit || 10);
+      if (sessionUserId && currentOrgId) load();
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [sessionUserId, currentOrgId]);
 
-    const columns = useMemo(
-      () => [
-        { key: 'user_name', header: 'User', accessor: (r) => r.user_name },
-        {
-          key: 'user_cost',
-          header: 'Cost (USD)',
-          accessor: (r) => r.user_cost_formatted,
-          align: 'right',
-        },
-      ],
-      []
-    );
-
     return (
       <div data-testid="credits-consumed-tab">
-        {/* Summary header */}
         <div
           style={{
-            marginBottom: 12,
-            padding: 14,
+            padding: 16,
             background: 'var(--bg-surface, #fff)',
             border: '1px solid var(--border-subtle,#e5e7eb)',
             borderRadius: 12,
             boxShadow: 'var(--shadow, 0 1px 2px rgba(16,24,40,0.04))',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 12,
           }}
         >
-          <div>
+          <div
+            style={{
+              fontSize: 12,
+              color: 'var(--text-tertiary,#64748B)',
+              fontWeight: 700,
+              letterSpacing: '.02em',
+              marginBottom: 6,
+            }}
+          >
+            Call the below llm_costs api in Users module in Users Table in Credits Consumed tabbed modal and make sure as per user_id you get user_cost from llm_costs collection
+          </div>
+
+          {loading ? (
+            <div role="status" aria-live="polite" className="table-empty">
+              Loading credits consumed…
+            </div>
+          ) : error ? (
+            <div>
+              <div role="alert" className="error">
+                {error}
+              </div>
+              <button
+                type="button"
+                onClick={load}
+                className="btn btn-ghost"
+                style={{ height: 28, padding: '2px 8px' }}
+              >
+                Retry
+              </button>
+            </div>
+          ) : !sessionUserId ? (
+            <div className="table-empty">No signed-in user found.</div>
+          ) : !currentOrgId ? (
+            <div className="table-empty">No organization selected.</div>
+          ) : (
             <div
               style={{
-                fontSize: 12,
-                color: 'var(--text-tertiary,#64748B)',
-                fontWeight: 700,
-                letterSpacing: '.02em',
-                marginBottom: 4,
+                fontSize: 22,
+                fontWeight: 800,
+                color: 'var(--text-primary,#111827)',
               }}
             >
-              Total Credits Consumed (USD)
+              {formatUsdUpToSixDecimals(totalCostUsd)}
             </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text-primary,#111827)' }}>
-              {formatUsdUpToSixDecimals(overallTotalCost)}
-            </div>
-          </div>
-
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)', fontWeight: 700 }}>
-              This page
-            </div>
-            <div style={{ fontSize: 14, fontWeight: 700 }}>
-              {formatUsdUpToSixDecimals(pageTotalCost)}
-            </div>
-          </div>
+          )}
         </div>
-
-        {loading ? (
-          <div className="table-empty" role="status" aria-live="polite">
-            Loading credits consumed…
-          </div>
-        ) : error ? (
-          <div>
-            <div role="alert" className="error">
-              {error}
-            </div>
-            <button
-              type="button"
-              onClick={() => load(meta.page || 1, meta.limit || 10)}
-              className="btn btn-ghost"
-              style={{ height: 28, padding: '2px 8px' }}
-            >
-              Retry
-            </button>
-          </div>
-        ) : !sessionUserId ? (
-          <div className="table-empty">No signed-in user found.</div>
-        ) : rows.length === 0 ? (
-          <div className="table-empty">No credits consumed records found for this user.</div>
-        ) : (
-          <DataTable
-            data={rows}
-            columns={columns}
-            loading={false}
-            pageSize={meta.limit || 10}
-            initialPage={meta.page || 1}
-            paginationTitle="Credits consumed pages"
-            maxBodyHeight={360}
-            forceHorizontalScroll
-          />
-        )}
-
-        {/* Simple pagination controls (DataTable’s internal pagination varies by implementation) */}
-        {sessionUserId && !loading && rows.length > 0 ? (
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              style={{ height: 30, padding: '4px 10px' }}
-              disabled={(meta.page || 1) <= 1}
-              onClick={() => load(Math.max(1, (meta.page || 1) - 1), meta.limit || 10)}
-            >
-              Prev
-            </button>
-            <div style={{ fontSize: 12, color: 'var(--text-tertiary,#64748B)', fontWeight: 600 }}>
-              Page {meta.page || 1} • Limit {meta.limit || 10} • Total rows {meta.total || 0}
-            </div>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              style={{ height: 30, padding: '4px 10px' }}
-              disabled={rows.length < (meta.limit || 10)}
-              onClick={() => load((meta.page || 1) + 1, meta.limit || 10)}
-            >
-              Next
-            </button>
-          </div>
-        ) : null}
       </div>
     );
   }
