@@ -1,9 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '../ui/Modal.jsx';
-import Button from '../ui/Button.jsx';
 import { useDataContext } from '../../context/DataContext.jsx';
 import { toTitleCaseName } from '../../utils/stringFormatters.js';
-import { usdToCredits, formatCredits, parseUsdToNumber } from '../../utils/currency.js';
+import { parseUsdToNumber } from '../../utils/currency.js';
 import { formatCurrencyAmount } from '../../utils/formatCurrency';
 import { getUserBasic } from '../../api/users';
 import './SessionDetailsModal.css';
@@ -159,7 +158,7 @@ function SessionDetailsModal({ open, onClose, session }) {
   const title = useMemo(() => {
     const id = session?.sessionId || session?._id || session?.id || '';
     return `Session Details - ${id || '—'}`;
-  }, [session]);
+  }, [session, computeDurationPretty]);
 
   // Fetch a basic user name when DataContext could not resolve a meaningful name
   useEffect(() => {
@@ -297,7 +296,7 @@ function SessionDetailsModal({ open, onClose, session }) {
       'Total Duration': totalDurationPretty,
       'Total Cost Consumed': totalCostText,
     };
-  }, [session, fetchedUserName, fetchingUserName]);
+  }, [session, fetchedUserName, fetchingUserName, resolveUserName, pickFrom]);
 
   // Normalize and memoize session_breakdown list (kept for reference, no IP/secondary details)
   const breakdownList = useMemo(() => {

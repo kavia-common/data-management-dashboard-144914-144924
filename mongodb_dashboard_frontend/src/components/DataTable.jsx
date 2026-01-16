@@ -98,7 +98,7 @@ export default function DataTable({
         : String(bv ?? "").localeCompare(String(av ?? ""));
     });
     return copy;
-  }, [data, sortDir, sortKey, isServerMode]);
+  }, [safeData, sortDir, sortKey, isServerMode]);
 
   // Determine total and pagination mode
   const clientTotal = sorted?.length || 0;
@@ -324,7 +324,7 @@ export default function DataTable({
       widths.__actions = 160;
     }
     return widths;
-  }, [columns, pageRows, autoWidth, minColWidth, maxColWidth, actionColIncluded]);
+  }, [safeColumns, pageRows, autoWidth, minColWidth, maxColWidth, actionColIncluded]);
 
   // If forced, set a minWidth on tables to ensure horizontal scrollbar appears even with a few columns.
   const forcedMinWidth = forceHorizontalScroll ? Math.max(960, (safeColumns.length || 1) * 160 + (actionColIncluded ? 160 : 0)) : undefined;

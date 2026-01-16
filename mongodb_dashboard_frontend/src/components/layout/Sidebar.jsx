@@ -62,16 +62,6 @@ export default function Sidebar() {
   // Only super-admin (T0000) should see Costs in the sidebar.
   const showCostsModule = useMemo(() => isSuperAdmin(tenantId), [tenantId]);
 
-  const nameFromAuth = auth?.user?.tenant_name || null;
-
-  const localNameHints =
-    auth?.tenant?.name ||
-    auth?.tenantName ||
-    auth?.organizationName ||
-    auth?.user?.organizationName ||
-    auth?.user?.tenantName ||
-    null;
-
   const effectiveName = String(auth?.user?.tenant_name || "").trim();
 
 

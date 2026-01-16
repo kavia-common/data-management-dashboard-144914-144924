@@ -43,7 +43,7 @@ export default function OverviewUsersSummarySection({ defaultRange = 'daily' }) 
     return p;
   }, [range, startDate, endDate, orgId]);
 
-  const { loading, data, error, buckets, orgTotals } = useUsersSummary(hookParams);
+  const { loading, error, buckets, orgTotals } = useUsersSummary(hookParams);
   const isAllOrgs = useMemo(() => String(orgId || '').toUpperCase() === 'T0000', [orgId]);
 
   // Build standard date-bucket chart data

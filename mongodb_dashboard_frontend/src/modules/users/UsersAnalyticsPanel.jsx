@@ -48,13 +48,6 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
    * - If nothing is set, we omit both and backend will default to TODAY UTC.
    */
   const { fromParam, toParam } = useMemo(() => {
-    const fmtYmd = (dt) => {
-      const y = dt.getUTCFullYear();
-      const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
-      const d = String(dt.getUTCDate()).padStart(2, "0");
-      return `${y}-${m}-${d}`;
-    };
-
     const utcStartOfDay = (y, m, d) => new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
     const utcEndOfDay = (y, m, d) => new Date(Date.UTC(y, m, d, 23, 59, 59, 999));
 

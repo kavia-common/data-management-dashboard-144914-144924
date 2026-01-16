@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import PropTypes from 'prop-types';
 import {
   ResponsiveContainer,
   BarChart,
@@ -327,6 +326,4 @@ export default function ProjectsCreatedBarChart() {
   );
 }
 
-ProjectsCreatedBarChart.propTypes = {
-  // No external props currently; defined for forward compatibility
-};
+

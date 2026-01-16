@@ -51,6 +51,8 @@ export async function fetchLlmCostsUnderscore({
   return resp?.data
 }
 
-export default {
+const llmCostsUnderscoreApi = {
   fetchLlmCostsUnderscore,
 }
+
+export default llmCostsUnderscoreApi

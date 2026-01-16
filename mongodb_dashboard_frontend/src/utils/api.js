@@ -125,4 +125,6 @@ export async function apiGet(pathOrUrl, options = {}) {
   return payload;
 }
 
-export default { apiGet };
+const api = { apiGet };
+
+export default api;

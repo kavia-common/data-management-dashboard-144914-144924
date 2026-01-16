@@ -15,7 +15,7 @@ import {
 import Card from "../common/Card.jsx";
 import { getChartTheme } from "./chartTheme";
 import { fetchSessionTracking } from "../../api/sessionTracking";
-import { buildQueryString } from "../../api/util";
+
 import getOceanColors from "../../theme/colors";
 
 /**
@@ -106,7 +106,6 @@ export default function OverallFeaturesChart({
         let page = 1;
         const limit = Math.max(1, Math.min(200, Number(limitPerPage) || 100));
         let aggregated = {};
-        let totalFetched = 0;
 
         for (; page <= Math.max(1, Number(maxPages) || 20); page++) {
           const res = await fetchSessionTracking({
@@ -118,7 +117,6 @@ export default function OverallFeaturesChart({
           });
 
           const items = Array.isArray(res?.items) ? res.items : [];
-          totalFetched += items.length;
 
           // client-side date filter by session_start (ISO)
           const filtered = items.filter((it) => {

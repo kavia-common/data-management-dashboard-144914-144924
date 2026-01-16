@@ -21,7 +21,6 @@ export default function Card({
     <section
       className={`${base} ${variantClass} ${className}`.trim()}
       aria-label={ariaLabel || (typeof title === "string" ? title : undefined)}
-      role="region"
       style={{ display: "block", position: "relative", overflow: "visible" }}
     >
       {(title || actions || subtitle) && (

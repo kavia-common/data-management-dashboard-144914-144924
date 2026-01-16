@@ -4,10 +4,6 @@ import PropTypes from 'prop-types';
 // Prefer existing UI primitives if available
 import Modal from '../ui/Modal.jsx';
 
-// Shared components/utilities
-import DataTable from '../DataTable.jsx';
-
-import { listSessions } from '../../api/baseClient';
 import { getUserSessionDetails } from '../../api/users';
 import { fetchLlmCostsUnderscore } from '../../api/llmCostsUnderscore';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';

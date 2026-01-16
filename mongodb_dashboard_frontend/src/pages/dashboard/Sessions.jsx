@@ -7,15 +7,6 @@ import SessionsByOrganization from "../../components/charts/SessionsByOrganizati
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
 
-// Simple helper to get distinct, sorted, non-empty values
-function distinctSorted(arr) {
-  const set = new Set();
-  (arr || []).forEach((v) => {
-    const s = String(v ?? "").trim();
-    if (s) set.add(s);
-  });
-  return Array.from(set).sort((a, b) => a.localeCompare(b));
-}
 
 // Normalize user identity from various shapes
 function normalizeUserFromItem(it) {
@@ -41,7 +32,7 @@ export default function Sessions() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
+  const [query] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   // UI filters
