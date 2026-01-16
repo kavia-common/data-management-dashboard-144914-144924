@@ -53,6 +53,6 @@ export async function fetchLlmCostsUnderscore({
 
 const llmCostsUnderscoreApi = {
   fetchLlmCostsUnderscore,
-}
+};
 
-export default llmCostsUnderscoreApi
+export default llmCostsUnderscoreApi;

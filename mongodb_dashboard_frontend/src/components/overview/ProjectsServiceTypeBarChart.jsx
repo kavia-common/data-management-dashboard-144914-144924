@@ -53,19 +53,17 @@ export default function ProjectsServiceTypeBarChart({
   const [labels, setLabels] = useState([]);
   const [series, setSeries] = useState([]); // [{ name, data: number[] }]
 
-  const theme = useMemo(
-    () =>
-      getChartTheme
-        ? getChartTheme()
-        : {
-            primary: '#2563EB',
-            grid: '#e5e7eb',
-            label: '#374151',
-            axisTick: '#9ca3af',
-            palette: ['#2563EB', '#F59E0B', '#10B981', '#EC4899', '#8B5CF6', '#F43F5E', '#0EA5E9'],
-          },
-    []
-  );
+  const theme = useMemo(() => {
+    return getChartTheme
+      ? getChartTheme()
+      : {
+          primary: '#2563EB',
+          grid: '#e5e7eb',
+          label: '#374151',
+          axisTick: '#9ca3af',
+          palette: ['#2563EB', '#F59E0B', '#10B981', '#EC4899', '#8B5CF6', '#F43F5E', '#0EA5E9'],
+        };
+  }, []);
 
   const debounceRef = useRef(null);
   const mountedRef = useRef(false);

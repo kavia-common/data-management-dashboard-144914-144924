@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Modal from '../ui/Modal.jsx';
 import { useDataContext } from '../../context/DataContext.jsx';
 import { toTitleCaseName } from '../../utils/stringFormatters.js';
@@ -53,60 +53,46 @@ function SessionDetailsModal({ open, onClose, session }) {
   };
 
   // PUBLIC_INTERFACE
-  const toHms = (seconds) => {
+  const toHms = useCallback((seconds) => {
     /** Convert seconds to HH:mm:ss string. */
     const secs = Math.max(0, Math.floor(Number(seconds) || 0));
     const h = String(Math.floor(secs / 3600)).padStart(2, '0');
     const m = String(Math.floor((secs % 3600) / 60)).padStart(2, '0');
     const sRem = String(secs % 60).padStart(2, '0');
     return `${h}:${m}:${sRem}`;
-  };
+  }, []);
 
   // PUBLIC_INTERFACE
-  const computeDurationPretty = (start, end, fallbackSeconds) => {
-    /** Prefer computing from start/end; fallback to HH:mm:ss using numeric duration if available */
-    if (start && end) {
-      try {
-        const s = new Date(start).getTime();
-        const e = new Date(end).getTime();
-        if (!isNaN(s) && !isNaN(e)) {
-          const secs = Math.max(0, Math.floor((e - s) / 1000));
-          return toHms(secs);
+  const computeDurationPretty = useCallback(
+    (start, end, fallbackSeconds) => {
+      /** Prefer computing from start/end; fallback to HH:mm:ss using numeric duration if available */
+      if (start && end) {
+        try {
+          const s = new Date(start).getTime();
+          const e = new Date(end).getTime();
+          if (!isNaN(s) && !isNaN(e)) {
+            const secs = Math.max(0, Math.floor((e - s) / 1000));
+            return toHms(secs);
+          }
+        } catch {
+          // ignore
         }
-      } catch {
-        // ignore
       }
-    }
-    if (fallbackSeconds != null && Number.isFinite(Number(fallbackSeconds))) {
-      return toHms(Number(fallbackSeconds));
-    }
-    if (typeof fallbackSeconds === 'string' && fallbackSeconds.trim()) return fallbackSeconds.trim();
-    return '—';
-  };
+      if (fallbackSeconds != null && Number.isFinite(Number(fallbackSeconds))) {
+        return toHms(Number(fallbackSeconds));
+      }
+      if (typeof fallbackSeconds === 'string' && fallbackSeconds.trim()) return fallbackSeconds.trim();
+      return '—';
+    },
+    [toHms]
+  );
 
-  const resolveUserName = (userRef) => {
-    if (!userRef) return 'Unknown User';
-    if (typeof userRef === 'string') {
-      const candidate = users?.find?.(
-        (u) => u?._id === userRef || u?.id === userRef || u?.userId === userRef
-      );
-      if (candidate) {
-        return (
-          candidate.displayName ||
-          candidate.fullName ||
-          candidate.name ||
-          candidate.username ||
-          candidate.email ||
-          'Unknown User'
-        );
-      }
-      return userRef || 'Unknown User';
-    }
-    if (typeof userRef === 'object') {
-      const candidateId = userRef._id || userRef.id || userRef.userId || userRef.user_id;
-      if (candidateId) {
+  const resolveUserName = useCallback(
+    (userRef) => {
+      if (!userRef) return 'Unknown User';
+      if (typeof userRef === 'string') {
         const candidate = users?.find?.(
-          (u) => u?._id === candidateId || u?.id === candidateId || u?.userId === candidateId
+          (u) => u?._id === userRef || u?.id === userRef || u?.userId === userRef
         );
         if (candidate) {
           return (
@@ -118,21 +104,41 @@ function SessionDetailsModal({ open, onClose, session }) {
             'Unknown User'
           );
         }
+        return userRef || 'Unknown User';
       }
-      return (
-        userRef.displayName ||
-        userRef.fullName ||
-        userRef.name ||
-        userRef.username ||
-        userRef.email ||
-        userRef.user_name ||
-        'Unknown User'
-      );
-    }
-    return 'Unknown User';
-  };
+      if (typeof userRef === 'object') {
+        const candidateId = userRef._id || userRef.id || userRef.userId || userRef.user_id;
+        if (candidateId) {
+          const candidate = users?.find?.(
+            (u) => u?._id === candidateId || u?.id === candidateId || u?.userId === candidateId
+          );
+          if (candidate) {
+            return (
+              candidate.displayName ||
+              candidate.fullName ||
+              candidate.name ||
+              candidate.username ||
+              candidate.email ||
+              'Unknown User'
+            );
+          }
+        }
+        return (
+          userRef.displayName ||
+          userRef.fullName ||
+          userRef.name ||
+          userRef.username ||
+          userRef.email ||
+          userRef.user_name ||
+          'Unknown User'
+        );
+      }
+      return 'Unknown User';
+    },
+    [users]
+  );
 
-  const pickFrom = (s, keys) => {
+  const pickFrom = useCallback((s, keys) => {
     for (const k of keys) {
       if (k.includes('.')) {
         const parts = k.split('.');
@@ -152,13 +158,13 @@ function SessionDetailsModal({ open, onClose, session }) {
       }
     }
     return undefined;
-  };
+  }, []);
 
   // Normalize ID fields for title (kept)
   const title = useMemo(() => {
     const id = session?.sessionId || session?._id || session?.id || '';
     return `Session Details - ${id || '—'}`;
-  }, [session, computeDurationPretty]);
+  }, [session]);
 
   // Fetch a basic user name when DataContext could not resolve a meaningful name
   useEffect(() => {
@@ -233,26 +239,32 @@ function SessionDetailsModal({ open, onClose, session }) {
     const agentsRaw = pickFrom(session, ['agents', 'Agents', 'agentNames', 'agent_names']);
     const agentsList = Array.isArray(agentsRaw)
       ? agentsRaw
-      : (typeof agentsRaw === 'string' && agentsRaw.includes(',')) ? agentsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+      : typeof agentsRaw === 'string' && agentsRaw.includes(',')
+        ? agentsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+        : [];
     const agentsDisplay = agentsList.length ? agentsList.join(', ') : '—';
 
     // Service type
-    const serviceType = pickFrom(session || {}, ['serviceType', 'service_type', 'provider', 'modelProvider']) ?? '—';
+    const serviceType =
+      pickFrom(session || {}, ['serviceType', 'service_type', 'provider', 'modelProvider']) ?? '—';
 
     // Organization/Tenant name
-    const orgName = pickFrom(session || {}, [
-      'organization_name',
-      'organizationName',
-      'tenant_name',
-      'tenantName',
-      'organization',
-      'tenant',
-    ]) ?? '—';
+    const orgName =
+      pickFrom(session || {}, [
+        'organization_name',
+        'organizationName',
+        'tenant_name',
+        'tenantName',
+        'organization',
+        'tenant',
+      ]) ?? '—';
 
     // Number of sessions and Total Duration derived from session_breakdown
     const breakdownArray = Array.isArray(session?.session_breakdown)
       ? session.session_breakdown
-      : (session?.session_breakdown && typeof session.session_breakdown === 'object') ? [session.session_breakdown] : [];
+      : session?.session_breakdown && typeof session.session_breakdown === 'object'
+        ? [session.session_breakdown]
+        : [];
     const numberOfSessions = breakdownArray.length || 0;
 
     // Sum durations from breakdowns
@@ -262,7 +274,9 @@ function SessionDetailsModal({ open, onClose, session }) {
       if (!Number.isFinite(secs)) {
         try {
           const s = new Date(b?.session_start ?? b?.sessionStart ?? b?.start ?? b?.startedAt).getTime();
-          const e = new Date(b?.session_end ?? b?.sessionEnd ?? b?.end ?? b?.endedAt ?? b?.finishedAt).getTime();
+          const e = new Date(
+            b?.session_end ?? b?.sessionEnd ?? b?.end ?? b?.endedAt ?? b?.finishedAt
+          ).getTime();
           if (!isNaN(s) && !isNaN(e)) {
             secs = Math.max(0, Math.floor((e - s) / 1000));
           } else {
@@ -290,13 +304,13 @@ function SessionDetailsModal({ open, onClose, session }) {
     return {
       'User Name': nameCandidate,
       'Agents Used': agentsDisplay,
-      'Service Type': orgName === '—' ? serviceType : serviceType, // keep label mapping explicit
+      'Service Type': serviceType,
       'Organization': orgName,
       'Number of Sessions': numberOfSessions,
       'Total Duration': totalDurationPretty,
       'Total Cost Consumed': totalCostText,
     };
-  }, [session, fetchedUserName, fetchingUserName, resolveUserName, pickFrom]);
+  }, [session, fetchedUserName, fetchingUserName, resolveUserName, pickFrom, toHms]);
 
   // Normalize and memoize session_breakdown list (kept for reference, no IP/secondary details)
   const breakdownList = useMemo(() => {

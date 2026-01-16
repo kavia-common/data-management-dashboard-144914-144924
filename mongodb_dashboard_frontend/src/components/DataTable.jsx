@@ -79,8 +79,8 @@ export default function DataTable({
     }
   }
 
-  const safeColumns = Array.isArray(columns) ? columns : [];
-  const safeData = Array.isArray(data) ? data : [];
+  const safeColumns = useMemo(() => (Array.isArray(columns) ? columns : []), [columns]);
+  const safeData = useMemo(() => (Array.isArray(data) ? data : []), [data]);
 
   // In server mode, do not apply client-side sorting: trust server ordering for global sort correctness.
   const sorted = useMemo(() => {
@@ -327,7 +327,9 @@ export default function DataTable({
   }, [safeColumns, pageRows, autoWidth, minColWidth, maxColWidth, actionColIncluded]);
 
   // If forced, set a minWidth on tables to ensure horizontal scrollbar appears even with a few columns.
-  const forcedMinWidth = forceHorizontalScroll ? Math.max(960, (safeColumns.length || 1) * 160 + (actionColIncluded ? 160 : 0)) : undefined;
+  const forcedMinWidth = forceHorizontalScroll
+    ? Math.max(960, (safeColumns.length || 1) * 160 + (actionColIncluded ? 160 : 0))
+    : undefined;
 
   return (
     <div className="table-wrapper" role="region" aria-label="Data table">
@@ -441,12 +443,15 @@ export default function DataTable({
                   tabIndex={typeof onRowClick === "function" ? 0 : undefined}
                   style={typeof onRowClick === "function" ? { cursor: "pointer" } : undefined}
                 >
-                  {columns.map((c) => {
+                  {safeColumns.map((c) => {
                     const value = getValue(row, c.key);
                     const content = c.render ? c.render(value, row) : value ?? "";
-                    const isNumber = typeof value === "number" || (typeof content === "string" && /^\$?-?\d/.test(content));
+                    const isNumber =
+                      typeof value === "number" || (typeof content === "string" && /^\$?-?\d/.test(content));
                     const priorityClass = c.priority ? `col-priority-${c.priority}` : "";
-                    const baseStyle = autoWidth ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] } : undefined;
+                    const baseStyle = autoWidth
+                      ? { width: columnWidths[c.key], minWidth: columnWidths[c.key] }
+                      : undefined;
                     return (
                       <td
                         key={c.key}

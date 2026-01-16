@@ -11,7 +11,7 @@ import { resolveOrganizationId } from "../../utils/orgContext";
 // PUBLIC_INTERFACE
 export default function Topbar() {
   /** Top navigation bar with brand mark/wordmark and dynamic tenant name. */
-  const auth = useMemo(() => useAuth?.() || {}, []);
+  const auth = useAuth?.() || {};
 
   // Resolve the active tenant id from shared context/token utils (used for fallback display)
   const tenantId = useMemo(() => resolveOrganizationId({ auth }), [auth]);
