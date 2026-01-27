@@ -9,10 +9,29 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  LabelList,
 } from "recharts";
 import Skeleton from "../../components/ui/Skeleton";
 import { listDashboardUsersAnalytics } from "../../api/baseClient";
 import { useQuickRange } from "./quickRangeContext";
+
+/**
+ * Build a stable, readable, and unique label for the Y-axis.
+ * Recharts/DOM rendering can behave oddly when category labels collide (duplicates/empty),
+ * so we enforce uniqueness deterministically to avoid implicit de-dupe effects.
+ */
+function buildUniqueUserLabel(baseLabel, userId, index, seen) {
+  const raw = String(baseLabel || "").trim();
+  const fallback = userId ? `User ${String(userId).slice(0, 8)}` : `User ${index + 1}`;
+  const candidate = raw || fallback;
+
+  const key = candidate.toLowerCase();
+  const count = (seen.get(key) || 0) + 1;
+  seen.set(key, count);
+
+  // Only suffix when we truly have a collision.
+  return count === 1 ? candidate : `${candidate} (${count})`;
+}
 
 /**
  * PUBLIC_INTERFACE
@@ -74,15 +93,48 @@ export default function UsersAnalyticsPanel({ style, className }) {
 
   const chartRows = useMemo(() => {
     // Backend already sorts by activity; keep it stable but ensure numbers are numbers.
-    return (rows || []).map((r) => ({
-      user: r?.name || r?.email || r?.userId || "",
-      userId: r?.userId || "",
-      totalSessions: Number(r?.totalSessions || 0),
-      distinctProjects: Number(r?.distinctProjects || 0),
-      lastActivityAt: r?.lastActivityAt || null,
-      email: r?.email || "",
-    }));
-  }, [rows]);
+    // IMPORTANT: ensure the Y-axis category label is unique/stable to prevent rendering artifacts.
+    const seen = new Map();
+
+    const mapped = (rows || []).map((r, index) => {
+      const baseLabel = r?.name || r?.email || r?.userId || "";
+      const userId = r?.userId || "";
+      const user = buildUniqueUserLabel(baseLabel, userId, index, seen);
+
+      return {
+        user,
+        userId,
+        // keep an unmodified string for tooltips/full display (avoid showing "(2)" suffix there)
+        userRaw: String(baseLabel || "").trim() || user,
+        totalSessions: Number(r?.totalSessions || 0),
+        distinctProjects: Number(r?.distinctProjects || 0),
+        lastActivityAt: r?.lastActivityAt || null,
+        email: r?.email || "",
+      };
+    });
+
+    // Temporary debug logs (remove after verifying fix)
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.debug("[UsersAnalyticsPanel] range:", {
+        mode: selection.mode,
+        quickValue: selection.quickValue,
+        fromParam,
+        toParam,
+      });
+      // eslint-disable-next-line no-console
+      console.debug("[UsersAnalyticsPanel] rows length:", rows?.length ?? 0);
+      // eslint-disable-next-line no-console
+      console.debug("[UsersAnalyticsPanel] chartRows length:", mapped.length);
+      // eslint-disable-next-line no-console
+      console.debug(
+        "[UsersAnalyticsPanel] first 10 labels:",
+        mapped.slice(0, 10).map((x) => x.user)
+      );
+    }
+
+    return mapped;
+  }, [rows, selection.mode, selection.quickValue, fromParam, toParam]);
 
   // Theme colors
   const primary = "#2563EB";
@@ -230,8 +282,11 @@ export default function UsersAnalyticsPanel({ style, className }) {
                           <YAxis
                             type="category"
                             dataKey="user"
-                            width={160}
+                            width={180}
+                            interval={0}
                             tick={{ fill: subtle, fontSize: 12 }}
+                            tickLine={false}
+                            axisLine={{ stroke: grid }}
                           />
                           <Tooltip
                             content={({ active, payload, label }) => {
@@ -295,7 +350,36 @@ export default function UsersAnalyticsPanel({ style, className }) {
                             fill={primary}
                             stroke={primary}
                             radius={[0, 6, 6, 0]}
-                          />
+                          >
+                            <LabelList
+                              dataKey="userRaw"
+                              position="insideLeft"
+                              content={(props) => {
+                                const { x, y, width, height, value } = props || {};
+                                // Render nothing visually; we only want the native tooltip via <title>.
+                                // This keeps chart clean but provides full-name hover for truncated labels.
+                                if (typeof x !== "number" || typeof y !== "number") return null;
+                                const cx = x + 4;
+                                const cy = y + height / 2;
+
+                                return (
+                                  <g>
+                                    <title>{String(value || "")}</title>
+                                    <text
+                                      x={cx}
+                                      y={cy}
+                                      dominantBaseline="middle"
+                                      textAnchor="start"
+                                      fill="transparent"
+                                      fontSize={1}
+                                    >
+                                      {String(value || "")}
+                                    </text>
+                                  </g>
+                                );
+                              }}
+                            />
+                          </Bar>
                           <Bar
                             dataKey="distinctProjects"
                             name="Projects"
