@@ -9,9 +9,29 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  LabelList,
 } from "recharts";
 import Skeleton from "../../components/ui/Skeleton";
 import { listDashboardUsersAnalytics } from "../../api/baseClient";
+import { useQuickRange } from "./quickRangeContext";
+
+/**
+ * Build a stable, readable, and unique label for the Y-axis.
+ * Recharts/DOM rendering can behave oddly when category labels collide (duplicates/empty),
+ * so we enforce uniqueness deterministically to avoid implicit de-dupe effects.
+ */
+function buildUniqueUserLabel(baseLabel, userId, index, seen) {
+  const raw = String(baseLabel || "").trim();
+  const fallback = userId ? `User ${String(userId).slice(0, 8)}` : `User ${index + 1}`;
+  const candidate = raw || fallback;
+
+  const key = candidate.toLowerCase();
+  const count = (seen.get(key) || 0) + 1;
+  seen.set(key, count);
+
+  // Only suffix when we truly have a collision.
+  return count === 1 ? candidate : `${candidate} (${count})`;
+}
 
 /**
  * PUBLIC_INTERFACE
@@ -30,103 +50,19 @@ import { listDashboardUsersAnalytics } from "../../api/baseClient";
  *   (00:00:00.000Z -> 23:59:59.999Z).
  * - When date-only values are selected, we pass YYYY-MM-DD; backend expands to full-day UTC bounds.
  */
-export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 }) {
-  // Filter state
-  const [days, setDays] = useState(defaultDays);
-  const [customStart, setCustomStart] = useState(null);
-  const [customEnd, setCustomEnd] = useState(null);
-  const [dateLiveLabel, setDateLiveLabel] = useState("");
+export default function UsersAnalyticsPanel({ style, className }) {
+  const {
+    selection,
+    fromParam,
+    toParam,
+    label: dateLiveLabel,
+    setQuickRange,
+    setCustomRange,
+  } = useQuickRange();
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-
-  /**
-   * Compute date params.
-   * - If quick range is used, we send explicit from/to as ISO strings (UTC bounds).
-   * - If custom range is used, we send YYYY-MM-DD strings to let backend expand to full-day UTC bounds.
-   * - If nothing is set, we omit both and backend will default to TODAY UTC.
-   */
-  const { fromParam, toParam } = useMemo(() => {
-    const fmtYmd = (dt) => {
-      const y = dt.getUTCFullYear();
-      const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
-      const d = String(dt.getUTCDate()).padStart(2, "0");
-      return `${y}-${m}-${d}`;
-    };
-
-    const utcStartOfDay = (y, m, d) => new Date(Date.UTC(y, m, d, 0, 0, 0, 0));
-    const utcEndOfDay = (y, m, d) => new Date(Date.UTC(y, m, d, 23, 59, 59, 999));
-
-    // Custom range => send YYYY-MM-DD values (backend expands)
-    if (customStart && customEnd) {
-      return { fromParam: customStart, toParam: customEnd };
-    }
-
-    // Quick range => send ISO bounds
-    const now = new Date();
-    const y = now.getUTCFullYear();
-    const m = now.getUTCMonth();
-    const d = now.getUTCDate();
-
-    // Today
-    if (days === 0) {
-      return {
-        fromParam: utcStartOfDay(y, m, d).toISOString(),
-        toParam: utcEndOfDay(y, m, d).toISOString(),
-      };
-    }
-
-    // Yesterday
-    if (days === -1) {
-      const yd = new Date(Date.UTC(y, m, d - 1));
-      return {
-        fromParam: utcStartOfDay(yd.getUTCFullYear(), yd.getUTCMonth(), yd.getUTCDate()).toISOString(),
-        toParam: utcEndOfDay(yd.getUTCFullYear(), yd.getUTCMonth(), yd.getUTCDate()).toISOString(),
-      };
-    }
-
-    // Last N days (inclusive)
-    if (Number.isFinite(Number(days)) && Number(days) > 0) {
-      const end = utcEndOfDay(y, m, d);
-      const sd = new Date(Date.UTC(y, m, d));
-      sd.setUTCDate(sd.getUTCDate() - (Number(days) - 1));
-      const start = utcStartOfDay(sd.getUTCFullYear(), sd.getUTCMonth(), sd.getUTCDate());
-
-      return { fromParam: start.toISOString(), toParam: end.toISOString() };
-    }
-
-    // Fallback: omit params and let backend default
-    return { fromParam: null, toParam: null };
-  }, [customStart, customEnd, days]);
-
-  // Live label for date range for accessibility
-  useEffect(() => {
-    try {
-      // If both are absent, backend defaults to TODAY (server-defined). Keep label simple.
-      if (!fromParam && !toParam) {
-        setDateLiveLabel("Today");
-        return;
-      }
-
-      const fmt = (d) =>
-        d.toLocaleDateString(undefined, {
-          year: "numeric",
-          month: "short",
-          day: "numeric",
-        });
-
-      // If YYYY-MM-DD, render as date-only label.
-      const isYmd = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
-
-      const start = isYmd(fromParam) ? new Date(`${fromParam}T00:00:00.000Z`) : new Date(fromParam);
-      const end = isYmd(toParam) ? new Date(`${toParam}T23:59:59.999Z`) : new Date(toParam);
-
-      setDateLiveLabel(`${fmt(start)} – ${fmt(end)}`);
-    } catch {
-      setDateLiveLabel("");
-    }
-  }, [fromParam, toParam]);
 
   // Single aggregated fetch (no per-user calls)
   useEffect(() => {
@@ -157,15 +93,48 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 
   const chartRows = useMemo(() => {
     // Backend already sorts by activity; keep it stable but ensure numbers are numbers.
-    return (rows || []).map((r) => ({
-      user: r?.name || r?.email || r?.userId || "",
-      userId: r?.userId || "",
-      totalSessions: Number(r?.totalSessions || 0),
-      distinctProjects: Number(r?.distinctProjects || 0),
-      lastActivityAt: r?.lastActivityAt || null,
-      email: r?.email || "",
-    }));
-  }, [rows]);
+    // IMPORTANT: ensure the Y-axis category label is unique/stable to prevent rendering artifacts.
+    const seen = new Map();
+
+    const mapped = (rows || []).map((r, index) => {
+      const baseLabel = r?.name || r?.email || r?.userId || "";
+      const userId = r?.userId || "";
+      const user = buildUniqueUserLabel(baseLabel, userId, index, seen);
+
+      return {
+        user,
+        userId,
+        // keep an unmodified string for tooltips/full display (avoid showing "(2)" suffix there)
+        userRaw: String(baseLabel || "").trim() || user,
+        totalSessions: Number(r?.totalSessions || 0),
+        distinctProjects: Number(r?.distinctProjects || 0),
+        lastActivityAt: r?.lastActivityAt || null,
+        email: r?.email || "",
+      };
+    });
+
+    // Temporary debug logs (remove after verifying fix)
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.debug("[UsersAnalyticsPanel] range:", {
+        mode: selection.mode,
+        quickValue: selection.quickValue,
+        fromParam,
+        toParam,
+      });
+      // eslint-disable-next-line no-console
+      console.debug("[UsersAnalyticsPanel] rows length:", rows?.length ?? 0);
+      // eslint-disable-next-line no-console
+      console.debug("[UsersAnalyticsPanel] chartRows length:", mapped.length);
+      // eslint-disable-next-line no-console
+      console.debug(
+        "[UsersAnalyticsPanel] first 10 labels:",
+        mapped.slice(0, 10).map((x) => x.user)
+      );
+    }
+
+    return mapped;
+  }, [rows, selection.mode, selection.quickValue, fromParam, toParam]);
 
   // Theme colors
   const primary = "#2563EB";
@@ -173,14 +142,26 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
   const grid = "#E5E7EB";
   const subtle = "#6B7280";
 
-  const handlePreset = (d) => {
-    setCustomStart(null);
-    setCustomEnd(null);
-    setDays(d);
+  const onCustomStartChange = (e) => {
+    const start = e.target.value || null;
+    setCustomRange(start, selection.customEnd);
+  };
+  const onCustomEndChange = (e) => {
+    const end = e.target.value || null;
+    setCustomRange(selection.customStart, end);
   };
 
-  const onCustomStartChange = (e) => setCustomStart(e.target.value || null);
-  const onCustomEndChange = (e) => setCustomEnd(e.target.value || null);
+  // Scrolling behavior:
+  // Recharts does not support "scroll" natively; instead we create a scroll container and
+  // increase chart height based on row count so the wrapper scrolls.
+  const SCROLL_THRESHOLD = 20;
+  const BAR_SIZE = 20; // px per bar
+  const BAR_GAP = 10; // px gap between bars
+  const CHART_PADDING = 120; // allowance for margins/axes/legend
+  const shouldScroll = chartRows.length > SCROLL_THRESHOLD;
+  const chartHeight = shouldScroll
+    ? Math.min(1200, chartRows.length * (BAR_SIZE + BAR_GAP) + CHART_PADDING)
+    : 360;
 
   return (
     <div className={className} style={{ ...style }}>
@@ -196,12 +177,12 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
               <span style={{ fontSize: 12, color: subtle }}>Quick range</span>
               <select
                 aria-label="Quick date range"
-                value={customStart && customEnd ? "custom" : String(days)}
+                value={selection.mode === "custom" ? "custom" : String(selection.quickValue)}
                 onChange={(e) => {
                   if (e.target.value === "custom") {
-                    // leave custom controls to user below
+                    // user will set dates using date inputs
                   } else {
-                    handlePreset(Number(e.target.value));
+                    setQuickRange(Number(e.target.value));
                   }
                 }}
                 className="ui-input"
@@ -222,11 +203,23 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
               aria-label="Custom date range"
               style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
             >
-              <input type="date" aria-label="Start date" className="ui-input" onChange={onCustomStartChange} />
+              <input
+                type="date"
+                aria-label="Start date"
+                className="ui-input"
+                value={selection.customStart || ""}
+                onChange={onCustomStartChange}
+              />
               <span aria-hidden="true" style={{ color: subtle }}>
                 to
               </span>
-              <input type="date" aria-label="End date" className="ui-input" onChange={onCustomEndChange} />
+              <input
+                type="date"
+                aria-label="End date"
+                className="ui-input"
+                value={selection.customEnd || ""}
+                onChange={onCustomEndChange}
+              />
             </div>
           </div>
         </div>
@@ -245,7 +238,7 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 </div>
               </div>
 
-              <div className="card-content" style={{ height: 360 }}>
+              <div className="card-content" style={{ paddingTop: 8 }}>
                 {loading ? (
                   <div aria-busy="true">
                     <Skeleton width="60%" height={14} className="mb-2" />
@@ -259,73 +252,145 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
                 ) : chartRows.length === 0 ? (
                   <div className="screen-center">No analytics data</div>
                 ) : (
-                  <ResponsiveContainer>
-                    <BarChart data={chartRows.slice(0, 20)} margin={{ top: 8, right: 16, bottom: 24, left: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={grid} />
-                      <XAxis
-                        dataKey="user"
-                        tick={{ fill: subtle, fontSize: 12 }}
-                        interval={0}
-                        angle={-25}
-                        textAnchor="end"
-                        height={60}
-                      />
-                      <YAxis tick={{ fill: subtle, fontSize: 12 }} allowDecimals={false} />
-                      <Tooltip
-                        content={({ active, payload, label }) => {
-                          if (!active || !Array.isArray(payload) || payload.length === 0) return null;
-                          const row = payload?.[0]?.payload || {};
-                          const sessions = Number.isFinite(Number(row?.totalSessions)) ? Number(row.totalSessions) : 0;
-                          const projects = Number.isFinite(Number(row?.distinctProjects)) ? Number(row.distinctProjects) : 0;
+                  <div
+                    style={{
+                      height: 360,
+                      overflowY: shouldScroll ? "auto" : "hidden",
+                      overflowX: "hidden",
+                    }}
+                    aria-label={
+                      shouldScroll
+                        ? "Scrollable Activity by User chart (more than 20 users)"
+                        : "Activity by User chart"
+                    }
+                  >
+                    <div style={{ width: "100%", height: chartHeight }}>
+                      <ResponsiveContainer>
+                        <BarChart
+                          data={chartRows}
+                          layout="vertical"
+                          margin={{ top: 8, right: 16, bottom: 8, left: 24 }}
+                          barCategoryGap={BAR_GAP}
+                          barSize={BAR_SIZE}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+                          <XAxis
+                            type="number"
+                            tick={{ fill: subtle, fontSize: 12 }}
+                            allowDecimals={false}
+                          />
+                          <YAxis
+                            type="category"
+                            dataKey="user"
+                            width={180}
+                            interval={0}
+                            tick={{ fill: subtle, fontSize: 12 }}
+                            tickLine={false}
+                            axisLine={{ stroke: grid }}
+                          />
+                          <Tooltip
+                            content={({ active, payload, label }) => {
+                              if (!active || !Array.isArray(payload) || payload.length === 0) return null;
+                              const row = payload?.[0]?.payload || {};
+                              const sessions = Number.isFinite(Number(row?.totalSessions))
+                                ? Number(row.totalSessions)
+                                : 0;
+                              const projects = Number.isFinite(Number(row?.distinctProjects))
+                                ? Number(row.distinctProjects)
+                                : 0;
 
-                          return (
-                            <div
-                              style={{
-                                background: "#ffffff",
-                                border: "1px solid #E5E7EB",
-                                borderRadius: 8,
-                                padding: "10px 12px",
-                                boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-                                color: "#111827",
-                                fontSize: 12,
-                                lineHeight: 1.35,
-                              }}
-                            >
-                              <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
+                              return (
+                                <div
+                                  style={{
+                                    background: "#ffffff",
+                                    border: "1px solid #E5E7EB",
+                                    borderRadius: 8,
+                                    padding: "10px 12px",
+                                    boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+                                    color: "#111827",
+                                    fontSize: 12,
+                                    lineHeight: 1.35,
+                                  }}
+                                >
+                                  <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
 
-                              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                                <span style={{ color: "#6B7280" }}>Sessions:</span>
-                                <span style={{ fontWeight: 600 }}>{sessions}</span>
-                              </div>
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                                    <span style={{ color: "#6B7280" }}>Sessions:</span>
+                                    <span style={{ fontWeight: 600 }}>{sessions}</span>
+                                  </div>
 
-                              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginTop: 4 }}>
-                                <span style={{ color: "#6B7280" }}> Projects:</span>
-                                <span style={{ fontWeight: 600 }}>{projects}</span>
-                              </div>
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      gap: 12,
+                                      marginTop: 4,
+                                    }}
+                                  >
+                                    <span style={{ color: "#6B7280" }}>Projects:</span>
+                                    <span style={{ fontWeight: 600 }}>{projects}</span>
+                                  </div>
 
-                              {row?.lastActivityAt ? (
-                                <div style={{ marginTop: 6, color: "#6B7280" }}>
-                                  Last activity:{" "}
-                                  <span style={{ color: "#111827" }}>
-                                    {new Date(row.lastActivityAt).toLocaleString()}
-                                  </span>
+                                  {row?.lastActivityAt ? (
+                                    <div style={{ marginTop: 6, color: "#6B7280" }}>
+                                      Last activity:{" "}
+                                      <span style={{ color: "#111827" }}>
+                                        {new Date(row.lastActivityAt).toLocaleString()}
+                                      </span>
+                                    </div>
+                                  ) : null}
                                 </div>
-                              ) : null}
-                            </div>
-                          );
-                        }}
-                      />
-                      <Legend />
-                      <Bar dataKey="totalSessions" name="Sessions" fill={primary} stroke={primary} radius={[6, 6, 0, 0]} />
-                      <Bar
-                        dataKey="distinctProjects"
-                        name=" Projects"
-                        fill={secondary}
-                        stroke={secondary}
-                        radius={[6, 6, 0, 0]}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
+                              );
+                            }}
+                          />
+                          <Legend />
+                          <Bar
+                            dataKey="totalSessions"
+                            name="Sessions"
+                            fill={primary}
+                            stroke={primary}
+                            radius={[0, 6, 6, 0]}
+                          >
+                            <LabelList
+                              dataKey="userRaw"
+                              position="insideLeft"
+                              content={(props) => {
+                                const { x, y, width, height, value } = props || {};
+                                // Render nothing visually; we only want the native tooltip via <title>.
+                                // This keeps chart clean but provides full-name hover for truncated labels.
+                                if (typeof x !== "number" || typeof y !== "number") return null;
+                                const cx = x + 4;
+                                const cy = y + height / 2;
+
+                                return (
+                                  <g>
+                                    <title>{String(value || "")}</title>
+                                    <text
+                                      x={cx}
+                                      y={cy}
+                                      dominantBaseline="middle"
+                                      textAnchor="start"
+                                      fill="transparent"
+                                      fontSize={1}
+                                    >
+                                      {String(value || "")}
+                                    </text>
+                                  </g>
+                                );
+                              }}
+                            />
+                          </Bar>
+                          <Bar
+                            dataKey="distinctProjects"
+                            name="Projects"
+                            fill={secondary}
+                            stroke={secondary}
+                            radius={[0, 6, 6, 0]}
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -339,5 +404,4 @@ export default function UsersAnalyticsPanel({ style, className, defaultDays = 0 
 UsersAnalyticsPanel.propTypes = {
   style: PropTypes.object,
   className: PropTypes.string,
-  defaultDays: PropTypes.number,
 };
