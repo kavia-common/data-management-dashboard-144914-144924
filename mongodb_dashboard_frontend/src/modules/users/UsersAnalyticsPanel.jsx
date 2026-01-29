@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import Skeleton from "../../components/ui/Skeleton";
 import { listDashboardUsersAnalytics } from "../../api/baseClient";
-import { fetchSessionTenants, normalizeTenantId } from "../../utils/tenantClient";
+import { fetchTenantsForDropdown } from "../../api/tenants";
 import { useQuickRange } from "./quickRangeContext";
 import { useTenantFilter } from "./tenantFilterContext";
 
@@ -72,32 +72,15 @@ export default function UsersAnalyticsPanel({ style, className }) {
   const [err, setErr] = useState("");
 
   // Load tenants for dropdown (best-effort).
+  // On empty/error, we fall back to showing only "All tenants".
   useEffect(() => {
     let cancelled = false;
 
     async function loadTenants() {
       setTenantsLoading(true);
       try {
-        const data = await fetchSessionTenants();
-        const normalized = (Array.isArray(data) ? data : [])
-          .map((t) => {
-            const id = normalizeTenantId(t);
-            if (!id) return null;
-            const name = t?.tenant_name || t?.name || id;
-            return { id, name };
-          })
-          .filter(Boolean);
-
-        // De-dupe and sort for stable UX
-        const map = new Map();
-        normalized.forEach((t) => {
-          map.set(String(t.id), t);
-        });
-        const unique = Array.from(map.values()).sort((a, b) =>
-          String(a.name).localeCompare(String(b.name))
-        );
-
-        if (!cancelled) setTenantOptions(unique);
+        const tenants = await fetchTenantsForDropdown();
+        if (!cancelled) setTenantOptions(Array.isArray(tenants) ? tenants : []);
       } catch {
         if (!cancelled) setTenantOptions([]);
       } finally {
@@ -265,7 +248,13 @@ export default function UsersAnalyticsPanel({ style, className }) {
                 style={{ minWidth: 180 }}
                 disabled={tenantsLoading && tenantOptions.length === 0}
               >
-                <option value="">{tenantsLoading ? "All tenants" : "All tenants"}</option>
+                <option value="">
+                  {tenantsLoading
+                    ? "Loading tenants…"
+                    : tenantOptions.length === 0
+                      ? "All tenants"
+                      : "All tenants"}
+                </option>
                 {tenantOptions.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
