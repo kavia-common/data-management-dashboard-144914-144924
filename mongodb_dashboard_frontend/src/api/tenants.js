@@ -1,5 +1,19 @@
 import { apiGet } from "../utils/api";
 import { normalizeTenantId } from "../utils/tenantClient";
+import { createSingleFlight } from "../utils/singleFlight";
+
+/**
+ * We single-flight /api/session/tenants to avoid duplicate/racing calls.
+ * This prevents noisy "cancelled" requests in the Network tab when multiple components
+ * mount/unmount or when StrictMode causes effect re-runs.
+ */
+const sessionTenantsSingleFlight = createSingleFlight(async ({ signal }) => {
+  return apiGet("/api/session/tenants", {
+    // This endpoint is auth/session-scoped; include cookies (matches attached curl behavior).
+    credentials: "include",
+    signal,
+  });
+});
 
 /**
  * PUBLIC_INTERFACE
@@ -10,27 +24,24 @@ import { normalizeTenantId } from "../utils/tenantClient";
  * Backend source:
  * - GET /api/session/tenants (existing, documented in backend OpenAPI)
  *
- * Return shape:
- * - Always returns an array of { id: string, name: string }
- * - Never throws for non-critical usage: callers can choose to catch; this helper throws
- *   only when apiGet throws (network/auth), and UI should handle with fallback.
+ * Behavior changes (intentional):
+ * - Concurrent calls are deduped (single-flight).
+ * - AbortError returns [] (quiet).
+ * - 401 returns [] (quiet) so callers can fallback without logging/retrying noise.
  *
+ * @param {Object} [options]
+ * @param {AbortSignal} [options.signal]
  * @returns {Promise<Array<{id: string, name: string}>>}
  */
 export async function fetchTenantsForDropdown(options = {}) {
   let payload;
   try {
-    payload = await apiGet("/api/session/tenants", {
-      // This endpoint is auth/session-scoped; include cookies (matches attached curl behavior).
-      credentials: "include",
-      signal: options?.signal,
-    });
+    payload = await sessionTenantsSingleFlight.run({ signal: options?.signal });
   } catch (e) {
-    // Treat cancellations as a benign "no data" result so UIs unmounting mid-request
-    // don't flash errors or trigger noisy fallbacks.
+    // Treat cancellations as benign "no data" results.
     if (e?.name === "AbortError") return [];
-    // Preserve existing behavior: 401 (and other errors) should still be handled by the caller,
-    // which already performs fallback-to-users for resiliency.
+    // Unauthorized should be handled quietly (caller may fallback to users-derived tenants).
+    if (e?.status === 401) return [];
     throw e;
   }
 

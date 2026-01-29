@@ -141,7 +141,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
     loadTenants();
     return () => controller.abort();
     // Refresh when analytics refreshes to keep dropdown aligned with freshest data
-  }, [fromParam, toParam]);
+  }, []);
 
   // Single aggregated fetch (no per-user calls)
   useEffect(() => {
