@@ -67,6 +67,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
 
   const [tenantOptions, setTenantOptions] = useState([]);
   const [tenantsLoading, setTenantsLoading] = useState(true);
+  const [tenantsNotice, setTenantsNotice] = useState("");
 
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -82,22 +83,56 @@ export default function UsersAnalyticsPanel({ style, className }) {
 
     async function loadTenants() {
       setTenantsLoading(true);
+      setTenantsNotice("");
+
       try {
         let tenants = [];
+        let shouldFallbackToUsers = false;
+
         try {
-          tenants = await fetchTenantsForDropdown();
-        } catch {
-          tenants = [];
+          tenants = await fetchTenantsForDropdown({ signal: controller.signal });
+          if (!Array.isArray(tenants) || tenants.length === 0) {
+            // Endpoint responded but doesn't provide tenants; derive from users as a robustness fallback.
+            shouldFallbackToUsers = true;
+          }
+        } catch (e) {
+          // 401 is expected when session is missing/expired or when endpoint strictly requires Authorization.
+          if (e?.status === 401) {
+            shouldFallbackToUsers = true;
+
+            if (process.env.NODE_ENV !== "production") {
+              // eslint-disable-next-line no-console
+              console.warn("[UsersAnalyticsPanel] /api/session/tenants returned 401; falling back to users-derived tenants.");
+            }
+
+            setTenantsNotice("Tenant list is limited due to authorization; showing tenants derived from users.");
+          } else if (e?.name !== "AbortError") {
+            // For other errors (network etc.), still try fallback for resiliency.
+            shouldFallbackToUsers = true;
+            if (process.env.NODE_ENV !== "production") {
+              // eslint-disable-next-line no-console
+              console.warn("[UsersAnalyticsPanel] Failed to load tenants from /api/session/tenants; falling back.", e);
+            }
+          }
         }
 
-        // If the dedicated tenants endpoint is empty, derive from the users list.
-        if (!Array.isArray(tenants) || tenants.length === 0) {
-          tenants = await deriveTenantsForDropdownFromUsers({ signal: controller.signal });
+        if (shouldFallbackToUsers) {
+          const derived = await deriveTenantsForDropdownFromUsers({ signal: controller.signal });
+          tenants = derived;
         }
 
-        setTenantOptions(Array.isArray(tenants) ? tenants : []);
-      } catch {
-        setTenantOptions([]);
+        // Final safety: ensure array + de-dupe by id (works for both sources).
+        const byId = new Map();
+        (Array.isArray(tenants) ? tenants : []).forEach((t) => {
+          if (!t?.id) return;
+          byId.set(String(t.id), { id: String(t.id), name: String(t.name || t.id) });
+        });
+
+        setTenantOptions(Array.from(byId.values()).sort((a, b) => a.name.localeCompare(b.name)));
+      } catch (e) {
+        if (e?.name !== "AbortError") {
+          setTenantOptions([]);
+        }
       } finally {
         setTenantsLoading(false);
       }
@@ -302,6 +337,13 @@ export default function UsersAnalyticsPanel({ style, className }) {
         <div className="card-content" style={{ paddingTop: 8 }}>
           <div aria-live="polite" style={{ fontSize: 12, color: subtle, marginBottom: 8 }}>
             {dateLiveLabel}
+            {tenantsNotice ? (
+              <>
+                {" "}
+                <span style={{ color: subtle }}>•</span>{" "}
+                <span style={{ color: subtle }}>{tenantsNotice}</span>
+              </>
+            ) : null}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>

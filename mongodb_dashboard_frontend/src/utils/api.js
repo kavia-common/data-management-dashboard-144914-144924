@@ -93,7 +93,8 @@ export async function apiGet(pathOrUrl, options = {}) {
     method: 'GET',
     headers,
     signal: options.signal,
-    credentials: 'omit',
+    // Default remains omit for backward compatibility, but allow opting-in to cookie-based sessions.
+    credentials: options.credentials || 'omit',
   });
 
   let payload = null;

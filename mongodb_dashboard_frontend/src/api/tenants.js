@@ -17,12 +17,12 @@ import { normalizeTenantId } from "../utils/tenantClient";
  *
  * @returns {Promise<Array<{id: string, name: string}>>}
  */
-export async function fetchTenantsForDropdown() {
+export async function fetchTenantsForDropdown(options = {}) {
   const payload = await apiGet("/api/session/tenants", {
-    // This endpoint is auth-scoped; include cookies when present.
-    // Note: utils/api currently sets credentials:'omit' (existing behavior).
-    // In environments relying on cookies only, ensure authTokenProvider uses Authorization header,
-    // or adjust utils/api to include credentials globally (not part of this change).
+    // This endpoint is auth-scoped (OpenAPI: "Requires Authorization header").
+    // Some deployments may also rely on cookie-based session; include credentials as well.
+    credentials: "include",
+    signal: options?.signal,
   });
 
   const raw =
