@@ -172,7 +172,8 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
       title="Users (filtered by Quick Range)"
       subtitle={`Showing users with activity in: ${label}`}
     >
-      <div className="card-content" style={{ paddingTop: 0 }}>
+      {/* Wrapper class enables targeted CSS overrides for this specific table only */}
+      <div className="card-content users-quickrange-table" style={{ paddingTop: 0 }}>
         {error ? <div role="alert" className="error" style={{ marginBottom: 8 }}>{error}</div> : null}
         <DataTable
           columns={columns}

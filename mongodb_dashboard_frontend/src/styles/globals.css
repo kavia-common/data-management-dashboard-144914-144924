@@ -493,3 +493,47 @@ html[data-theme="dark"] .project-id-pill:focus-visible {
   /* Keep subtle borders readable but unobtrusive */
   border-bottom-color: color-mix(in oklab, currentColor 12%, transparent);
 }
+
+/* --------------------------------------------
+   Users table (filtered by Quick Range): widen Name column
+   Targeting only this table avoids changing other DataTable usages.
+--------------------------------------------- */
+.users-quickrange-table .td--emphasis-name {
+  /* Let the Name cell breathe and avoid overly aggressive truncation */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Mobile: still constrain, but slightly wider than default auto-width */
+@media (max-width: 639px) {
+  .users-quickrange-table .table colgroup col:first-child {
+    width: 220px !important;
+  }
+  .users-quickrange-table .table .td--emphasis-name {
+    min-width: 220px !important;
+    max-width: 220px !important;
+  }
+}
+
+/* Tablet: widen further */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .users-quickrange-table .table colgroup col:first-child {
+    width: 320px !important;
+  }
+  .users-quickrange-table .table .td--emphasis-name {
+    min-width: 320px !important;
+    max-width: 320px !important;
+  }
+}
+
+/* Desktop+: give Name plenty of space */
+@media (min-width: 1024px) {
+  .users-quickrange-table .table colgroup col:first-child {
+    width: 420px !important;
+  }
+  .users-quickrange-table .table .td--emphasis-name {
+    min-width: 420px !important;
+    max-width: 420px !important;
+  }
+}
