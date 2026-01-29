@@ -3,6 +3,7 @@ import UsersList from "../../components/UsersList.jsx";
 import TabbedUserModal from "../../components/users/TabbedUserModal.jsx";
 import UsersAnalyticsPanel from "../../modules/users/UsersAnalyticsPanel.jsx";
 import { QuickRangeProvider } from "../../modules/users/quickRangeContext";
+import { TenantFilterProvider } from "../../modules/users/tenantFilterContext";
 import UsersTableByQuickRange from "../../components/users/UsersTableByQuickRange.jsx";
 
 export default function Users() {
@@ -43,29 +44,31 @@ export default function Users() {
 
   return (
     <QuickRangeProvider defaultQuickValue={0}>
-      <div>
-        {/* Users Analytics Panel (Quick Range source of truth) */}
-        <UsersAnalyticsPanel style={{ marginBottom: 12 }} />
+      <TenantFilterProvider defaultTenantId={null}>
+        <div>
+          {/* Users Analytics Panel (Quick Range + Tenant filter source of truth) */}
+          <UsersAnalyticsPanel style={{ marginBottom: 12 }} />
 
-        {/* Users table aligned to the same Quick Range */}
-        <UsersTableByQuickRange pageSize={20} />
+          {/* Users table aligned to the same Quick Range + Tenant */}
+          <UsersTableByQuickRange pageSize={20} />
 
-        {/* Users List */}
-        <UsersList
-          title="Users"
-          subtitle="All users"
-          showActions={false}
-          onUserSelect={handleUserSelect}
-        />
+          {/* Users List */}
+          <UsersList
+            title="Users"
+            subtitle="All users"
+            showActions={false}
+            onUserSelect={handleUserSelect}
+          />
 
-        <TabbedUserModal
-          open={open}
-          onClose={closeModal}
-          user={selectedUser}
-          tenantId={selectedTenantId}
-          defaultTab={defaultTab}
-        />
-      </div>
+          <TabbedUserModal
+            open={open}
+            onClose={closeModal}
+            user={selectedUser}
+            tenantId={selectedTenantId}
+            defaultTab={defaultTab}
+          />
+        </div>
+      </TenantFilterProvider>
     </QuickRangeProvider>
   );
 }

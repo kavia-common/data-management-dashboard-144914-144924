@@ -13,7 +13,9 @@ import {
 } from "recharts";
 import Skeleton from "../../components/ui/Skeleton";
 import { listDashboardUsersAnalytics } from "../../api/baseClient";
+import { fetchSessionTenants, normalizeTenantId } from "../../utils/tenantClient";
 import { useQuickRange } from "./quickRangeContext";
+import { useTenantFilter } from "./tenantFilterContext";
 
 /**
  * Build a stable, readable, and unique label for the Y-axis.
@@ -60,9 +62,54 @@ export default function UsersAnalyticsPanel({ style, className }) {
     setCustomRange,
   } = useQuickRange();
 
+  const { selectedTenantId, setSelectedTenantId } = useTenantFilter();
+
+  const [tenantOptions, setTenantOptions] = useState([]);
+  const [tenantsLoading, setTenantsLoading] = useState(true);
+
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+
+  // Load tenants for dropdown (best-effort).
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTenants() {
+      setTenantsLoading(true);
+      try {
+        const data = await fetchSessionTenants();
+        const normalized = (Array.isArray(data) ? data : [])
+          .map((t) => {
+            const id = normalizeTenantId(t);
+            if (!id) return null;
+            const name = t?.tenant_name || t?.name || id;
+            return { id, name };
+          })
+          .filter(Boolean);
+
+        // De-dupe and sort for stable UX
+        const map = new Map();
+        normalized.forEach((t) => {
+          map.set(String(t.id), t);
+        });
+        const unique = Array.from(map.values()).sort((a, b) =>
+          String(a.name).localeCompare(String(b.name))
+        );
+
+        if (!cancelled) setTenantOptions(unique);
+      } catch {
+        if (!cancelled) setTenantOptions([]);
+      } finally {
+        if (!cancelled) setTenantsLoading(false);
+      }
+    }
+
+    loadTenants();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Single aggregated fetch (no per-user calls)
   useEffect(() => {
@@ -73,7 +120,11 @@ export default function UsersAnalyticsPanel({ style, className }) {
       setErr("");
       try {
         const data = await listDashboardUsersAnalytics(
-          { from: fromParam || undefined, to: toParam || undefined },
+          {
+            from: fromParam || undefined,
+            to: toParam || undefined,
+            tenant_id: selectedTenantId || undefined,
+          },
           { signal: controller.signal }
         );
         setRows(Array.isArray(data) ? data : []);
@@ -89,7 +140,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
 
     run();
     return () => controller.abort();
-  }, [fromParam, toParam]);
+  }, [fromParam, toParam, selectedTenantId]);
 
   const chartRows = useMemo(() => {
     // Backend already sorts by activity; keep it stable but ensure numbers are numbers.
@@ -123,6 +174,8 @@ export default function UsersAnalyticsPanel({ style, className }) {
         toParam,
       });
       // eslint-disable-next-line no-console
+      console.debug("[UsersAnalyticsPanel] tenant:", selectedTenantId || "(all)");
+      // eslint-disable-next-line no-console
       console.debug("[UsersAnalyticsPanel] rows length:", rows?.length ?? 0);
       // eslint-disable-next-line no-console
       console.debug("[UsersAnalyticsPanel] chartRows length:", mapped.length);
@@ -134,7 +187,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
     }
 
     return mapped;
-  }, [rows, selection.mode, selection.quickValue, fromParam, toParam]);
+  }, [rows, selection.mode, selection.quickValue, fromParam, toParam, selectedTenantId]);
 
   // Theme colors
   const primary = "#2563EB";
@@ -172,9 +225,11 @@ export default function UsersAnalyticsPanel({ style, className }) {
             <div className="card-subtitle">Per-user activity (server-aggregated)</div>
           </div>
 
-          <div className="card-actions" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 12, color: subtle }}>Quick range</span>
+          <div className="card-actions users-analytics-controls">
+            <label className="users-analytics-control">
+              <span className="users-analytics-control__label" style={{ color: subtle }}>
+                Quick range
+              </span>
               <select
                 aria-label="Quick date range"
                 value={selection.mode === "custom" ? "custom" : String(selection.quickValue)}
@@ -198,11 +253,28 @@ export default function UsersAnalyticsPanel({ style, className }) {
               </select>
             </label>
 
-            <div
-              role="group"
-              aria-label="Custom date range"
-              style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
-            >
+            <label className="users-analytics-control">
+              <span className="users-analytics-control__label" style={{ color: subtle }}>
+                Tenant
+              </span>
+              <select
+                aria-label="Tenant filter"
+                value={selectedTenantId || ""}
+                onChange={(e) => setSelectedTenantId(e.target.value || null)}
+                className="ui-input"
+                style={{ minWidth: 180 }}
+                disabled={tenantsLoading && tenantOptions.length === 0}
+              >
+                <option value="">{tenantsLoading ? "All tenants" : "All tenants"}</option>
+                {tenantOptions.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div role="group" aria-label="Custom date range" className="users-analytics-control users-analytics-control--dates">
               <input
                 type="date"
                 aria-label="Start date"

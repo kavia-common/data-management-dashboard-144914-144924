@@ -6,6 +6,7 @@ import Tag from "../ui/Tag.jsx";
 import { useUsers } from "../../hooks/useUsers";
 import { listSessions } from "../../api/baseClient";
 import { useQuickRange } from "../../modules/users/quickRangeContext";
+import { useTenantFilter } from "../../modules/users/tenantFilterContext";
 
 /**
  * PUBLIC_INTERFACE
@@ -14,6 +15,7 @@ import { useQuickRange } from "../../modules/users/quickRangeContext";
  *
  * Behavior:
  * - Uses the same from/to as UsersAnalyticsPanel (via useQuickRange()).
+ * - Uses the same tenant filter as UsersAnalyticsPanel (via useTenantFilter()).
  * - Fetches a bounded session list (single request) and computes per-user activity counts
  *   client-side to avoid changing APIs.
  * - Sorts users by activityCount (desc) within the selected range.
@@ -23,6 +25,7 @@ import { useQuickRange } from "../../modules/users/quickRangeContext";
  */
 export default function UsersTableByQuickRange({ pageSize = 20 }) {
   const { fromParam, toParam, label } = useQuickRange();
+  const { selectedTenantId } = useTenantFilter();
   const { users, loading: usersLoading, error: usersError } = useUsers({ page: 1, sort: "-created_at" });
 
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -90,6 +93,21 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
       if (fromMs !== null && ts < fromMs) return;
       if (toMs !== null && ts > toMs) return;
 
+      // Tenant filtering: attempt to match common tenant fields on session docs.
+      if (selectedTenantId) {
+        const sid =
+          s?.tenant_id ??
+          s?.tenantId ??
+          s?.organization_id ??
+          s?.organizationId ??
+          s?.organization ??
+          s?.organization_name ??
+          null;
+
+        if (sid && String(sid) !== String(selectedTenantId)) return;
+        // If the session has no tenant field, keep it (best-effort) rather than dropping all data.
+      }
+
       const uid =
         s?.user_id ??
         s?.userId ??
@@ -104,11 +122,26 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
     });
 
     return map;
-  }, [sessions, windowBounds.from, windowBounds.to]);
+  }, [sessions, windowBounds.from, windowBounds.to, selectedTenantId]);
 
   const tableRows = useMemo(() => {
     const base = Array.isArray(users) ? users : [];
-    const enriched = base.map((u) => {
+
+    // Tenant filter (best-effort) on user docs. Common fields: tenant_id / organization_id
+    const tenantFiltered = selectedTenantId
+      ? base.filter((u) => {
+          const tid =
+            u?.tenant_id ??
+            u?.tenantId ??
+            u?.organization_id ??
+            u?.organizationId ??
+            u?.organization ??
+            null;
+          return tid ? String(tid) === String(selectedTenantId) : false;
+        })
+      : base;
+
+    const enriched = tenantFiltered.map((u) => {
       const id = String(u?._id ?? u?.id ?? "");
       return {
         ...u,
@@ -129,7 +162,7 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
     });
 
     return filtered;
-  }, [users, activityByUserId]);
+  }, [users, activityByUserId, selectedTenantId]);
 
   const columns = useMemo(() => {
     return [
