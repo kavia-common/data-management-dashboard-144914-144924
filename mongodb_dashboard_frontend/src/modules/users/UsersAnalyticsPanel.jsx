@@ -14,6 +14,7 @@ import {
 import Skeleton from "../../components/ui/Skeleton";
 import { listDashboardUsersAnalytics } from "../../api/baseClient";
 import { fetchTenantsForDropdown } from "../../api/tenants";
+import { deriveTenantsForDropdownFromUsers } from "../../api/usersTenants";
 import { useQuickRange } from "./quickRangeContext";
 import { useTenantFilter } from "./tenantFilterContext";
 
@@ -72,27 +73,40 @@ export default function UsersAnalyticsPanel({ style, className }) {
   const [err, setErr] = useState("");
 
   // Load tenants for dropdown (best-effort).
-  // On empty/error, we fall back to showing only "All tenants".
+  // Strategy:
+  //  1) Prefer /api/session/tenants (auth-scoped) if it returns any tenants.
+  //  2) If empty, derive tenants from users API by extracting tenant_id/organization_id.
+  // On error/empty, we fall back to showing only "All tenants".
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
 
     async function loadTenants() {
       setTenantsLoading(true);
       try {
-        const tenants = await fetchTenantsForDropdown();
-        if (!cancelled) setTenantOptions(Array.isArray(tenants) ? tenants : []);
+        let tenants = [];
+        try {
+          tenants = await fetchTenantsForDropdown();
+        } catch {
+          tenants = [];
+        }
+
+        // If the dedicated tenants endpoint is empty, derive from the users list.
+        if (!Array.isArray(tenants) || tenants.length === 0) {
+          tenants = await deriveTenantsForDropdownFromUsers({ signal: controller.signal });
+        }
+
+        setTenantOptions(Array.isArray(tenants) ? tenants : []);
       } catch {
-        if (!cancelled) setTenantOptions([]);
+        setTenantOptions([]);
       } finally {
-        if (!cancelled) setTenantsLoading(false);
+        setTenantsLoading(false);
       }
     }
 
     loadTenants();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    return () => controller.abort();
+    // Refresh when analytics refreshes to keep dropdown aligned with freshest data
+  }, [fromParam, toParam]);
 
   // Single aggregated fetch (no per-user calls)
   useEffect(() => {
