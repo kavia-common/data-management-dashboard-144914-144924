@@ -93,8 +93,9 @@ export async function apiGet(pathOrUrl, options = {}) {
     method: 'GET',
     headers,
     signal: options.signal,
-    // Default remains omit for backward compatibility, but allow opting-in to cookie-based sessions.
-    credentials: options.credentials || 'omit',
+    // Include cookies by default so session-based auth (e.g., /api/session/tenants) works reliably.
+    // Callers can still override (e.g., 'omit') if needed.
+    credentials: options.credentials || 'include',
   });
 
   let payload = null;

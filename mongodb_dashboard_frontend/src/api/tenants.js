@@ -18,12 +18,21 @@ import { normalizeTenantId } from "../utils/tenantClient";
  * @returns {Promise<Array<{id: string, name: string}>>}
  */
 export async function fetchTenantsForDropdown(options = {}) {
-  const payload = await apiGet("/api/session/tenants", {
-    // This endpoint is auth-scoped (OpenAPI: "Requires Authorization header").
-    // Some deployments may also rely on cookie-based session; include credentials as well.
-    credentials: "include",
-    signal: options?.signal,
-  });
+  let payload;
+  try {
+    payload = await apiGet("/api/session/tenants", {
+      // This endpoint is auth/session-scoped; include cookies (matches attached curl behavior).
+      credentials: "include",
+      signal: options?.signal,
+    });
+  } catch (e) {
+    // Treat cancellations as a benign "no data" result so UIs unmounting mid-request
+    // don't flash errors or trigger noisy fallbacks.
+    if (e?.name === "AbortError") return [];
+    // Preserve existing behavior: 401 (and other errors) should still be handled by the caller,
+    // which already performs fallback-to-users for resiliency.
+    throw e;
+  }
 
   const raw =
     Array.isArray(payload) ? payload : Array.isArray(payload?.items) ? payload.items : payload?.data;
