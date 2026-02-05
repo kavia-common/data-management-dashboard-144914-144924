@@ -33,7 +33,7 @@ export function resolveAuthEndpointUrl(path, baseUrl) {
   const shouldForceExternal = OVERRIDES.some((re) => re.test(safePath));
 
   if (shouldForceExternal) {
-    const ABS_EXTERNAL_BASE = 'https://vscode-internal-12761-beta.beta01.cloud.kavia.ai:3000';
+     const ABS_EXTERNAL_BASE = 'https://kaviabeta-worktool.cloud.kavia.ai';
     const finalPath = safePath.startsWith('/') ? safePath : `/${safePath}`;
     return `${ABS_EXTERNAL_BASE}${finalPath}`;
   }
