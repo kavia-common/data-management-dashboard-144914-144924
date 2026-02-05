@@ -221,6 +221,12 @@ export default function UsersAnalyticsPanel({ style, className }) {
     return mapped;
   }, [rows, selection.mode, selection.quickValue, fromParam, toParam, selectedTenantId]);
 
+  const totalSessionsKpi = useMemo(() => {
+    // Compute from the same server-returned per-user rows used by the panel.
+    // This ensures alignment with the selected quick range + tenant filter.
+    return (rows || []).reduce((sum, r) => sum + Number(r?.totalSessions || 0), 0);
+  }, [rows]);
+
   // Theme colors
   const primary = "#2563EB";
   const secondary = "#f57c0bff";
@@ -344,6 +350,27 @@ export default function UsersAnalyticsPanel({ style, className }) {
                 <span style={{ color: subtle }}>{tenantsNotice}</span>
               </>
             ) : null}
+          </div>
+
+          {/* Compact KPI immediately below the date range div */}
+          <div
+            aria-label="Total Sessions"
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 12,
+              padding: "8px 10px",
+              border: `1px solid ${grid}`,
+              borderRadius: 10,
+              background: "#fff",
+              marginBottom: 12,
+            }}
+          >
+            <div style={{ fontSize: 12, color: subtle }}>Total Sessions</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", lineHeight: 1 }}>
+              {loading ? "—" : err ? "—" : chartRows.length === 0 ? "0" : totalSessionsKpi}
+            </div>
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
