@@ -68,15 +68,19 @@ export default function UsersAnalyticsPanel({ style, className }) {
 
   // Users created summary endpoint now also returns total_sessions.
   // We use it only for displaying the "Total sessions" KPI next to the date range text.
-  const { data: usersSummaryData } = useUsersSummary({
-    range: selection.mode === "custom" ? "custom" : "daily",
-    ...(selection.mode === "custom" && selection.customStart
-      ? { start_date: selection.customStart }
-      : {}),
-    ...(selection.mode === "custom" && selection.customEnd
-      ? { end_date: selection.customEnd }
-      : {}),
-  });
+  const usersSummaryParams = useMemo(() => {
+    return {
+      range: selection.mode === "custom" ? "custom" : "daily",
+      ...(selection.mode === "custom" && selection.customStart
+        ? { start_date: selection.customStart }
+        : {}),
+      ...(selection.mode === "custom" && selection.customEnd
+        ? { end_date: selection.customEnd }
+        : {}),
+    };
+  }, [selection.mode, selection.customStart, selection.customEnd]);
+
+  const { data: usersSummaryData } = useUsersSummary(usersSummaryParams);
 
   const totalSessionsLabel = useMemo(() => {
     const n = Number(usersSummaryData?.total_sessions);
