@@ -91,10 +91,35 @@ export default function ProjectsServiceTypeBarChart({
       let nextLabels = null;
       let nextSeries = null;
 
-      // Accept pre-shaped response if provided
+      // Accept pre-shaped response if provided.
+      //
+      // IMPORTANT: Backend special-case T0000 returns:
+      //   labels = [service_type...]
+      //   series = [{ name: tenant_id, data: [counts aligned to labels] }, ...]
+      // But our T0000 chart renders tenants on Y-axis and stacks by service_type, so we must transpose.
       if (Array.isArray(res?.labels) && Array.isArray(res?.series)) {
-        nextLabels = res.labels;
-        nextSeries = res.series;
+        if (isAllTenants) {
+          const serviceTypes = res.labels.map((l) => String(l ?? 'Unknown'));
+          const tenantSeries = Array.isArray(res.series) ? res.series : [];
+
+          const tenants = tenantSeries.map((s) => String(s?.name ?? 'unknown'));
+          nextLabels = tenants;
+
+          // Transpose tenantSeries (tenant -> data by serviceTypes) into:
+          //   series = [{ name: service_type, data: per-tenant counts }]
+          nextSeries = serviceTypes.map((stype, stIdx) => ({
+            name: stype,
+            data: tenants.map((_, tenantIdx) => {
+              const t = tenantSeries[tenantIdx];
+              const v = Array.isArray(t?.data) ? Number(t.data[stIdx] ?? 0) : 0;
+              return Number.isFinite(v) ? v : 0;
+            }),
+          }));
+        } else {
+          // Non-T0000: backend labels already match our X-axis labels (dates), and series names are service types.
+          nextLabels = res.labels;
+          nextSeries = res.series;
+        }
       } else if (isAllTenants && Array.isArray(res?.summaryByTenantAndService)) {
         // Expected rows: [{ tenant_id, service_type, count }]
         const rows = res.summaryByTenantAndService;
