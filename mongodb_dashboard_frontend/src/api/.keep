@@ -1,0 +1,3 @@
+# This file exists to ensure the directory is tracked by the overlay filesystem.
+# No frontend changes are required for the total_sessions fix because the backend
+# continues to return `total_sessions` with the same name and semantics.
