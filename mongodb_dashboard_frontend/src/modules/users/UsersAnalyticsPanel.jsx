@@ -17,6 +17,7 @@ import { fetchTenantsForDropdown } from "../../api/tenants";
 import { deriveTenantsForDropdownFromUsers } from "../../api/usersTenants";
 import { useQuickRange } from "./quickRangeContext";
 import { useTenantFilter } from "./tenantFilterContext";
+import useUsersSummary from "../../hooks/useUsersSummary";
 
 /**
  * Build a stable, readable, and unique label for the Y-axis.
@@ -64,6 +65,24 @@ export default function UsersAnalyticsPanel({ style, className }) {
   } = useQuickRange();
 
   const { selectedTenantId, setSelectedTenantId } = useTenantFilter();
+
+  // Users created summary endpoint now also returns total_sessions.
+  // We use it only for displaying the "Total sessions" KPI next to the date range text.
+  const { data: usersSummaryData } = useUsersSummary({
+    range: selection.mode === "custom" ? "custom" : "daily",
+    ...(selection.mode === "custom" && selection.customStart
+      ? { start_date: selection.customStart }
+      : {}),
+    ...(selection.mode === "custom" && selection.customEnd
+      ? { end_date: selection.customEnd }
+      : {}),
+  });
+
+  const totalSessionsLabel = useMemo(() => {
+    const n = Number(usersSummaryData?.total_sessions);
+    if (!Number.isFinite(n)) return null;
+    return `Total sessions: ${n.toLocaleString()}`;
+  }, [usersSummaryData?.total_sessions]);
 
   const [tenantOptions, setTenantOptions] = useState([]);
   const [tenantsLoading, setTenantsLoading] = useState(true);
@@ -337,6 +356,13 @@ export default function UsersAnalyticsPanel({ style, className }) {
         <div className="card-content" style={{ paddingTop: 8 }}>
           <div aria-live="polite" style={{ fontSize: 12, color: subtle, marginBottom: 8 }}>
             {dateLiveLabel}
+            {totalSessionsLabel ? (
+              <>
+                {" "}
+                <span style={{ color: subtle }}>•</span>{" "}
+                <span style={{ color: subtle }}>{totalSessionsLabel}</span>
+              </>
+            ) : null}
             {tenantsNotice ? (
               <>
                 {" "}

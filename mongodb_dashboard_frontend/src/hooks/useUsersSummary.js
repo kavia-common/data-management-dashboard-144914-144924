@@ -64,6 +64,8 @@ export default function useUsersSummary(params = {}) {
       end_date: effectiveParams.end_date,
       orgBuckets: [],
       isAllOrgs: false,
+      // total sessions in selected date window (from backend /api/users/summary)
+      total_sessions: null,
     },
     error: null,
   });
@@ -136,6 +138,7 @@ export default function useUsersSummary(params = {}) {
           String(effectiveParams.organization_id || effectiveParams.tenant_id || '').toUpperCase() === 'T0000';
 
         if (!cancelled) {
+          const totalSessionsNum = Number(root?.total_sessions);
           setState({
             loading: false,
             data: {
@@ -145,6 +148,8 @@ export default function useUsersSummary(params = {}) {
               end_date: root.end_date ?? effectiveParams.end_date,
               orgBuckets: Array.isArray(normalizedTop) ? normalizedTop : [],
               isAllOrgs,
+              // Backend may omit or return null; keep it nullable for UI.
+              total_sessions: Number.isFinite(totalSessionsNum) ? totalSessionsNum : null,
             },
             error: null,
           });
@@ -160,6 +165,7 @@ export default function useUsersSummary(params = {}) {
             end_date: effectiveParams.end_date,
             orgBuckets: [],
             isAllOrgs: false,
+            total_sessions: null,
           },
           error: err,
         });
