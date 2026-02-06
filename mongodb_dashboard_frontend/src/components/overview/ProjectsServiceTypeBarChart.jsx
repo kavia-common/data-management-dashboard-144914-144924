@@ -15,7 +15,7 @@ import Card from '../common/Card';
 import './overview.css';
 import '../overview/overviewUsersSummary.css';
 import { getChartTheme } from '../charts/chartTheme';
-import { apiGet } from '../../utils/api';
+import { getApiClient } from '../../api/baseClient';
 import { getCategoryColorMap } from '../../theme/oceanTheme';
 
 /**
@@ -71,24 +71,25 @@ export default function ProjectsServiceTypeBarChart({
     setStatus('loading');
     setError(null);
 
-    const params = new URLSearchParams();
-    params.set('range', range || 'daily');
+    // Use the shared API client pattern used elsewhere in the app.
+    // This keeps requests relative to the frontend origin (so CRA proxy / preview proxy can route them),
+    // avoiding cross-origin CORS failures that happen when absolute backend URLs are used.
+    const client = getApiClient();
+
+    const queryParams = {
+      range: range || 'daily',
+      tenant_id: organizationId,
+      organization_id: organizationId,
+    };
+
     if (range === 'custom' && appliedStart && appliedEnd) {
-      params.set('start_date', appliedStart);
-      params.set('end_date', appliedEnd);
+      queryParams.start_date = appliedStart;
+      queryParams.end_date = appliedEnd;
     }
-    params.set('tenant_id', organizationId);
-    params.set('organization_id', organizationId);
 
     try {
-      // IMPORTANT (preview/proxy fix - scoped to this endpoint only):
-      // Use the shared apiGet() resolver so this call behaves like the rest of the app:
-      // - In preview/prod: stays on the correct origin (no localhost proxy issues)
-      // - In CRA dev: routes via /api and setupProxy when configured
-      // We pass a relative path (no leading /api) because apiGet() ensures a single /api prefix.
-      const res = await apiGet(`/service-type/summary?${params.toString()}`, {
-        // Keep cookies aligned with other session-aware endpoints if backend uses them.
-        credentials: 'include',
+      const { data: res } = await client.get('/api/service-type/summary', {
+        params: queryParams,
       });
 
       let nextLabels = null;
