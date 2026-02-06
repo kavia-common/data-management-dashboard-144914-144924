@@ -286,11 +286,53 @@ export default function UsersAnalyticsPanel({ style, className }) {
 
   const chartRows = useMemo(() => {
     if (usingIntervalBuckets) {
-      return normalized.intervalSeries.map((b) => ({
-        label: b.label,
-        key: b.key,
-        sessions: b.value,
-      }));
+      /**
+       * For long ranges (yearly+), the backend may return daily buckets (interval=day).
+       * The requested UX is a single monthly total series (sessions per month across ALL users).
+       *
+       * We only apply this monthly rollup for "yearly ranges" to preserve existing behavior
+       * for shorter ranges (hour/day buckets) and for already-monthly backend buckets.
+       */
+      const fromMs = fromParam ? Date.parse(fromParam) : NaN;
+      const toMs = toParam ? Date.parse(toParam) : NaN;
+      const hasValidWindow = Number.isFinite(fromMs) && Number.isFinite(toMs) && toMs > fromMs;
+
+      const windowDays = hasValidWindow ? (toMs - fromMs) / (1000 * 60 * 60 * 24) : 0;
+
+      // Treat "yearly ranges" as roughly >= 300 days to be robust for leap years / slightly shorter presets.
+      const isYearishRange = hasValidWindow && windowDays >= 300;
+
+      const shouldRollupToMonths = normalized.interval === "day" && isYearishRange;
+
+      if (!shouldRollupToMonths) {
+        return normalized.intervalSeries.map((b) => ({
+          label: b.label,
+          key: b.key,
+          sessions: b.value,
+        }));
+      }
+
+      // Roll up to YYYY-MM.
+      const byMonth = new Map();
+      normalized.intervalSeries.forEach((b) => {
+        const d = new Date(b.key);
+        if (Number.isNaN(d.getTime())) return;
+        const monthKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+
+        byMonth.set(monthKey, (byMonth.get(monthKey) || 0) + Number(b.value || 0));
+      });
+
+      // Sort months ascending and format labels like "Feb 2026"
+      return Array.from(byMonth.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([monthKey, sessions]) => {
+          const monthDate = new Date(`${monthKey}-01T00:00:00.000Z`);
+          return {
+            key: monthKey,
+            label: formatBucketLabel(monthDate.toISOString(), "month"),
+            sessions,
+          };
+        });
     }
 
     // Legacy behavior: per-user totals (already sorted by backend)
@@ -333,6 +375,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
     return mapped;
   }, [
     usingIntervalBuckets,
+    normalized.interval,
     normalized.intervalSeries,
     normalized.totalsRows,
     selection.mode,
