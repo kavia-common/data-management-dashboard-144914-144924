@@ -53,7 +53,11 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
           },
           { signal: controller.signal }
         );
-        setRows(Array.isArray(data) ? data : []);
+
+        // listDashboardUsersAnalytics returns an object shape:
+        // { users: [...], activity, activityByUser, mode, interval, meta }
+        // The table should render the per-user rows under `users`.
+        setRows(Array.isArray(data?.users) ? data.users : []);
       } catch (e) {
         if (e?.name !== "AbortError") {
           setRows([]);
