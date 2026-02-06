@@ -102,16 +102,23 @@ export default function UsersAnalyticsPanel({ style, className }) {
 
             if (process.env.NODE_ENV !== "production") {
               // eslint-disable-next-line no-console
-              console.warn("[UsersAnalyticsPanel] /api/session/tenants returned 401; falling back to users-derived tenants.");
+              console.warn(
+                "[UsersAnalyticsPanel] /api/session/tenants returned 401; falling back to users-derived tenants."
+              );
             }
 
-            setTenantsNotice("Tenant list is limited due to authorization; showing tenants derived from users.");
+            setTenantsNotice(
+              "Tenant list is limited due to authorization; showing tenants derived from users."
+            );
           } else if (e?.name !== "AbortError") {
             // For other errors (network etc.), still try fallback for resiliency.
             shouldFallbackToUsers = true;
             if (process.env.NODE_ENV !== "production") {
               // eslint-disable-next-line no-console
-              console.warn("[UsersAnalyticsPanel] Failed to load tenants from /api/session/tenants; falling back.", e);
+              console.warn(
+                "[UsersAnalyticsPanel] Failed to load tenants from /api/session/tenants; falling back.",
+                e
+              );
             }
           }
         }
@@ -318,7 +325,11 @@ export default function UsersAnalyticsPanel({ style, className }) {
               </select>
             </label>
 
-            <div role="group" aria-label="Custom date range" className="users-analytics-control users-analytics-control--dates">
+            <div
+              role="group"
+              aria-label="Custom date range"
+              className="users-analytics-control users-analytics-control--dates"
+            >
               <input
                 type="date"
                 aria-label="Start date"
@@ -354,7 +365,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
 
           {/* Compact KPI immediately below the date range div */}
           <div
-            aria-label="Total Sessions"
+            aria-label="Total Sessions Count"
             style={{
               display: "flex",
               alignItems: "baseline",
@@ -363,12 +374,11 @@ export default function UsersAnalyticsPanel({ style, className }) {
               padding: "8px 10px",
               border: `1px solid ${grid}`,
               borderRadius: 10,
-              background: "#fff",
               marginBottom: 12,
             }}
           >
-            <div style={{ fontSize: 12, color: subtle }}>Total Sessions</div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#111827", lineHeight: 1 }}>
+            <div style={{ fontSize: 12, color: subtle }}>Total Sessions Count</div>
+            <div style={{ fontSize: 16, fontWeight: 700, lineHeight: 1 }}>
               {loading ? "—" : err ? "—" : chartRows.length === 0 ? "0" : totalSessionsKpi}
             </div>
           </div>
@@ -434,7 +444,8 @@ export default function UsersAnalyticsPanel({ style, className }) {
                           />
                           <Tooltip
                             content={({ active, payload, label }) => {
-                              if (!active || !Array.isArray(payload) || payload.length === 0) return null;
+                              if (!active || !Array.isArray(payload) || payload.length === 0)
+                                return null;
                               const row = payload?.[0]?.payload || {};
                               const sessions = Number.isFinite(Number(row?.totalSessions))
                                 ? Number(row.totalSessions)
@@ -458,7 +469,13 @@ export default function UsersAnalyticsPanel({ style, className }) {
                                 >
                                   <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
 
-                                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      gap: 12,
+                                    }}
+                                  >
                                     <span style={{ color: "#6B7280" }}>Sessions:</span>
                                     <span style={{ fontWeight: 600 }}>{sessions}</span>
                                   </div>
@@ -499,7 +516,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
                               dataKey="userRaw"
                               position="insideLeft"
                               content={(props) => {
-                                const { x, y, width, height, value } = props || {};
+                                const { x, y, height, value } = props || {};
                                 // Render nothing visually; we only want the native tooltip via <title>.
                                 // This keeps chart clean but provides full-name hover for truncated labels.
                                 if (typeof x !== "number" || typeof y !== "number") return null;
