@@ -227,7 +227,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
         /**
          * Backend can return either:
          *  - legacy shape: Array<per-user rows>
-         *  - new standardized shape: { users: Array<per-user rows>, activity: { interval, buckets } }
+         *  - Schema C (preferred): { interval, buckets:[{key,totalSessions}], users:[{userId,name,totalSessions}], meta:{from,to} }
          *
          * IMPORTANT: frontend must not aggregate; it only normalizes the shape.
          */
@@ -235,14 +235,29 @@ export default function UsersAnalyticsPanel({ style, className }) {
           setRows(data);
           setActivitySeries({ interval: null, buckets: [] });
         } else if (data && typeof data === "object") {
-          const nextUsers = Array.isArray(data.users) ? data.users : Array.isArray(data.data) ? data.data : [];
-          const nextActivity = data.activity && typeof data.activity === "object" ? data.activity : null;
+          // Schema C
+          if (Array.isArray(data.users) && Array.isArray(data.buckets) && typeof data.interval === "string") {
+            setRows(data.users);
+            setActivitySeries({ interval: data.interval, buckets: data.buckets });
+          } else {
+            // Fallback to older/experimental shapes if any exist in the environment
+            const nextUsers = Array.isArray(data.users)
+              ? data.users
+              : Array.isArray(data.data?.users)
+                ? data.data.users
+                : Array.isArray(data.data)
+                  ? data.data
+                  : [];
+            const interval = data.interval || data.data?.interval || data.meta?.interval || null;
+            const buckets = Array.isArray(data.buckets)
+              ? data.buckets
+              : Array.isArray(data.data?.buckets)
+                ? data.data.buckets
+                : [];
 
-          setRows(nextUsers);
-          setActivitySeries({
-            interval: nextActivity?.interval || null,
-            buckets: Array.isArray(nextActivity?.buckets) ? nextActivity.buckets : [],
-          });
+            setRows(nextUsers);
+            setActivitySeries({ interval, buckets });
+          }
         } else {
           setRows([]);
           setActivitySeries({ interval: null, buckets: [] });
@@ -323,7 +338,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
     return buckets.map((b) => ({
       key: b?.key ?? "",
       label: formatBucketLabel(interval, b),
-      value: Number(b?.count ?? b?.value ?? 0),
+      value: Number(b?.totalSessions ?? b?.count ?? b?.value ?? 0),
     }));
   }, [activitySeries]);
 
