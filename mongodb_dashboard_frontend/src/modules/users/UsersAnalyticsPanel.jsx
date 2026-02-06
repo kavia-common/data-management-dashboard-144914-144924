@@ -248,17 +248,104 @@ export default function UsersAnalyticsPanel({ style, className }) {
   }, [rows]);
 
   const activityChartData = useMemo(() => {
-    // Backend-driven aggregation for the "Activity by User" chart:
-    // interval=hour => labels "00".."23"
-    // interval=day  => labels "1".."31"
-    // interval=month => labels "Jan".."Dec"
-    return (Array.isArray(activity) ? activity : []).map((b) => ({
+    /**
+     * Backend-driven aggregation for the "Activity by User" chart.
+     *
+     * Backend contract (new):
+     * - interval: "hour" | "day" | "month"
+     * - activity: Array<{ key, label, sessions, users }>
+     *
+     * Goal:
+     * - Always render evenly spaced buckets for the selected interval
+     *   (00–23, 1–31, Jan–Dec) so the chart never looks "overridden" or sparse.
+     * - Preserve existing stacked bar behavior and colors; only shape the data + axis logic.
+     */
+    const buckets = Array.isArray(activity) ? activity : [];
+
+    // Normalize a single bucket coming from backend.
+    const normalizeBucket = (b) => ({
+      key: String(b?.key ?? ""),
       label: String(b?.label ?? ""),
       sessions: Number(b?.sessions ?? 0),
       users: Number(b?.users ?? 0),
-      key: String(b?.key ?? ""),
-    }));
-  }, [activity]);
+    });
+
+    // Turn backend buckets into a map for quick lookup by key.
+    const bucketMap = new Map();
+    buckets.forEach((b) => {
+      const nb = normalizeBucket(b);
+      if (nb.key) bucketMap.set(nb.key, nb);
+    });
+
+    // Template all expected buckets to guarantee consistent axis spacing.
+    // Note: We prefer key-based lookup so backend can label freely.
+    if (interval === "hour") {
+      // 00..23
+      return Array.from({ length: 24 }, (_, i) => {
+        const key = String(i).padStart(2, "0");
+        const existing = bucketMap.get(key);
+        return {
+          key,
+          label: existing?.label ? String(existing.label) : key,
+          sessions: existing ? existing.sessions : 0,
+          users: existing ? existing.users : 0,
+        };
+      });
+    }
+
+    if (interval === "month") {
+      // Backend key is expected to be 1..12 (common), but tolerate "01".."12" too.
+      const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      return Array.from({ length: 12 }, (_, idx) => {
+        const m = idx + 1;
+        const key1 = String(m); // "1"
+        const key2 = String(m).padStart(2, "0"); // "01"
+        const existing = bucketMap.get(key1) || bucketMap.get(key2);
+        return {
+          key: key1,
+          label: existing?.label ? String(existing.label) : monthNames[idx],
+          sessions: existing ? existing.sessions : 0,
+          users: existing ? existing.users : 0,
+        };
+      });
+    }
+
+    if (interval === "day") {
+      // 1..31 (month ranges can span multiple months, but UI requirement is date-of-month buckets)
+      return Array.from({ length: 31 }, (_, idx) => {
+        const d = idx + 1;
+        const key1 = String(d); // "1"
+        const key2 = String(d).padStart(2, "0"); // "01"
+        const existing = bucketMap.get(key1) || bucketMap.get(key2);
+        return {
+          key: key1,
+          label: existing?.label ? String(existing.label) : String(d),
+          sessions: existing ? existing.sessions : 0,
+          users: existing ? existing.users : 0,
+        };
+      });
+    }
+
+    // Fallback: no interval provided; keep backend order but stabilize it by key when possible.
+    // Sorting avoids "random" order when backend returns object keys not strictly ordered.
+    const normalized = buckets.map(normalizeBucket);
+    const sortable = normalized.every((b) => b.key !== "");
+    if (!sortable) return normalized;
+
+    const toSortableNumber = (k) => {
+      const n = Number(k);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    return normalized
+      .slice()
+      .sort((a, b) => {
+        const an = toSortableNumber(a.key);
+        const bn = toSortableNumber(b.key);
+        if (an !== null && bn !== null) return an - bn;
+        return String(a.key).localeCompare(String(b.key));
+      });
+  }, [activity, interval]);
 
   // Theme colors
   const primary = "#2563EB";
@@ -448,11 +535,23 @@ export default function UsersAnalyticsPanel({ style, className }) {
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke={grid} />
                         <XAxis
-                          dataKey="label"
+                          // Use a stable category key so templated buckets are evenly spaced.
+                          dataKey="key"
                           tick={{ fill: subtle, fontSize: 12 }}
-                          interval="preserveStartEnd"
+                          // For hours, show fewer ticks for readability; otherwise let Recharts preserve ends.
+                          interval={interval === "hour" ? 1 : "preserveStartEnd"}
+                          minTickGap={interval === "hour" ? 8 : 12}
                           tickLine={false}
                           axisLine={{ stroke: grid }}
+                          tickFormatter={(value) => {
+                            // Map key -> label so we preserve backend labels but keep stable spacing.
+                            const row = activityChartData.find((d) => String(d.key) === String(value));
+                            const lbl = row?.label ?? value;
+
+                            // For hour interval, ensure consistent 00-23 formatting on ticks.
+                            if (interval === "hour") return String(lbl).padStart(2, "0");
+                            return String(lbl);
+                          }}
                         />
                         <YAxis
                           tick={{ fill: subtle, fontSize: 12 }}
