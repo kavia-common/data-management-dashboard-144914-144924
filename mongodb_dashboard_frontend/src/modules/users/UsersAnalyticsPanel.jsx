@@ -273,10 +273,10 @@ export default function UsersAnalyticsPanel({ style, className }) {
   const activityChartData = useMemo(() => {
     /**
      * Range-based mode (backend-driven):
-     * - mode === 'per_user' (range < 30 days):
+     * - mode === 'per_user' (range <= 31 days):
      *     backend returns activityByUser: { buckets: [{key,label}], series: [{userId,name,sessionsByKey}] }
      *     We render stacked bars per user (same chart component).
-     * - mode === 'aggregated' (range >= 30 days):
+     * - mode === 'aggregated' (range > 31 days):
      *     backend returns activity: [{key,label,sessions,users}] (existing)
      */
     const isPerUser = activityMode === "per_user" && activityByUser && typeof activityByUser === "object";
