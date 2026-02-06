@@ -352,27 +352,12 @@ export async function listDeployments(params = {}) {
  * Default:
  *  - If from/to are omitted, backend defaults to TODAY in UTC.
  *
- * Returns (backward compatible):
- *  - Legacy: Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt }>
- *  - New (when selection passed): {
- *      users: Array<...>,
- *      buckets: Array<{ key, label, count }>,
- *      meta: { selection, bucketGranularity, from, to }
- *    }
+ * Returns:
+ *  - Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt }>
  */
 export async function listDashboardUsersAnalytics(params = {}, options = {}) {
   const res = await httpGet("/api/dashboard/users", { params, signal: options?.signal });
-  const payload = res.data;
-
-  // Legacy response: raw array
-  if (Array.isArray(payload)) return payload;
-
-  // New response: envelope with users/buckets
-  if (payload && typeof payload === "object" && Array.isArray(payload.users)) {
-    return payload;
-  }
-
-  return [];
+  return Array.isArray(res.data) ? res.data : [];
 }
 
 /**

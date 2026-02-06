@@ -80,8 +80,6 @@ export default function UsersAnalyticsPanel({ style, className }) {
   const [tenantsNotice, setTenantsNotice] = useState("");
 
   const [rows, setRows] = useState([]);
-  const [buckets, setBuckets] = useState([]);
-  const [bucketMeta, setBucketMeta] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
@@ -170,53 +168,19 @@ export default function UsersAnalyticsPanel({ style, className }) {
       setLoading(true);
       setErr("");
       try {
-        // Map quick-range selection to backend "selection" buckets:
-        // - Today/Yesterday -> "days" (hourly buckets)
-        // - 7/14/30/90 -> "months" (daily buckets)
-        // - Custom -> decide by span (<=2 days => hourly, <=180 days => daily, else monthly)
-        const selectionForBuckets = (() => {
-          if (selection?.mode === "custom" && selection?.customStart && selection?.customEnd) {
-            const start = new Date(`${selection.customStart}T00:00:00.000Z`);
-            const end = new Date(`${selection.customEnd}T23:59:59.999Z`);
-            const ms = end.getTime() - start.getTime();
-            const days = Number.isFinite(ms) ? ms / (1000 * 60 * 60 * 24) : 0;
-            if (days <= 2) return "days";
-            if (days <= 180) return "months";
-            return "years";
-          }
-
-          const qv = Number(selection?.quickValue);
-          if (qv === 0 || qv === -1) return "days";
-          if (qv === 7 || qv === 14 || qv === 30 || qv === 90) return "months";
-          return "months";
-        })();
-
         const data = await listDashboardUsersAnalytics(
           {
             from: fromParam || undefined,
             to: toParam || undefined,
             tenant_id: selectedTenantId || undefined,
-            selection: selectionForBuckets,
           },
           { signal: controller.signal }
         );
-
-        // Backward compatible parsing:
-        if (Array.isArray(data)) {
-          setRows(data);
-          setBuckets([]);
-          setBucketMeta(null);
-        } else {
-          setRows(Array.isArray(data?.users) ? data.users : []);
-          setBuckets(Array.isArray(data?.buckets) ? data.buckets : []);
-          setBucketMeta(data?.meta || null);
-        }
+        setRows(Array.isArray(data) ? data : []);
       } catch (e) {
         if (e?.name !== "AbortError") {
           setErr(e?.message || "Failed to load users analytics.");
           setRows([]);
-          setBuckets([]);
-          setBucketMeta(null);
         }
       } finally {
         setLoading(false);
@@ -225,7 +189,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
 
     run();
     return () => controller.abort();
-  }, [fromParam, toParam, selectedTenantId, selection]);
+  }, [fromParam, toParam, selectedTenantId]);
 
   const chartRows = useMemo(() => {
     // Backend already sorts by activity; keep it stable but ensure numbers are numbers.
@@ -265,10 +229,6 @@ export default function UsersAnalyticsPanel({ style, className }) {
       // eslint-disable-next-line no-console
       console.debug("[UsersAnalyticsPanel] chartRows length:", mapped.length);
       // eslint-disable-next-line no-console
-      console.debug("[UsersAnalyticsPanel] buckets length:", buckets?.length ?? 0);
-      // eslint-disable-next-line no-console
-      console.debug("[UsersAnalyticsPanel] bucketMeta:", bucketMeta || null);
-      // eslint-disable-next-line no-console
       console.debug(
         "[UsersAnalyticsPanel] first 10 labels:",
         mapped.slice(0, 10).map((x) => x.user)
@@ -276,7 +236,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
     }
 
     return mapped;
-  }, [rows, buckets, bucketMeta, selection.mode, selection.quickValue, fromParam, toParam, selectedTenantId]);
+  }, [rows, selection.mode, selection.quickValue, fromParam, toParam, selectedTenantId]);
 
   const totalSessionsKpi = useMemo(() => {
     // Compute from the same server-returned per-user rows used by the panel.
@@ -478,103 +438,6 @@ export default function UsersAnalyticsPanel({ style, className }) {
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-            <div className="card" aria-label="Active Users Over Time">
-              <div className="card-header" style={{ paddingBottom: 0 }}>
-                <h4 className="card-title">Active Users Over Time</h4>
-                <div className="card-subtitle">
-                  Bucketed by{" "}
-                  <span style={{ fontWeight: 600 }}>
-                    {bucketMeta?.bucketGranularity || "day"}
-                  </span>{" "}
-                  (computed server-side for readability)
-                </div>
-              </div>
-
-              <div className="card-content" style={{ paddingTop: 8 }}>
-                {loading ? (
-                  <div aria-busy="true">
-                    <Skeleton width="60%" height={14} className="mb-2" />
-                    <Skeleton width="100%" height={220} />
-                  </div>
-                ) : err ? (
-                  <div className="error" role="alert">
-                    {err}
-                  </div>
-                ) : !Array.isArray(buckets) || buckets.length === 0 ? (
-                  <div className="screen-center">No bucketed activity data</div>
-                ) : (
-                  <div style={{ width: "100%", height: 260 }}>
-                    <ResponsiveContainer>
-                      <BarChart
-                        data={buckets}
-                        margin={{ top: 8, right: 16, bottom: 8, left: 10 }}
-                        barCategoryGap={16}
-                        barSize={22}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke={grid} />
-                        <XAxis
-                          dataKey="label"
-                          tick={{ fill: subtle, fontSize: 12 }}
-                          interval="preserveStartEnd"
-                          minTickGap={12}
-                        />
-                        <YAxis
-                          tick={{ fill: subtle, fontSize: 12 }}
-                          allowDecimals={false}
-                          axisLine={{ stroke: grid }}
-                        />
-                        <Tooltip
-                          content={({ active, payload, label }) => {
-                            if (!active || !Array.isArray(payload) || payload.length === 0)
-                              return null;
-                            const row = payload?.[0]?.payload || {};
-                            const count = Number.isFinite(Number(row?.count))
-                              ? Number(row.count)
-                              : 0;
-
-                            return (
-                              <div
-                                style={{
-                                  background: "#ffffff",
-                                  border: "1px solid #E5E7EB",
-                                  borderRadius: 8,
-                                  padding: "10px 12px",
-                                  boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-                                  color: "#111827",
-                                  fontSize: 12,
-                                  lineHeight: 1.35,
-                                }}
-                              >
-                                <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    gap: 12,
-                                  }}
-                                >
-                                  <span style={{ color: "#6B7280" }}>Active users:</span>
-                                  <span style={{ fontWeight: 600 }}>{count}</span>
-                                </div>
-                              </div>
-                            );
-                          }}
-                        />
-                        <Legend />
-                        <Bar
-                          dataKey="count"
-                          name="Active users"
-                          fill={primary}
-                          stroke={primary}
-                          radius={[6, 6, 0, 0]}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-              </div>
-            </div>
-
             <div className="card" aria-label="Activity by User">
               <div className="card-header" style={{ paddingBottom: 0 }}>
                 <h4 className="card-title">Activity by User</h4>
