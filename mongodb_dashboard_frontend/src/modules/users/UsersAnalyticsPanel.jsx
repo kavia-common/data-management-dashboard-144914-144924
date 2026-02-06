@@ -79,10 +79,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
   const [tenantsLoading, setTenantsLoading] = useState(true);
   const [tenantsNotice, setTenantsNotice] = useState("");
 
-  // `usersPayload` supports both legacy and new shapes:
-  // - Legacy: Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt }>
-  // - New (bucketed): { interval, buckets, totals?, users? }
-  const [usersPayload, setUsersPayload] = useState(null);
+  const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
@@ -179,21 +176,11 @@ export default function UsersAnalyticsPanel({ style, className }) {
           },
           { signal: controller.signal }
         );
-
-        // Accept either:
-        //  - legacy array
-        //  - new object shape (interval + buckets + totals/users)
-        if (Array.isArray(data)) {
-          setUsersPayload({ legacyRows: data });
-        } else if (data && typeof data === "object") {
-          setUsersPayload(data);
-        } else {
-          setUsersPayload(null);
-        }
+        setRows(Array.isArray(data) ? data : []);
       } catch (e) {
         if (e?.name !== "AbortError") {
           setErr(e?.message || "Failed to load users analytics.");
-          setUsersPayload(null);
+          setRows([]);
         }
       } finally {
         setLoading(false);
@@ -204,142 +191,12 @@ export default function UsersAnalyticsPanel({ style, className }) {
     return () => controller.abort();
   }, [fromParam, toParam, selectedTenantId]);
 
-  /**
-   * Format a bucket label from a bucket key (ISO) and the backend-provided interval.
-   * Backend is authoritative for interval selection, but labels should remain compact.
-   */
-  function formatBucketLabel(key, interval) {
-    if (!key) return "";
-    const d = new Date(key);
-    if (Number.isNaN(d.getTime())) return String(key);
-
-    if (interval === "hour") {
-      // Example: Feb 6, 14:00
-      return d.toLocaleString(undefined, {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    }
-    if (interval === "day") {
-      // Example: Feb 6
-      return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    }
-    if (interval === "month") {
-      // Example: Feb 2026
-      return d.toLocaleDateString(undefined, { month: "short", year: "numeric" });
-    }
-    // Fallback
-    return d.toLocaleString();
-  }
-
-  const normalized = useMemo(() => {
-    // Normalize payload into:
-    // - `intervalSeries`: bucketed activity over time
-    // - `totalsRows`: legacy per-user totals (for KPI + any existing usages)
-    const payload = usersPayload;
-
-    // Legacy array wrapped as { legacyRows }
-    const legacyRows = Array.isArray(payload?.legacyRows) ? payload.legacyRows : null;
-
-    if (legacyRows) {
-      return {
-        interval: null,
-        intervalSeries: [],
-        totalsRows: legacyRows,
-      };
-    }
-
-    // New bucketed shape: { interval, buckets, totals?, users? }
-    const interval = typeof payload?.interval === "string" ? payload.interval : null;
-    const buckets = Array.isArray(payload?.buckets) ? payload.buckets : [];
-    const totalsRows = Array.isArray(payload?.users)
-      ? payload.users
-      : Array.isArray(payload?.totals)
-        ? payload.totals
-        : [];
-
-    const intervalSeries = buckets
-      .map((b) => {
-        const key = b?.key ?? b?.start ?? b?.bucket ?? b?.date;
-        const count = b?.count ?? b?.total ?? b?.value ?? 0;
-        return {
-          key: key ? String(key) : "",
-          label: formatBucketLabel(key, interval),
-          value: Number(count || 0),
-        };
-      })
-      .filter((x) => x.key);
-
-    return {
-      interval,
-      intervalSeries,
-      totalsRows,
-    };
-  }, [usersPayload]);
-
-  // Chart data for the existing "Activity by User" chart:
-  // - If we have interval buckets, show a vertical BarChart with X=label (time) and Y=value (sessions)
-  // - Otherwise fallback to the prior per-user horizontal chart (Sessions/Projects).
-  const usingIntervalBuckets = normalized.intervalSeries.length > 0;
-
   const chartRows = useMemo(() => {
-    if (usingIntervalBuckets) {
-      /**
-       * For long ranges (yearly+), the backend may return daily buckets (interval=day).
-       * The requested UX is a single monthly total series (sessions per month across ALL users).
-       *
-       * We only apply this monthly rollup for "yearly ranges" to preserve existing behavior
-       * for shorter ranges (hour/day buckets) and for already-monthly backend buckets.
-       */
-      const fromMs = fromParam ? Date.parse(fromParam) : NaN;
-      const toMs = toParam ? Date.parse(toParam) : NaN;
-      const hasValidWindow = Number.isFinite(fromMs) && Number.isFinite(toMs) && toMs > fromMs;
-
-      const windowDays = hasValidWindow ? (toMs - fromMs) / (1000 * 60 * 60 * 24) : 0;
-
-      // Treat "yearly ranges" as roughly >= 300 days to be robust for leap years / slightly shorter presets.
-      const isYearishRange = hasValidWindow && windowDays >= 300;
-
-      const shouldRollupToMonths = normalized.interval === "day" && isYearishRange;
-
-      if (!shouldRollupToMonths) {
-        return normalized.intervalSeries.map((b) => ({
-          label: b.label,
-          key: b.key,
-          sessions: b.value,
-        }));
-      }
-
-      // Roll up to YYYY-MM.
-      const byMonth = new Map();
-      normalized.intervalSeries.forEach((b) => {
-        const d = new Date(b.key);
-        if (Number.isNaN(d.getTime())) return;
-        const monthKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-
-        byMonth.set(monthKey, (byMonth.get(monthKey) || 0) + Number(b.value || 0));
-      });
-
-      // Sort months ascending and format labels like "Feb 2026"
-      return Array.from(byMonth.entries())
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([monthKey, sessions]) => {
-          const monthDate = new Date(`${monthKey}-01T00:00:00.000Z`);
-          return {
-            key: monthKey,
-            label: formatBucketLabel(monthDate.toISOString(), "month"),
-            sessions,
-          };
-        });
-    }
-
-    // Legacy behavior: per-user totals (already sorted by backend)
+    // Backend already sorts by activity; keep it stable but ensure numbers are numbers.
+    // IMPORTANT: ensure the Y-axis category label is unique/stable to prevent rendering artifacts.
     const seen = new Map();
-    const rows = normalized.totalsRows || [];
 
-    const mapped = rows.map((r, index) => {
+    const mapped = (rows || []).map((r, index) => {
       const baseLabel = r?.name || r?.email || r?.userId || "";
       const userId = r?.userId || "";
       const user = buildUniqueUserLabel(baseLabel, userId, index, seen);
@@ -347,6 +204,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
       return {
         user,
         userId,
+        // keep an unmodified string for tooltips/full display (avoid showing "(2)" suffix there)
         userRaw: String(baseLabel || "").trim() || user,
         totalSessions: Number(r?.totalSessions || 0),
         distinctProjects: Number(r?.distinctProjects || 0),
@@ -370,36 +228,21 @@ export default function UsersAnalyticsPanel({ style, className }) {
       console.debug("[UsersAnalyticsPanel] rows length:", rows?.length ?? 0);
       // eslint-disable-next-line no-console
       console.debug("[UsersAnalyticsPanel] chartRows length:", mapped.length);
+      // eslint-disable-next-line no-console
+      console.debug(
+        "[UsersAnalyticsPanel] first 10 labels:",
+        mapped.slice(0, 10).map((x) => x.user)
+      );
     }
 
     return mapped;
-  }, [
-    usingIntervalBuckets,
-    normalized.interval,
-    normalized.intervalSeries,
-    normalized.totalsRows,
-    selection.mode,
-    selection.quickValue,
-    fromParam,
-    toParam,
-    selectedTenantId,
-  ]);
+  }, [rows, selection.mode, selection.quickValue, fromParam, toParam, selectedTenantId]);
 
   const totalSessionsKpi = useMemo(() => {
-    // Keep KPI compatible:
-    // - If totalsRows exists, compute from it.
-    // - Else if only buckets exist, compute sum of bucket counts.
-    if (Array.isArray(normalized.totalsRows) && normalized.totalsRows.length > 0) {
-      return normalized.totalsRows.reduce(
-        (sum, r) => sum + Number(r?.totalSessions || 0),
-        0
-      );
-    }
-    if (Array.isArray(normalized.intervalSeries) && normalized.intervalSeries.length > 0) {
-      return normalized.intervalSeries.reduce((sum, b) => sum + Number(b?.value || 0), 0);
-    }
-    return 0;
-  }, [normalized.totalsRows, normalized.intervalSeries]);
+    // Compute from the same server-returned per-user rows used by the panel.
+    // This ensures alignment with the selected quick range + tenant filter.
+    return (rows || []).reduce((sum, r) => sum + Number(r?.totalSessions || 0), 0);
+  }, [rows]);
 
   // Theme colors
   const primary = "#2563EB";
@@ -428,11 +271,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
   // Adaptive bar sizing tiers (dense sets need smaller bars/gaps to avoid excessive scroll length).
   // Keep existing behavior but add an extra tighter tier for very large sets (>300).
   const rowCount = chartRows.length;
-
-  // For time-series buckets we render a standard vertical chart; scrolling/inner-height logic
-  // is only relevant for the (potentially huge) per-user horizontal chart.
   const { barSize: BAR_SIZE, barGap: BAR_GAP } = (() => {
-    if (usingIntervalBuckets) return { barSize: 18, barGap: 10 };
     if (rowCount > 300) return { barSize: 10, barGap: 4 };
     if (rowCount > 160) return { barSize: 12, barGap: 5 };
     if (rowCount > 90) return { barSize: 14, barGap: 6 };
@@ -440,14 +279,14 @@ export default function UsersAnalyticsPanel({ style, className }) {
     return { barSize: 20, barGap: 10 };
   })();
 
-  const CHART_PADDING = 140;
-  const shouldScroll = !usingIntervalBuckets && rowCount > SCROLL_THRESHOLD;
+  const CHART_PADDING = 140; // allowance for margins/axes/legend (slightly higher with custom ticks)
+  const shouldScroll = rowCount > SCROLL_THRESHOLD;
 
-  const innerChartHeight = usingIntervalBuckets
-    ? 320
-    : shouldScroll
-      ? Math.min(INNER_CHART_HEIGHT_CAP, rowCount * (BAR_SIZE + BAR_GAP) + CHART_PADDING)
-      : 360;
+  // Inner chart height uses rows*(bar+gap)+padding and caps at a higher value.
+  // IMPORTANT: shouldScroll logic is based on chartRows.length (not raw rows).
+  const innerChartHeight = shouldScroll
+    ? Math.min(INNER_CHART_HEIGHT_CAP, rowCount * (BAR_SIZE + BAR_GAP) + CHART_PADDING)
+    : 360;
 
   // Custom Y tick renderer: truncates label to avoid overlap and provides native tooltip with full label.
   const MAX_TICK_CHARS = 26;
@@ -603,9 +442,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
               <div className="card-header" style={{ paddingBottom: 0 }}>
                 <h4 className="card-title">Activity by User</h4>
                 <div className="card-subtitle">
-                  {usingIntervalBuckets
-                    ? `Sessions over time (${normalized.interval || "interval"} buckets)`
-                    : "Sessions and Projects (computed server-side; sorted by last activity)"}
+                  Sessions and Projects (computed server-side; sorted by last activity)
                 </div>
               </div>
 
@@ -622,77 +459,6 @@ export default function UsersAnalyticsPanel({ style, className }) {
                   </div>
                 ) : chartRows.length === 0 ? (
                   <div className="screen-center">No analytics data</div>
-                ) : usingIntervalBuckets ? (
-                  <div style={{ width: "100%", height: 320 }}>
-                    <ResponsiveContainer>
-                      <BarChart
-                        data={chartRows}
-                        margin={{ top: 8, right: 16, bottom: 24, left: 12 }}
-                        barCategoryGap={BAR_GAP}
-                        barSize={BAR_SIZE}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" stroke={grid} />
-                        <XAxis
-                          dataKey="label"
-                          tick={{ fill: subtle, fontSize: 11 }}
-                          interval="preserveStartEnd"
-                          minTickGap={12}
-                          angle={-25}
-                          textAnchor="end"
-                          height={50}
-                        />
-                        <YAxis
-                          tick={{ fill: subtle, fontSize: 12 }}
-                          allowDecimals={false}
-                        />
-                        <Tooltip
-                          content={({ active, payload, label }) => {
-                            if (!active || !Array.isArray(payload) || payload.length === 0)
-                              return null;
-                            const row = payload?.[0]?.payload || {};
-                            const sessions = Number.isFinite(Number(row?.sessions))
-                              ? Number(row.sessions)
-                              : 0;
-
-                            return (
-                              <div
-                                style={{
-                                  background: "#ffffff",
-                                  border: "1px solid #E5E7EB",
-                                  borderRadius: 8,
-                                  padding: "10px 12px",
-                                  boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-                                  color: "#111827",
-                                  fontSize: 12,
-                                  lineHeight: 1.35,
-                                }}
-                              >
-                                <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    gap: 12,
-                                  }}
-                                >
-                                  <span style={{ color: "#6B7280" }}>Sessions:</span>
-                                  <span style={{ fontWeight: 600 }}>{sessions}</span>
-                                </div>
-                              </div>
-                            );
-                          }}
-                        />
-                        <Legend />
-                        <Bar
-                          dataKey="sessions"
-                          name="Sessions"
-                          fill={primary}
-                          stroke={primary}
-                          radius={[6, 6, 0, 0]}
-                        />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
                 ) : (
                   <div
                     style={{
@@ -805,6 +571,8 @@ export default function UsersAnalyticsPanel({ style, className }) {
                               position="insideLeft"
                               content={(props) => {
                                 const { x, y, height, value } = props || {};
+                                // Render nothing visually; we only want the native tooltip via <title>.
+                                // This keeps chart clean but provides full-name hover for truncated labels.
                                 if (typeof x !== "number" || typeof y !== "number") return null;
                                 const cx = x + 4;
                                 const cy = y + height / 2;
