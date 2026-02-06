@@ -152,6 +152,8 @@ export default function UsersAnalyticsPanel({ style, className }) {
 
   // Single aggregated fetch (no per-user calls)
   const [activity, setActivity] = useState(null);
+  const [activityByUser, setActivityByUser] = useState(null);
+  const [activityMode, setActivityMode] = useState(null);
   const [interval, setInterval] = useState(null);
 
   useEffect(() => {
@@ -170,15 +172,19 @@ export default function UsersAnalyticsPanel({ style, className }) {
           { signal: controller.signal }
         );
 
-        // New shape: { activity, users, interval }
+        // New shape: { activity, activityByUser, mode, users, interval }
         if (data && typeof data === "object" && ("users" in data || "activity" in data)) {
           setRows(Array.isArray(data.users) ? data.users : []);
           setActivity(Array.isArray(data.activity) ? data.activity : null);
+          setActivityByUser(data.activityByUser && typeof data.activityByUser === "object" ? data.activityByUser : null);
+          setActivityMode(typeof data.mode === "string" ? data.mode : null);
           setInterval(typeof data.interval === "string" ? data.interval : null);
         } else {
           // Safety fallback (should not happen)
           setRows(Array.isArray(data) ? data : []);
           setActivity(null);
+          setActivityByUser(null);
+          setActivityMode(null);
           setInterval(null);
         }
       } catch (e) {
@@ -186,6 +192,8 @@ export default function UsersAnalyticsPanel({ style, className }) {
           setErr(e?.message || "Failed to load users analytics.");
           setRows([]);
           setActivity(null);
+          setActivityByUser(null);
+          setActivityMode(null);
           setInterval(null);
         }
       } finally {
@@ -233,13 +241,28 @@ export default function UsersAnalyticsPanel({ style, className }) {
       // eslint-disable-next-line no-console
       console.debug("[UsersAnalyticsPanel] per-user rows length:", rows?.length ?? 0);
       // eslint-disable-next-line no-console
+      console.debug("[UsersAnalyticsPanel] activity mode:", activityMode || "(none)");
+      // eslint-disable-next-line no-console
       console.debug("[UsersAnalyticsPanel] activity buckets length:", activity?.length ?? 0);
+      // eslint-disable-next-line no-console
+      console.debug("[UsersAnalyticsPanel] activityByUser series length:", activityByUser?.series?.length ?? 0);
       // eslint-disable-next-line no-console
       console.debug("[UsersAnalyticsPanel] interval:", interval || "(none)");
     }
 
     return mapped;
-  }, [rows, selection.mode, selection.quickValue, fromParam, toParam, selectedTenantId, activity, interval]);
+  }, [
+    rows,
+    selection.mode,
+    selection.quickValue,
+    fromParam,
+    toParam,
+    selectedTenantId,
+    activity,
+    activityByUser,
+    activityMode,
+    interval,
+  ]);
 
   const totalSessionsKpi = useMemo(() => {
     // Compute from the same server-returned per-user rows used by the panel.
@@ -249,25 +272,68 @@ export default function UsersAnalyticsPanel({ style, className }) {
 
   const activityChartData = useMemo(() => {
     /**
-     * Backend-driven aggregation for the "Activity by User" chart.
-     *
-     * Backend contract (new):
-     * - interval: "hour" | "day" | "month"
-     * - activity: Array<{ key, label, sessions, users }>
-     *
-     * Goal:
-     * - Always render evenly spaced buckets for the selected interval
-     *   (00–23, 1–31, Jan–Dec) so the chart never looks "overridden" or sparse.
-     * - Preserve existing stacked bar behavior and colors; only shape the data + axis logic.
+     * Range-based mode (backend-driven):
+     * - mode === 'per_user' (range < 30 days):
+     *     backend returns activityByUser: { buckets: [{key,label}], series: [{userId,name,sessionsByKey}] }
+     *     We render stacked bars per user (same chart component).
+     * - mode === 'aggregated' (range >= 30 days):
+     *     backend returns activity: [{key,label,sessions,users}] (existing)
+     */
+    const isPerUser = activityMode === "per_user" && activityByUser && typeof activityByUser === "object";
+
+    // Helper: template bucket keys for consistent axis spacing (same as before)
+    const templateKeys = () => {
+      if (interval === "hour") return Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+      if (interval === "month") return Array.from({ length: 12 }, (_, i) => String(i + 1));
+      if (interval === "day") return Array.from({ length: 31 }, (_, i) => String(i + 1));
+      // Fallback (unknown interval): no templating
+      return null;
+    };
+
+    if (isPerUser) {
+      const buckets = Array.isArray(activityByUser?.buckets) ? activityByUser.buckets : [];
+      const series = Array.isArray(activityByUser?.series) ? activityByUser.series : [];
+
+      // Bucket label map (key -> label)
+      const labelByKey = new Map();
+      buckets.forEach((b) => {
+        const k = String(b?.key ?? "").trim();
+        if (!k) return;
+        labelByKey.set(k, String(b?.label ?? k));
+      });
+
+      const templated = templateKeys();
+      const bucketKeys = templated || Array.from(labelByKey.keys());
+
+      // Shape rows: { key, label, <userId1>: count, <userId2>: count, ... }
+      return bucketKeys.map((key) => {
+        const row = {
+          key,
+          label: labelByKey.get(key) ?? (interval === "month"
+            ? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(key) - 1] || key
+            : key),
+        };
+
+        series.forEach((s) => {
+          const uid = String(s?.userId ?? "").trim();
+          if (!uid) return;
+          const v = s?.sessionsByKey && typeof s.sessionsByKey === "object" ? s.sessionsByKey[key] : 0;
+          row[uid] = Number(v || 0);
+        });
+
+        return row;
+      });
+    }
+
+    /**
+     * Aggregated mode (existing behavior): use backend `activity` buckets.
      */
     const buckets = Array.isArray(activity) ? activity : [];
 
     // Defensive: if backend returns malformed buckets (e.g., missing keys), treat as empty.
-    // This prevents a misleading single-bar render when keys are blank.
     const hasAnyKey = buckets.some((b) => String(b?.key ?? "").trim() !== "");
     const safeBuckets = hasAnyKey ? buckets : [];
 
-    // Normalize a single bucket coming from backend.
     const normalizeBucket = (b) => ({
       key: String(b?.key ?? ""),
       label: String(b?.label ?? ""),
@@ -275,17 +341,13 @@ export default function UsersAnalyticsPanel({ style, className }) {
       users: Number(b?.users ?? 0),
     });
 
-    // Turn backend buckets into a map for quick lookup by key.
     const bucketMap = new Map();
     safeBuckets.forEach((b) => {
       const nb = normalizeBucket(b);
       if (nb.key) bucketMap.set(nb.key, nb);
     });
 
-    // Template all expected buckets to guarantee consistent axis spacing.
-    // Note: We prefer key-based lookup so backend can label freely.
     if (interval === "hour") {
-      // 00..23
       return Array.from({ length: 24 }, (_, i) => {
         const key = String(i).padStart(2, "0");
         const existing = bucketMap.get(key);
@@ -299,12 +361,11 @@ export default function UsersAnalyticsPanel({ style, className }) {
     }
 
     if (interval === "month") {
-      // Backend key is expected to be 1..12 (common), but tolerate "01".."12" too.
       const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       return Array.from({ length: 12 }, (_, idx) => {
         const m = idx + 1;
-        const key1 = String(m); // "1"
-        const key2 = String(m).padStart(2, "0"); // "01"
+        const key1 = String(m);
+        const key2 = String(m).padStart(2, "0");
         const existing = bucketMap.get(key1) || bucketMap.get(key2);
         return {
           key: key1,
@@ -316,11 +377,10 @@ export default function UsersAnalyticsPanel({ style, className }) {
     }
 
     if (interval === "day") {
-      // 1..31 (month ranges can span multiple months, but UI requirement is date-of-month buckets)
       return Array.from({ length: 31 }, (_, idx) => {
         const d = idx + 1;
-        const key1 = String(d); // "1"
-        const key2 = String(d).padStart(2, "0"); // "01"
+        const key1 = String(d);
+        const key2 = String(d).padStart(2, "0");
         const existing = bucketMap.get(key1) || bucketMap.get(key2);
         return {
           key: key1,
@@ -331,8 +391,6 @@ export default function UsersAnalyticsPanel({ style, className }) {
       });
     }
 
-    // Fallback: no interval provided; keep backend order but stabilize it by key when possible.
-    // Sorting avoids "random" order when backend returns object keys not strictly ordered.
     const normalized = safeBuckets.map(normalizeBucket);
     const sortable = normalized.every((b) => b.key !== "");
     if (!sortable) return normalized;
@@ -350,7 +408,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
         if (an !== null && bn !== null) return an - bn;
         return String(a.key).localeCompare(String(b.key));
       });
-  }, [activity, interval]);
+  }, [activity, activityByUser, activityMode, interval]);
 
   // Theme colors
   const primary = "#2563EB";
@@ -540,20 +598,15 @@ export default function UsersAnalyticsPanel({ style, className }) {
                       >
                         <CartesianGrid strokeDasharray="3 3" stroke={grid} />
                         <XAxis
-                          // Use a stable category key so templated buckets are evenly spaced.
                           dataKey="key"
                           tick={{ fill: subtle, fontSize: 12 }}
-                          // For hours, show fewer ticks for readability; otherwise let Recharts preserve ends.
                           interval={interval === "hour" ? 1 : "preserveStartEnd"}
                           minTickGap={interval === "hour" ? 8 : 12}
                           tickLine={false}
                           axisLine={{ stroke: grid }}
                           tickFormatter={(value) => {
-                            // Map key -> label so we preserve backend labels but keep stable spacing.
                             const row = activityChartData.find((d) => String(d.key) === String(value));
                             const lbl = row?.label ?? value;
-
-                            // For hour interval, ensure consistent 00-23 formatting on ticks.
                             if (interval === "hour") return String(lbl).padStart(2, "0");
                             return String(lbl);
                           }}
@@ -567,6 +620,63 @@ export default function UsersAnalyticsPanel({ style, className }) {
                         <Tooltip
                           content={({ active, payload, label }) => {
                             if (!active || !Array.isArray(payload) || payload.length === 0) return null;
+
+                            // In per-user mode, payload will contain multiple stacked users.
+                            if (activityMode === "per_user") {
+                              const lines = payload
+                                .filter((p) => p && p.dataKey && Number(p.value) > 0)
+                                .sort((a, b) => Number(b.value) - Number(a.value))
+                                .slice(0, 12); // avoid overly tall tooltip
+
+                              const total = payload.reduce((sum, p) => sum + Number(p?.value || 0), 0);
+
+                              return (
+                                <div
+                                  style={{
+                                    background: "#ffffff",
+                                    border: "1px solid #E5E7EB",
+                                    borderRadius: 8,
+                                    padding: "10px 12px",
+                                    boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+                                    color: "#111827",
+                                    fontSize: 12,
+                                    lineHeight: 1.35,
+                                    maxWidth: 280,
+                                  }}
+                                >
+                                  <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+                                    <span style={{ color: "#6B7280" }}>Total sessions:</span>
+                                    <span style={{ fontWeight: 600 }}>{total}</span>
+                                  </div>
+
+                                  <div style={{ marginTop: 8 }}>
+                                    {lines.length === 0 ? (
+                                      <div style={{ color: "#6B7280" }}>No activity</div>
+                                    ) : (
+                                      lines.map((p) => (
+                                        <div
+                                          key={String(p.dataKey)}
+                                          style={{
+                                            display: "flex",
+                                            justifyContent: "space-between",
+                                            gap: 12,
+                                            marginTop: 4,
+                                          }}
+                                        >
+                                          <span style={{ color: "#6B7280" }}>
+                                            {String(p.name || p.dataKey).slice(0, 28)}
+                                          </span>
+                                          <span style={{ fontWeight: 600 }}>{Number(p.value || 0)}</span>
+                                        </div>
+                                      ))
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            }
+
+                            // Aggregated mode tooltip (existing)
                             const row = payload?.[0]?.payload || {};
                             const sessions = Number.isFinite(Number(row?.sessions)) ? Number(row.sessions) : 0;
                             const users = Number.isFinite(Number(row?.users)) ? Number(row.users) : 0;
@@ -586,13 +696,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
                               >
                                 <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
 
-                                <div
-                                  style={{
-                                    display: "flex",
-                                    justifyContent: "space-between",
-                                    gap: 12,
-                                  }}
-                                >
+                                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                                   <span style={{ color: "#6B7280" }}>Sessions:</span>
                                   <span style={{ fontWeight: 600 }}>{sessions}</span>
                                 </div>
@@ -613,23 +717,63 @@ export default function UsersAnalyticsPanel({ style, className }) {
                           }}
                         />
                         <Legend />
-                        {/* Keep existing colors and stacked behavior */}
-                        <Bar
-                          dataKey="sessions"
-                          name="Sessions"
-                          fill={primary}
-                          stroke={primary}
-                          stackId="a"
-                          radius={[6, 6, 0, 0]}
-                        />
-                        <Bar
-                          dataKey="users"
-                          name="Users"
-                          fill={secondary}
-                          stroke={secondary}
-                          stackId="a"
-                          radius={[6, 6, 0, 0]}
-                        />
+
+                        {activityMode === "per_user" && activityByUser?.series?.length ? (
+                          // Per-user stacked bars: render one Bar per userId (stacked)
+                          (activityByUser.series || []).slice(0, 25).map((s, idx) => {
+                            const uid = String(s?.userId || "").trim();
+                            if (!uid) return null;
+
+                            // Keep palette stable-ish without adding a new chart component.
+                            // (We intentionally do not change overall layout; just provide distinct fills.)
+                            const palette = [
+                              "#2563EB",
+                              "#f57c0bff",
+                              "#10B981",
+                              "#8B5CF6",
+                              "#EF4444",
+                              "#14B8A6",
+                              "#F59E0B",
+                              "#3B82F6",
+                              "#EC4899",
+                              "#22C55E",
+                            ];
+                            const fill = palette[idx % palette.length];
+
+                            return (
+                              <Bar
+                                key={uid}
+                                dataKey={uid}
+                                name={String(s?.name || uid)}
+                                fill={fill}
+                                stroke={fill}
+                                stackId="a"
+                                radius={[6, 6, 0, 0]}
+                                isAnimationActive={false}
+                              />
+                            );
+                          })
+                        ) : (
+                          // Aggregated mode: keep existing stacked behavior + colors
+                          <>
+                            <Bar
+                              dataKey="sessions"
+                              name="Sessions"
+                              fill={primary}
+                              stroke={primary}
+                              stackId="a"
+                              radius={[6, 6, 0, 0]}
+                            />
+                            <Bar
+                              dataKey="users"
+                              name="Users"
+                              fill={secondary}
+                              stroke={secondary}
+                              stackId="a"
+                              radius={[6, 6, 0, 0]}
+                            />
+                          </>
+                        )}
                       </BarChart>
                     </ResponsiveContainer>
                   </div>

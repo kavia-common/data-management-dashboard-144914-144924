@@ -369,8 +369,19 @@ export async function listDashboardUsersAnalytics(params = {}, options = {}) {
   const users = Array.isArray(res.data?.users) ? res.data.users : [];
   const interval = typeof res.data?.interval === "string" ? res.data.interval : null;
 
+  // Range-based mode support:
+  // - mode === 'per_user' => activityByUser is provided (buckets + series)
+  // - mode === 'aggregated' => activity (buckets) is provided (existing behavior)
+  const mode = typeof res.data?.mode === "string" ? res.data.mode : null;
+  const activityByUser =
+    res.data?.activityByUser && typeof res.data.activityByUser === "object"
+      ? res.data.activityByUser
+      : null;
+
   return {
     activity,
+    activityByUser,
+    mode,
     users,
     interval,
     meta: {
