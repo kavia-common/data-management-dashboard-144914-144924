@@ -262,6 +262,11 @@ export default function UsersAnalyticsPanel({ style, className }) {
      */
     const buckets = Array.isArray(activity) ? activity : [];
 
+    // Defensive: if backend returns malformed buckets (e.g., missing keys), treat as empty.
+    // This prevents a misleading single-bar render when keys are blank.
+    const hasAnyKey = buckets.some((b) => String(b?.key ?? "").trim() !== "");
+    const safeBuckets = hasAnyKey ? buckets : [];
+
     // Normalize a single bucket coming from backend.
     const normalizeBucket = (b) => ({
       key: String(b?.key ?? ""),
@@ -272,7 +277,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
 
     // Turn backend buckets into a map for quick lookup by key.
     const bucketMap = new Map();
-    buckets.forEach((b) => {
+    safeBuckets.forEach((b) => {
       const nb = normalizeBucket(b);
       if (nb.key) bucketMap.set(nb.key, nb);
     });
@@ -328,7 +333,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
 
     // Fallback: no interval provided; keep backend order but stabilize it by key when possible.
     // Sorting avoids "random" order when backend returns object keys not strictly ordered.
-    const normalized = buckets.map(normalizeBucket);
+    const normalized = safeBuckets.map(normalizeBucket);
     const sortable = normalized.every((b) => b.key !== "");
     if (!sortable) return normalized;
 
