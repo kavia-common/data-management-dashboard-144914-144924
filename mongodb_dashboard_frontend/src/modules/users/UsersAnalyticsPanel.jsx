@@ -37,6 +37,16 @@ function buildUniqueUserLabel(baseLabel, userId, index, seen) {
 }
 
 /**
+ * Truncate a label for compact axis tick rendering.
+ * Keeps the original available for native browser tooltips (title attr) and accessibility.
+ */
+function truncateLabel(label, maxChars) {
+  const s = String(label ?? "");
+  if (s.length <= maxChars) return s;
+  return `${s.slice(0, Math.max(0, maxChars - 1))}…`;
+}
+
+/**
  * PUBLIC_INTERFACE
  * UsersAnalyticsPanel
  * A charts/analytics panel for the Users page.
@@ -250,16 +260,60 @@ export default function UsersAnalyticsPanel({ style, className }) {
   };
 
   // Scrolling behavior:
-  // Recharts does not support "scroll" natively; instead we create a scroll container and
-  // increase chart height based on row count so the wrapper scrolls.
+  // Recharts does not support "scroll" natively; instead we create a scroll container (fixed viewport)
+  // and increase INNER chart height based on row count so the wrapper scrolls.
   const SCROLL_THRESHOLD = 20;
-  const BAR_SIZE = 20; // px per bar
-  const BAR_GAP = 10; // px gap between bars
-  const CHART_PADDING = 120; // allowance for margins/axes/legend
-  const shouldScroll = chartRows.length > SCROLL_THRESHOLD;
-  const chartHeight = shouldScroll
-    ? Math.min(1200, chartRows.length * (BAR_SIZE + BAR_GAP) + CHART_PADDING)
+
+  // Fixed viewport for the chart; the inner chart becomes taller as the dataset grows.
+  const CHART_VIEWPORT_HEIGHT = 480; // ~420–520px target window
+  const INNER_CHART_HEIGHT_CAP = 2400; // higher cap to improve readability for large sets
+
+  // Adaptive bar sizing tiers (dense sets need smaller bars/gaps to avoid excessive scroll length).
+  // Keep existing behavior but add an extra tighter tier for very large sets (>300).
+  const rowCount = chartRows.length;
+  const { barSize: BAR_SIZE, barGap: BAR_GAP } = (() => {
+    if (rowCount > 300) return { barSize: 10, barGap: 4 };
+    if (rowCount > 160) return { barSize: 12, barGap: 5 };
+    if (rowCount > 90) return { barSize: 14, barGap: 6 };
+    if (rowCount > 45) return { barSize: 16, barGap: 8 };
+    return { barSize: 20, barGap: 10 };
+  })();
+
+  const CHART_PADDING = 140; // allowance for margins/axes/legend (slightly higher with custom ticks)
+  const shouldScroll = rowCount > SCROLL_THRESHOLD;
+
+  // Inner chart height uses rows*(bar+gap)+padding and caps at a higher value.
+  // IMPORTANT: shouldScroll logic is based on chartRows.length (not raw rows).
+  const innerChartHeight = shouldScroll
+    ? Math.min(INNER_CHART_HEIGHT_CAP, rowCount * (BAR_SIZE + BAR_GAP) + CHART_PADDING)
     : 360;
+
+  // Custom Y tick renderer: truncates label to avoid overlap and provides native tooltip with full label.
+  const MAX_TICK_CHARS = 26;
+  const yTickRenderer = (tickProps) => {
+    const { x, y, payload } = tickProps || {};
+    const full = String(payload?.value ?? "");
+    const truncated = truncateLabel(full, MAX_TICK_CHARS);
+
+    // Recharts passes coordinates for text baseline; use dy to align visually with bars.
+    return (
+      <g transform={`translate(${x},${y})`}>
+        <title>{full}</title>
+        <text
+          x={0}
+          y={0}
+          dy={4}
+          textAnchor="end"
+          fill={subtle}
+          fontSize={12}
+          // Keep axis labels on one line; truncation handles overflows.
+          style={{ pointerEvents: "auto" }}
+        >
+          {truncated}
+        </text>
+      </g>
+    );
+  };
 
   return (
     <div className={className} style={{ ...style }}>
@@ -408,7 +462,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
                 ) : (
                   <div
                     style={{
-                      height: 360,
+                      height: CHART_VIEWPORT_HEIGHT,
                       overflowY: shouldScroll ? "auto" : "hidden",
                       overflowX: "hidden",
                     }}
@@ -418,12 +472,12 @@ export default function UsersAnalyticsPanel({ style, className }) {
                         : "Activity by User chart"
                     }
                   >
-                    <div style={{ width: "100%", height: chartHeight }}>
+                    <div style={{ width: "100%", height: innerChartHeight }}>
                       <ResponsiveContainer>
                         <BarChart
                           data={chartRows}
                           layout="vertical"
-                          margin={{ top: 8, right: 16, bottom: 8, left: 24 }}
+                          margin={{ top: 8, right: 16, bottom: 8, left: 18 }}
                           barCategoryGap={BAR_GAP}
                           barSize={BAR_SIZE}
                         >
@@ -436,9 +490,9 @@ export default function UsersAnalyticsPanel({ style, className }) {
                           <YAxis
                             type="category"
                             dataKey="user"
-                            width={180}
+                            width={190}
                             interval={0}
-                            tick={{ fill: subtle, fontSize: 12 }}
+                            tick={yTickRenderer}
                             tickLine={false}
                             axisLine={{ stroke: grid }}
                           />
