@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import Card from "../ui/Card.jsx";
 import DataTable from "../DataTable.jsx";
-import Tag from "../ui/Tag.jsx";
 import { listDashboardUsersAnalytics } from "../../api/baseClient";
 import { useQuickRange } from "../../modules/users/quickRangeContext";
 import { useTenantFilter } from "../../modules/users/tenantFilterContext";
@@ -11,6 +10,10 @@ import { useTenantFilter } from "../../modules/users/tenantFilterContext";
  * PUBLIC_INTERFACE
  * UsersTableByQuickRange
  * Shows a Users table aligned to the Users Analytics Quick Range selection.
+ *
+ * Enhancement:
+ * - Adds a local text search input that filters the already-fetched table rows by user name/email,
+ *   without changing the underlying backend request or impacting other modules.
  *
  * Key requirements:
  * - No hard-coded cap (e.g., 25) should trim results.
@@ -23,12 +26,14 @@ import { useTenantFilter } from "../../modules/users/tenantFilterContext";
  *   quick range (and optional tenant_id), and is not subject to the /api/users param-stripping
  *   rules that can accidentally lead to capped result sets.
  * - Pagination is handled purely by DataTable (client-side slicing) at `pageSize` items/page.
+ * - Search filtering is client-side on the already-loaded rows to avoid changing backend APIs.
  */
 export default function UsersTableByQuickRange({ pageSize = 20 }) {
   const { fromParam, toParam, label } = useQuickRange();
   const { selectedTenantId } = useTenantFilter();
 
   const [rows, setRows] = useState([]);
+  const [searchText, setSearchText] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -81,6 +86,17 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
     }));
   }, [rows]);
 
+  const filteredRows = useMemo(() => {
+    const q = String(searchText || "").trim().toLowerCase();
+    if (!q) return tableRows;
+
+    return (Array.isArray(tableRows) ? tableRows : []).filter((r) => {
+      const name = String(r?.name || "").toLowerCase();
+      const email = String(r?.email || "").toLowerCase();
+      return name.includes(q) || email.includes(q);
+    });
+  }, [tableRows, searchText]);
+
   const columns = useMemo(() => {
     return [
       {
@@ -127,9 +143,44 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
           </div>
         ) : null}
 
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+          <label style={{ flex: 1 }}>
+            <span
+              style={{
+                display: "block",
+                fontSize: 12,
+                color: "#6B7280",
+                marginBottom: 6,
+              }}
+            >
+              Search by user name
+            </span>
+            <input
+              type="text"
+              className="ui-input"
+              value={searchText}
+              placeholder="Type a name (or email)…"
+              onChange={(e) => setSearchText(e.target.value)}
+              aria-label="Search users by name"
+            />
+          </label>
+
+          {searchText ? (
+            <button
+              type="button"
+              className="ui-button"
+              onClick={() => setSearchText("")}
+              aria-label="Clear user name search"
+              style={{ whiteSpace: "nowrap" }}
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+
         <DataTable
           columns={columns}
-          data={tableRows}
+          data={filteredRows}
           loading={loading}
           pageSize={pageSize}
           initialPage={1}
