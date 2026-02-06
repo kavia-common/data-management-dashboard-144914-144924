@@ -357,7 +357,28 @@ export async function listDeployments(params = {}) {
  */
 export async function listDashboardUsersAnalytics(params = {}, options = {}) {
   const res = await httpGet("/api/dashboard/users", { params, signal: options?.signal });
-  return Array.isArray(res.data) ? res.data : [];
+
+  // Backward compatible parsing:
+  // - Old backend shape: Array<perUserRow>
+  // - New backend shape: { success, interval, activity: [...], users: [...] }
+  if (Array.isArray(res.data)) {
+    return { activity: null, users: res.data, interval: null, meta: null };
+  }
+
+  const activity = Array.isArray(res.data?.activity) ? res.data.activity : null;
+  const users = Array.isArray(res.data?.users) ? res.data.users : [];
+  const interval = typeof res.data?.interval === "string" ? res.data.interval : null;
+
+  return {
+    activity,
+    users,
+    interval,
+    meta: {
+      from: res.data?.from || null,
+      to: res.data?.to || null,
+      success: !!res.data?.success,
+    },
+  };
 }
 
 /**

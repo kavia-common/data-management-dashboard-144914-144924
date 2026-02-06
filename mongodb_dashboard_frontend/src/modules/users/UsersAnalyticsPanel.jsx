@@ -151,6 +151,9 @@ export default function UsersAnalyticsPanel({ style, className }) {
   }, []);
 
   // Single aggregated fetch (no per-user calls)
+  const [activity, setActivity] = useState(null);
+  const [interval, setInterval] = useState(null);
+
   useEffect(() => {
     const controller = new AbortController();
 
@@ -166,11 +169,24 @@ export default function UsersAnalyticsPanel({ style, className }) {
           },
           { signal: controller.signal }
         );
-        setRows(Array.isArray(data) ? data : []);
+
+        // New shape: { activity, users, interval }
+        if (data && typeof data === "object" && ("users" in data || "activity" in data)) {
+          setRows(Array.isArray(data.users) ? data.users : []);
+          setActivity(Array.isArray(data.activity) ? data.activity : null);
+          setInterval(typeof data.interval === "string" ? data.interval : null);
+        } else {
+          // Safety fallback (should not happen)
+          setRows(Array.isArray(data) ? data : []);
+          setActivity(null);
+          setInterval(null);
+        }
       } catch (e) {
         if (e?.name !== "AbortError") {
           setErr(e?.message || "Failed to load users analytics.");
           setRows([]);
+          setActivity(null);
+          setInterval(null);
         }
       } finally {
         setLoading(false);
@@ -215,24 +231,34 @@ export default function UsersAnalyticsPanel({ style, className }) {
       // eslint-disable-next-line no-console
       console.debug("[UsersAnalyticsPanel] tenant:", selectedTenantId || "(all)");
       // eslint-disable-next-line no-console
-      console.debug("[UsersAnalyticsPanel] rows length:", rows?.length ?? 0);
+      console.debug("[UsersAnalyticsPanel] per-user rows length:", rows?.length ?? 0);
       // eslint-disable-next-line no-console
-      console.debug("[UsersAnalyticsPanel] chartRows length:", mapped.length);
+      console.debug("[UsersAnalyticsPanel] activity buckets length:", activity?.length ?? 0);
       // eslint-disable-next-line no-console
-      console.debug(
-        "[UsersAnalyticsPanel] first 10 labels:",
-        mapped.slice(0, 10).map((x) => x.user)
-      );
+      console.debug("[UsersAnalyticsPanel] interval:", interval || "(none)");
     }
 
     return mapped;
-  }, [rows, selection.mode, selection.quickValue, fromParam, toParam, selectedTenantId]);
+  }, [rows, selection.mode, selection.quickValue, fromParam, toParam, selectedTenantId, activity, interval]);
 
   const totalSessionsKpi = useMemo(() => {
     // Compute from the same server-returned per-user rows used by the panel.
     // This ensures alignment with the selected quick range + tenant filter.
     return (rows || []).reduce((sum, r) => sum + Number(r?.totalSessions || 0), 0);
   }, [rows]);
+
+  const activityChartData = useMemo(() => {
+    // Backend-driven aggregation for the "Activity by User" chart:
+    // interval=hour => labels "00".."23"
+    // interval=day  => labels "1".."31"
+    // interval=month => labels "Jan".."Dec"
+    return (Array.isArray(activity) ? activity : []).map((b) => ({
+      label: String(b?.label ?? ""),
+      sessions: Number(b?.sessions ?? 0),
+      users: Number(b?.users ?? 0),
+      key: String(b?.key ?? ""),
+    }));
+  }, [activity]);
 
   // Theme colors
   const primary = "#2563EB";
@@ -388,7 +414,13 @@ export default function UsersAnalyticsPanel({ style, className }) {
               <div className="card-header" style={{ paddingBottom: 0 }}>
                 <h4 className="card-title">Activity by User</h4>
                 <div className="card-subtitle">
-                  Sessions and Projects (computed server-side; sorted by last activity)
+                  {interval === "hour"
+                    ? "Hourly activity (00–23)"
+                    : interval === "day"
+                      ? "Daily activity (by date)"
+                      : interval === "month"
+                        ? "Monthly activity (Jan–Dec)"
+                        : "Activity (server-aggregated)"}
                 </div>
               </div>
 
@@ -403,154 +435,99 @@ export default function UsersAnalyticsPanel({ style, className }) {
                   <div className="error" role="alert">
                     {err}
                   </div>
-                ) : chartRows.length === 0 ? (
+                ) : activityChartData.length === 0 ? (
                   <div className="screen-center">No analytics data</div>
                 ) : (
-                  <div
-                    style={{
-                      height: 360,
-                      overflowY: shouldScroll ? "auto" : "hidden",
-                      overflowX: "hidden",
-                    }}
-                    aria-label={
-                      shouldScroll
-                        ? "Scrollable Activity by User chart (more than 20 users)"
-                        : "Activity by User chart"
-                    }
-                  >
-                    <div style={{ width: "100%", height: chartHeight }}>
-                      <ResponsiveContainer>
-                        <BarChart
-                          data={chartRows}
-                          layout="vertical"
-                          margin={{ top: 8, right: 16, bottom: 8, left: 24 }}
-                          barCategoryGap={BAR_GAP}
-                          barSize={BAR_SIZE}
-                        >
-                          <CartesianGrid strokeDasharray="3 3" stroke={grid} />
-                          <XAxis
-                            type="number"
-                            tick={{ fill: subtle, fontSize: 12 }}
-                            allowDecimals={false}
-                          />
-                          <YAxis
-                            type="category"
-                            dataKey="user"
-                            width={180}
-                            interval={0}
-                            tick={{ fill: subtle, fontSize: 12 }}
-                            tickLine={false}
-                            axisLine={{ stroke: grid }}
-                          />
-                          <Tooltip
-                            content={({ active, payload, label }) => {
-                              if (!active || !Array.isArray(payload) || payload.length === 0)
-                                return null;
-                              const row = payload?.[0]?.payload || {};
-                              const sessions = Number.isFinite(Number(row?.totalSessions))
-                                ? Number(row.totalSessions)
-                                : 0;
-                              const projects = Number.isFinite(Number(row?.distinctProjects))
-                                ? Number(row.distinctProjects)
-                                : 0;
+                  <div style={{ width: "100%", height: 360 }} aria-label="Activity by User chart">
+                    <ResponsiveContainer>
+                      <BarChart
+                        data={activityChartData}
+                        margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
+                        barCategoryGap={12}
+                        barSize={18}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke={grid} />
+                        <XAxis
+                          dataKey="label"
+                          tick={{ fill: subtle, fontSize: 12 }}
+                          interval="preserveStartEnd"
+                          tickLine={false}
+                          axisLine={{ stroke: grid }}
+                        />
+                        <YAxis
+                          tick={{ fill: subtle, fontSize: 12 }}
+                          allowDecimals={false}
+                          tickLine={false}
+                          axisLine={{ stroke: grid }}
+                        />
+                        <Tooltip
+                          content={({ active, payload, label }) => {
+                            if (!active || !Array.isArray(payload) || payload.length === 0) return null;
+                            const row = payload?.[0]?.payload || {};
+                            const sessions = Number.isFinite(Number(row?.sessions)) ? Number(row.sessions) : 0;
+                            const users = Number.isFinite(Number(row?.users)) ? Number(row.users) : 0;
 
-                              return (
+                            return (
+                              <div
+                                style={{
+                                  background: "#ffffff",
+                                  border: "1px solid #E5E7EB",
+                                  borderRadius: 8,
+                                  padding: "10px 12px",
+                                  boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
+                                  color: "#111827",
+                                  fontSize: 12,
+                                  lineHeight: 1.35,
+                                }}
+                              >
+                                <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
+
                                 <div
                                   style={{
-                                    background: "#ffffff",
-                                    border: "1px solid #E5E7EB",
-                                    borderRadius: 8,
-                                    padding: "10px 12px",
-                                    boxShadow: "0 8px 24px rgba(0,0,0,0.08)",
-                                    color: "#111827",
-                                    fontSize: 12,
-                                    lineHeight: 1.35,
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    gap: 12,
                                   }}
                                 >
-                                  <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
-
-                                  <div
-                                    style={{
-                                      display: "flex",
-                                      justifyContent: "space-between",
-                                      gap: 12,
-                                    }}
-                                  >
-                                    <span style={{ color: "#6B7280" }}>Sessions:</span>
-                                    <span style={{ fontWeight: 600 }}>{sessions}</span>
-                                  </div>
-
-                                  <div
-                                    style={{
-                                      display: "flex",
-                                      justifyContent: "space-between",
-                                      gap: 12,
-                                      marginTop: 4,
-                                    }}
-                                  >
-                                    <span style={{ color: "#6B7280" }}>Projects:</span>
-                                    <span style={{ fontWeight: 600 }}>{projects}</span>
-                                  </div>
-
-                                  {row?.lastActivityAt ? (
-                                    <div style={{ marginTop: 6, color: "#6B7280" }}>
-                                      Last activity:{" "}
-                                      <span style={{ color: "#111827" }}>
-                                        {new Date(row.lastActivityAt).toLocaleString()}
-                                      </span>
-                                    </div>
-                                  ) : null}
+                                  <span style={{ color: "#6B7280" }}>Sessions:</span>
+                                  <span style={{ fontWeight: 600 }}>{sessions}</span>
                                 </div>
-                              );
-                            }}
-                          />
-                          <Legend />
-                          <Bar
-                            dataKey="totalSessions"
-                            name="Sessions"
-                            fill={primary}
-                            stroke={primary}
-                            radius={[0, 6, 6, 0]}
-                          >
-                            <LabelList
-                              dataKey="userRaw"
-                              position="insideLeft"
-                              content={(props) => {
-                                const { x, y, height, value } = props || {};
-                                // Render nothing visually; we only want the native tooltip via <title>.
-                                // This keeps chart clean but provides full-name hover for truncated labels.
-                                if (typeof x !== "number" || typeof y !== "number") return null;
-                                const cx = x + 4;
-                                const cy = y + height / 2;
 
-                                return (
-                                  <g>
-                                    <title>{String(value || "")}</title>
-                                    <text
-                                      x={cx}
-                                      y={cy}
-                                      dominantBaseline="middle"
-                                      textAnchor="start"
-                                      fill="transparent"
-                                      fontSize={1}
-                                    >
-                                      {String(value || "")}
-                                    </text>
-                                  </g>
-                                );
-                              }}
-                            />
-                          </Bar>
-                          <Bar
-                            dataKey="distinctProjects"
-                            name="Projects"
-                            fill={secondary}
-                            stroke={secondary}
-                            radius={[0, 6, 6, 0]}
-                          />
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    justifyContent: "space-between",
+                                    gap: 12,
+                                    marginTop: 4,
+                                  }}
+                                >
+                                  <span style={{ color: "#6B7280" }}>Users:</span>
+                                  <span style={{ fontWeight: 600 }}>{users}</span>
+                                </div>
+                              </div>
+                            );
+                          }}
+                        />
+                        <Legend />
+                        {/* Keep existing colors and stacked behavior */}
+                        <Bar
+                          dataKey="sessions"
+                          name="Sessions"
+                          fill={primary}
+                          stroke={primary}
+                          stackId="a"
+                          radius={[6, 6, 0, 0]}
+                        />
+                        <Bar
+                          dataKey="users"
+                          name="Users"
+                          fill={secondary}
+                          stroke={secondary}
+                          stackId="a"
+                          radius={[6, 6, 0, 0]}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
                   </div>
                 )}
               </div>
