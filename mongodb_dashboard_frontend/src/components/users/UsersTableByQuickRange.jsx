@@ -165,17 +165,19 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
             />
           </label>
 
-          {searchText ? (
-            <button
-              type="button"
-              className="ui-button"
-              onClick={() => setSearchText("")}
-              aria-label="Clear user name search"
-              style={{ whiteSpace: "nowrap" }}
-            >
-              Clear
-            </button>
-          ) : null}
+          {/*
+{searchText ? (
+  <button
+    type="button"
+    className="ui-button"
+    onClick={() => setSearchText("")}
+    aria-label="Clear user name search"
+    style={{ whiteSpace: "nowrap" }}
+  >
+    Clear
+  </button>
+) : null}
+*/}
         </div>
 
         <DataTable
