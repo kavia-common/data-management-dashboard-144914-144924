@@ -81,27 +81,15 @@ export default function ProjectsServiceTypeBarChart({
     params.set('organization_id', organizationId);
 
     try {
-      // IMPORTANT (CORS fix - scoped to this endpoint only):
-      // Force a same-origin request so CRA dev/prod routing (and setupProxy in dev) can handle it
-      // without triggering cross-origin CORS checks. We intentionally do NOT use apiGet here
-      // because apiGet may resolve to an absolute backend host for some configs.
-      const res = await fetch(`/api/service-type/summary?${params.toString()}`, {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
+      // IMPORTANT (preview/proxy fix - scoped to this endpoint only):
+      // Use the shared apiGet() resolver so this call behaves like the rest of the app:
+      // - In preview/prod: stays on the correct origin (no localhost proxy issues)
+      // - In CRA dev: routes via /api and setupProxy when configured
+      // We pass a relative path (no leading /api) because apiGet() ensures a single /api prefix.
+      const res = await apiGet(`/service-type/summary?${params.toString()}`, {
         // Keep cookies aligned with other session-aware endpoints if backend uses them.
         credentials: 'include',
-      }).then(async (r) => {
-        const contentType = r.headers.get('content-type') || '';
-        const payload = contentType.includes('application/json') ? await r.json() : await r.text();
-        if (!r.ok) {
-          const message =
-            (payload && typeof payload === 'object' && (payload.message || payload.detail)) ||
-            (typeof payload === 'string' ? payload : `Request failed (${r.status})`);
-          throw new Error(message);
-        }
-        return payload;
       });
-
 
       let nextLabels = null;
       let nextSeries = null;
