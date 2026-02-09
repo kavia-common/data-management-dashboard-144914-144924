@@ -37,6 +37,66 @@ function buildUniqueUserLabel(baseLabel, userId, index, seen) {
 }
 
 /**
+ * Normalize an hourly bucket key to an integer hour in [0..23].
+ * Accepts:
+ *  - numbers: 0..23
+ *  - strings: "0", "00", "23", "23:00", "2026-01-01T23:00:00Z" (best effort)
+ *
+ * Returns null when the value cannot be interpreted as an hour.
+ */
+function toHourInt(value) {
+  if (value === null || value === undefined) return null;
+
+  if (typeof value === "number" && Number.isFinite(value)) {
+    const h = Math.trunc(value);
+    return h >= 0 && h <= 23 ? h : null;
+  }
+
+  const s = String(value).trim();
+  if (!s) return null;
+
+  // Common: "00".."23" or "0".."23"
+  if (/^\d{1,2}$/.test(s)) {
+    const h = Number(s);
+    return Number.isFinite(h) && h >= 0 && h <= 23 ? h : null;
+  }
+
+  // Common: "HH:..." (e.g., "23:00", "23:15")
+  const m = s.match(/^(\d{1,2}):/);
+  if (m) {
+    const h = Number(m[1]);
+    return Number.isFinite(h) && h >= 0 && h <= 23 ? h : null;
+  }
+
+  // ISO-ish: "...THH:..." (e.g., "2026-02-09T23:00:00Z")
+  const iso = s.match(/T(\d{2}):/);
+  if (iso) {
+    const h = Number(iso[1]);
+    return Number.isFinite(h) && h >= 0 && h <= 23 ? h : null;
+  }
+
+  return null;
+}
+
+function formatHourLabel(hourInt) {
+  const h = typeof hourInt === "number" ? hourInt : Number(hourInt);
+  if (!Number.isFinite(h)) return String(hourInt ?? "");
+  return String(Math.trunc(h)).padStart(2, "0");
+}
+
+/**
+ * Decide which hour ticks to show on the X-axis to avoid crowding.
+ * Returns an array of numeric hour values that must match the X axis `dataKey` values.
+ */
+function buildHourTicks() {
+  // Show every 2 hours. Keep ends included (00 and 23) by appending 23 if needed.
+  const ticks = [];
+  for (let h = 0; h <= 23; h += 2) ticks.push(h);
+  if (ticks[ticks.length - 1] !== 23) ticks.push(23);
+  return ticks;
+}
+
+/**
  * PUBLIC_INTERFACE
  * UsersAnalyticsPanel
  * A charts/analytics panel for the Users page.
@@ -176,7 +236,9 @@ export default function UsersAnalyticsPanel({ style, className }) {
         if (data && typeof data === "object" && ("users" in data || "activity" in data)) {
           setRows(Array.isArray(data.users) ? data.users : []);
           setActivity(Array.isArray(data.activity) ? data.activity : null);
-          setActivityByUser(data.activityByUser && typeof data.activityByUser === "object" ? data.activityByUser : null);
+          setActivityByUser(
+            data.activityByUser && typeof data.activityByUser === "object" ? data.activityByUser : null
+          );
           setActivityMode(typeof data.mode === "string" ? data.mode : null);
           setInterval(typeof data.interval === "string" ? data.interval : null);
         } else {
@@ -281,19 +343,58 @@ export default function UsersAnalyticsPanel({ style, className }) {
      */
     const isPerUser = activityMode === "per_user" && activityByUser && typeof activityByUser === "object";
 
-    // Helper: template bucket keys for consistent axis spacing (same as before)
-    const templateKeys = () => {
-      if (interval === "hour") return Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
-      if (interval === "month") return Array.from({ length: 12 }, (_, i) => String(i + 1));
-      if (interval === "day") return Array.from({ length: 31 }, (_, i) => String(i + 1));
-      // Fallback (unknown interval): no templating
-      return null;
-    };
-
     if (isPerUser) {
       const buckets = Array.isArray(activityByUser?.buckets) ? activityByUser.buckets : [];
       const series = Array.isArray(activityByUser?.series) ? activityByUser.series : [];
 
+      /**
+       * IMPORTANT (hourly mode):
+       * - Normalize any backend bucket keys to [0..23] hour integers
+       * - Enforce numeric sorting to guarantee 00..23 ordering
+       * - Keep labels stable but display as 00..23
+       */
+      if (interval === "hour") {
+        const labelByHour = new Map(); // hourInt -> label
+        buckets.forEach((b) => {
+          const hour = toHourInt(b?.key);
+          if (hour === null) return;
+          const lblRaw = b?.label ?? b?.key;
+          // Always render hour labels as 2-digit; ignore any verbose label coming from backend
+          labelByHour.set(hour, formatHourLabel(hour));
+        });
+
+        // Build templated 0..23 axis
+        const hourKeys = Array.from({ length: 24 }, (_, h) => h);
+
+        return hourKeys.map((hour) => {
+          const row = {
+            // Recharts XAxis uses this numeric value for proper ordering
+            key: hour,
+            label: labelByHour.get(hour) ?? formatHourLabel(hour),
+          };
+
+          series.forEach((s) => {
+            const uid = String(s?.userId ?? "").trim();
+            if (!uid) return;
+
+            // sessionsByKey might be keyed as "0"/"00"/"23" etc. Normalize to hour.
+            let v = 0;
+            const sbk = s?.sessionsByKey && typeof s.sessionsByKey === "object" ? s.sessionsByKey : null;
+            if (sbk) {
+              Object.entries(sbk).forEach(([k, val]) => {
+                const h = toHourInt(k);
+                if (h === hour) v = Number(val || 0);
+              });
+            }
+
+            row[uid] = Number(v || 0);
+          });
+
+          return row;
+        });
+      }
+
+      // Non-hour intervals: preserve existing formatting (only ensure stable axis templating where applicable).
       // Bucket label map (key -> label)
       const labelByKey = new Map();
       buckets.forEach((b) => {
@@ -302,6 +403,13 @@ export default function UsersAnalyticsPanel({ style, className }) {
         labelByKey.set(k, String(b?.label ?? k));
       });
 
+      const templateKeys = () => {
+        if (interval === "month") return Array.from({ length: 12 }, (_, i) => String(i + 1));
+        if (interval === "day") return Array.from({ length: 31 }, (_, i) => String(i + 1));
+        // Fallback (unknown interval): no templating
+        return null;
+      };
+
       const templated = templateKeys();
       const bucketKeys = templated || Array.from(labelByKey.keys());
 
@@ -309,15 +417,20 @@ export default function UsersAnalyticsPanel({ style, className }) {
       return bucketKeys.map((key) => {
         const row = {
           key,
-          label: labelByKey.get(key) ?? (interval === "month"
-            ? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(key) - 1] || key
-            : key),
+          label:
+            labelByKey.get(key) ??
+            (interval === "month"
+              ? ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][
+                  Number(key) - 1
+                ] || key
+              : key),
         };
 
         series.forEach((s) => {
           const uid = String(s?.userId ?? "").trim();
           if (!uid) return;
-          const v = s?.sessionsByKey && typeof s.sessionsByKey === "object" ? s.sessionsByKey[key] : 0;
+          const v =
+            s?.sessionsByKey && typeof s.sessionsByKey === "object" ? s.sessionsByKey[key] : 0;
           row[uid] = Number(v || 0);
         });
 
@@ -334,6 +447,40 @@ export default function UsersAnalyticsPanel({ style, className }) {
     const hasAnyKey = buckets.some((b) => String(b?.key ?? "").trim() !== "");
     const safeBuckets = hasAnyKey ? buckets : [];
 
+    /**
+     * IMPORTANT (hourly mode):
+     * - Normalize bucket keys to hourInt [0..23]
+     * - Enforce 0..23 templating
+     * - Ensure label is always 00..23
+     */
+    if (interval === "hour") {
+      const byHour = new Map(); // hourInt -> { sessions, users, label }
+      safeBuckets.forEach((b) => {
+        const hour = toHourInt(b?.key);
+        if (hour === null) return;
+
+        const sessions = Number(b?.sessions ?? 0);
+        const users = Number(b?.users ?? 0);
+
+        const existing = byHour.get(hour) || { sessions: 0, users: 0 };
+        byHour.set(hour, {
+          sessions: existing.sessions + (Number.isFinite(sessions) ? sessions : 0),
+          users: existing.users + (Number.isFinite(users) ? users : 0),
+        });
+      });
+
+      return Array.from({ length: 24 }, (_, hour) => {
+        const existing = byHour.get(hour);
+        return {
+          key: hour,
+          label: formatHourLabel(hour),
+          sessions: existing ? existing.sessions : 0,
+          users: existing ? existing.users : 0,
+        };
+      });
+    }
+
+    // Non-hour intervals: preserve existing behavior/formatting.
     const normalizeBucket = (b) => ({
       key: String(b?.key ?? ""),
       label: String(b?.label ?? ""),
@@ -346,19 +493,6 @@ export default function UsersAnalyticsPanel({ style, className }) {
       const nb = normalizeBucket(b);
       if (nb.key) bucketMap.set(nb.key, nb);
     });
-
-    if (interval === "hour") {
-      return Array.from({ length: 24 }, (_, i) => {
-        const key = String(i).padStart(2, "0");
-        const existing = bucketMap.get(key);
-        return {
-          key,
-          label: existing?.label ? String(existing.label) : key,
-          sessions: existing ? existing.sessions : 0,
-          users: existing ? existing.users : 0,
-        };
-      });
-    }
 
     if (interval === "month") {
       const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -409,6 +543,10 @@ export default function UsersAnalyticsPanel({ style, className }) {
         return String(a.key).localeCompare(String(b.key));
       });
   }, [activity, activityByUser, activityMode, interval]);
+
+  const hourTicks = useMemo(() => {
+    return interval === "hour" ? buildHourTicks() : undefined;
+  }, [interval]);
 
   // Theme colors
   const primary = "#2563EB";
@@ -600,14 +738,15 @@ export default function UsersAnalyticsPanel({ style, className }) {
                         <XAxis
                           dataKey="key"
                           tick={{ fill: subtle, fontSize: 12 }}
-                          interval={interval === "hour" ? 1 : "preserveStartEnd"}
-                          minTickGap={interval === "hour" ? 8 : 12}
                           tickLine={false}
                           axisLine={{ stroke: grid }}
+                          ticks={hourTicks}
+                          interval={interval === "hour" ? "preserveStartEnd" : "preserveStartEnd"}
+                          minTickGap={interval === "hour" ? 10 : 12}
                           tickFormatter={(value) => {
+                            if (interval === "hour") return formatHourLabel(value);
                             const row = activityChartData.find((d) => String(d.key) === String(value));
                             const lbl = row?.label ?? value;
-                            if (interval === "hour") return String(lbl).padStart(2, "0");
                             return String(lbl);
                           }}
                         />
@@ -630,6 +769,9 @@ export default function UsersAnalyticsPanel({ style, className }) {
 
                               const total = payload.reduce((sum, p) => sum + Number(p?.value || 0), 0);
 
+                              const tooltipLabel =
+                                interval === "hour" ? formatHourLabel(label) : String(label ?? "");
+
                               return (
                                 <div
                                   style={{
@@ -644,7 +786,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
                                     maxWidth: 280,
                                   }}
                                 >
-                                  <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
+                                  <div style={{ fontWeight: 600, marginBottom: 6 }}>{tooltipLabel}</div>
                                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                                     <span style={{ color: "#6B7280" }}>Total sessions:</span>
                                     <span style={{ fontWeight: 600 }}>{total}</span>
@@ -681,6 +823,9 @@ export default function UsersAnalyticsPanel({ style, className }) {
                             const sessions = Number.isFinite(Number(row?.sessions)) ? Number(row.sessions) : 0;
                             const users = Number.isFinite(Number(row?.users)) ? Number(row.users) : 0;
 
+                            const tooltipLabel =
+                              interval === "hour" ? formatHourLabel(label) : String(label ?? "");
+
                             return (
                               <div
                                 style={{
@@ -694,7 +839,7 @@ export default function UsersAnalyticsPanel({ style, className }) {
                                   lineHeight: 1.35,
                                 }}
                               >
-                                <div style={{ fontWeight: 600, marginBottom: 6 }}>{label}</div>
+                                <div style={{ fontWeight: 600, marginBottom: 6 }}>{tooltipLabel}</div>
 
                                 <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                                   <span style={{ color: "#6B7280" }}>Sessions:</span>
