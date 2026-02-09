@@ -193,6 +193,14 @@ export default function TabbedUserModal({
   from,
   to,
 }) {
+  // Hooks MUST be called unconditionally and in a consistent order.
+  // Keep org/tenant resolution at the top-level and pass derived values down.
+  const currentOrgId = useCurrentOrgId();
+  const effectiveOrgId = useMemo(
+    () => resolveEffectiveTenantForUser(user, currentOrgId),
+    [user, currentOrgId]
+  );
+
   const [activeTab, setActiveTab] = useState(defaultTab);
   useEffect(() => {
     if (open) setActiveTab(defaultTab);
@@ -261,13 +269,7 @@ export default function TabbedUserModal({
   };
 
   // Session Details Tab
-  function SessionDetailsTab({ userId }) {
-    const currentOrgId = useCurrentOrgId();
-    const effectiveOrgId = useMemo(
-      () => resolveEffectiveTenantForUser(user, currentOrgId),
-      [currentOrgId]
-    );
-
+  function SessionDetailsTab({ userId, effectiveOrgId }) {
     const [sessionDetails, setSessionDetails] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -490,16 +492,13 @@ export default function TabbedUserModal({
       </div>
     );
   }
-  SessionDetailsTab.propTypes = { userId: PropTypes.string };
+  SessionDetailsTab.propTypes = {
+    userId: PropTypes.string,
+    effectiveOrgId: PropTypes.string,
+  };
 
   // Credits Consumed Tab
-  function CreditsConsumedTab({ isActive }) {
-    const currentOrgId = useCurrentOrgId();
-    const effectiveOrgId = useMemo(
-      () => resolveEffectiveTenantForUser(user, currentOrgId),
-      [currentOrgId]
-    );
-
+  function CreditsConsumedTab({ isActive, currentOrgId, effectiveOrgId }) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
@@ -648,6 +647,8 @@ export default function TabbedUserModal({
   }
   CreditsConsumedTab.propTypes = {
     isActive: PropTypes.bool,
+    currentOrgId: PropTypes.string,
+    effectiveOrgId: PropTypes.string,
   };
 
   return (
@@ -668,12 +669,20 @@ export default function TabbedUserModal({
         <div style={{ padding: 20 }}>
           {activeTab === 'details' && <UserDetailsView user={user} />}
           {activeTab === 'projects' && <ProjectDetails selectedUser={user || null} />}
-          {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
-          {activeTab === 'credits' && <CreditsConsumedTab isActive={activeTab === 'credits'} />}
+          {activeTab === 'sessions' && (
+            <SessionDetailsTab userId={userId} effectiveOrgId={effectiveOrgId} />
+          )}
+          {activeTab === 'credits' && (
+            <CreditsConsumedTab
+              isActive={activeTab === 'credits'}
+              currentOrgId={currentOrgId}
+              effectiveOrgId={effectiveOrgId}
+            />
+          )}
           {activeTab === 'analytics' && (
             <UsersAnalyticsPanelModal
               userId={userId}
-              tenantId={resolveEffectiveTenantForUser(user, useCurrentOrgId())}
+              tenantId={effectiveOrgId}
               from={from}
               to={to}
             />
