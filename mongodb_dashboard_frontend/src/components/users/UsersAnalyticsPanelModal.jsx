@@ -68,7 +68,15 @@ export default function UsersAnalyticsPanelModal({ userId, tenantId, from, to })
       setLoading(true);
       setErr("");
       try {
-        const sessResp = await listSessions({ page: 1, limit: 500, sort: "-last_updated" });
+        const sessResp = await listSessions({
+          page: 1,
+          limit: 500,
+          sort: "-last_updated",
+          // IMPORTANT: listSessions (session-tracking) scopes by tenant_id query param.
+          // When viewing a user while logged in as Super Admin (T0000), we must scope
+          // to the selected user's tenant; otherwise we get empty results.
+          ...(tenantId ? { tenant_id: tenantId } : {}),
+        });
 
         const normalizedUserId = String(userId);
 

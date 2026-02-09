@@ -12,6 +12,7 @@ import { getUserSessionDetails } from '../../api/users';
 import { fetchLlmCostsUnderscore } from '../../api/llmCostsUnderscore';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
+import { resolveEffectiveTenantForUser } from '../../utils/resolveEffectiveTenantForUser';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
 import ProjectDetails from './ProjectDetails.jsx';
 
@@ -262,6 +263,10 @@ export default function TabbedUserModal({
   // Session Details Tab
   function SessionDetailsTab({ userId }) {
     const currentOrgId = useCurrentOrgId();
+    const effectiveOrgId = useMemo(
+      () => resolveEffectiveTenantForUser(user, currentOrgId),
+      [currentOrgId]
+    );
 
     const [sessionDetails, setSessionDetails] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -274,8 +279,10 @@ export default function TabbedUserModal({
       setError('');
 
       try {
-        // Pass organization_id when available (required in some demo/non-JWT contexts)
-        const params = currentOrgId ? { organization_id: currentOrgId } : {};
+        // IMPORTANT:
+        // In Super Admin (T0000), scope to the selected user's tenant if available.
+        // Otherwise, normal tenants use currentOrgId.
+        const params = effectiveOrgId ? { organization_id: effectiveOrgId } : {};
         const data = await getUserSessionDetails(userId, params);
         setSessionDetails(data || null);
       } catch (e) {
@@ -289,7 +296,7 @@ export default function TabbedUserModal({
     useEffect(() => {
       load();
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [userId, currentOrgId]);
+    }, [userId, effectiveOrgId]);
 
     const AggregatesPanel = () => {
       if (loading) {
@@ -488,20 +495,24 @@ export default function TabbedUserModal({
   // Credits Consumed Tab
   function CreditsConsumedTab({ isActive }) {
     const currentOrgId = useCurrentOrgId();
+    const effectiveOrgId = useMemo(
+      () => resolveEffectiveTenantForUser(user, currentOrgId),
+      [currentOrgId]
+    );
 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    // Tenant-aware: indicate whether the active tenant has ANY costs at all (any user).
+    // Tenant-aware: indicate whether the effective tenant has ANY costs at all (any user).
     const [tenantHasAnyCosts, setTenantHasAnyCosts] = useState(false);
 
-    // Per-user: only show the current user's total cost inside the active tenant.
+    // Per-user: only show the current user's total cost inside the effective tenant.
     const [currentUserTotalCostUsd, setCurrentUserTotalCostUsd] = useState(0);
 
     // Fetch on tab activation; avoid refetch loops while tab remains active.
     // Include both tenant (org) and user in the cache key so switching users re-fetches.
     const lastLoadedKeyRef = useRef('');
-    const effectiveKey = `${String(currentOrgId || '')}::${String(
+    const effectiveKey = `${String(effectiveOrgId || '')}::${String(
       userId || ''
     )}::credits-consumed`;
 
@@ -511,11 +522,12 @@ export default function TabbedUserModal({
 
       try {
         // Per requirement/attachment: call /api/llm_costs?page=1&limit=10 when tab opens.
-        // Tenant-aware: scope to currentOrgId via query + header (handled in api wrapper).
+        // IMPORTANT:
+        // In Super Admin (T0000), scope to the selected user's tenant if available.
         const data = await fetchLlmCostsUnderscore({
           page: 1,
           limit: 10,
-          organizationId: currentOrgId || undefined,
+          organizationId: effectiveOrgId || undefined,
         });
 
         const arr = Array.isArray(data?.data) ? data.data : [];
@@ -554,7 +566,7 @@ export default function TabbedUserModal({
       if (!isActive) return;
 
       // If org isn't available yet, allow a future activation to fetch.
-      if (!currentOrgId) {
+      if (!effectiveOrgId) {
         lastLoadedKeyRef.current = '';
         return;
       }
@@ -570,7 +582,7 @@ export default function TabbedUserModal({
         load();
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [isActive, effectiveKey, currentOrgId, userId]);
+    }, [isActive, effectiveKey, effectiveOrgId, userId]);
 
     const valueStyle = {
       fontSize: 22,
@@ -659,7 +671,12 @@ export default function TabbedUserModal({
           {activeTab === 'sessions' && <SessionDetailsTab userId={userId} />}
           {activeTab === 'credits' && <CreditsConsumedTab isActive={activeTab === 'credits'} />}
           {activeTab === 'analytics' && (
-            <UsersAnalyticsPanelModal userId={userId} tenantId={tenantId} from={from} to={to} />
+            <UsersAnalyticsPanelModal
+              userId={userId}
+              tenantId={resolveEffectiveTenantForUser(user, useCurrentOrgId())}
+              from={from}
+              to={to}
+            />
           )}
         </div>
       </div>
