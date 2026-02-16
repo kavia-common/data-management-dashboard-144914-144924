@@ -79,11 +79,23 @@ function computeParams(selection) {
 function computeLabel(fromParam, toParam) {
   try {
     if (!fromParam && !toParam) return "Today";
+
+    /**
+     * IMPORTANT:
+     * Quick ranges compute UTC day bounds (00:00:00.000Z .. 23:59:59.999Z).
+     * If we format these in the user's local timezone, the UTC end-of-day can roll over
+     * to the next local day (e.g., UTC+05:30 shows "tomorrow"), producing labels like:
+     *   "16 Feb 2026 – 17 Feb 2026"
+     * even though the range is intended to be "today" in UTC.
+     *
+     * Fix: format the label in UTC to match the actual range semantics we send to the API.
+     */
     const fmt = (d) =>
       d.toLocaleDateString(undefined, {
         year: "numeric",
         month: "short",
         day: "numeric",
+        timeZone: "UTC",
       });
 
     const isYmd = (v) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v);
