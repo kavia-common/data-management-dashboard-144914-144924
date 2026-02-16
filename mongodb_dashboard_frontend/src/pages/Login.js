@@ -107,12 +107,13 @@ export default function Login() {
     } catch (e) {
       console.error('Login error', e);
       const status = e?.status;
-      if (status === 401 || status === 403) {
-        setError('Invalid credentials. Please check your email, organization, and password.');
-      } else if (status === 404) {
-        setError('Login endpoint not found or user not found.');
+
+      // Required UX: "Login failed: 401: Invalid username or password"
+      if (status) {
+        const message = e?.message || 'Login failed';
+        setError(`Login failed: ${status}: ${message}`);
       } else {
-        setError(e.message || 'Login failed. Please try again.');
+        setError(e?.message || 'Login failed. Please try again.');
       }
     } finally {
       setLoadingLogin(false);

@@ -83,6 +83,7 @@ export async function loginWithOrgEmailPassword({ organizationId, email, passwor
   }
 
   if (!res.ok) {
+    // Prefer backend's explicit message (e.g. "Invalid username or password")
     const baseMsg =
       typeof payload === "string"
         ? payload
@@ -92,12 +93,8 @@ export async function loginWithOrgEmailPassword({ organizationId, email, passwor
             : null) ||
           `Login failed (${res.status})`;
 
-    const msg =
-      res.status === 500
-        ? `${baseMsg}. The server reported an internal error.`
-        : baseMsg;
-
-    const err = new Error(msg);
+    // Do NOT append extra text; Login.js is responsible for final formatting.
+    const err = new Error(baseMsg);
     err.status = res.status;
     err.payload = payload;
     throw err;
