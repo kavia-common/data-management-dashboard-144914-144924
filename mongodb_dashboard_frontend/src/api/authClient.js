@@ -83,11 +83,13 @@ export async function loginWithOrgEmailPassword({ organizationId, email, passwor
   }
 
   if (!res.ok) {
-    // Prefer backend's explicit message (e.g. "Invalid username or password")
+    // Prefer backend's explicit JSON error detail message.
+    // Expected example: { "detail": "Login failed: 401: Invalid username or password" }
     const baseMsg =
       typeof payload === "string"
         ? payload
-        : payload?.message ||
+        : (typeof payload?.detail === "string" && payload.detail) ||
+          payload?.message ||
           (payload?.detail && Array.isArray(payload.detail)
             ? payload.detail.map((d) => d.msg).join(", ")
             : null) ||

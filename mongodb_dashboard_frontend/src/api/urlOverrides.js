@@ -25,9 +25,10 @@ export function resolveAuthEndpointUrl(path, baseUrl) {
   const safeBase = String(baseUrl || '').replace(/\/+$/, '');
   const safePath = String(path || '');
 
+  // Only organization discovery is forced external.
+  // Login must go to the currently configured backend so the UI receives the backend's JSON detail.
   const OVERRIDES = [
     /\/api\/auth\/user-organizations(?:\/)?(\?|$)/,
-    /\/api\/auth\/login(?:\/)?(\?|$)/,
   ];
 
   const shouldForceExternal = OVERRIDES.some((re) => re.test(safePath));
