@@ -108,8 +108,18 @@ export default function Login() {
       console.error('Login error', e);
       const status = e?.status;
 
-      // Required UX: "Login failed: 401: Invalid username or password"
-      if (status) {
+      // Prefer the backend error JSON payload fields when present:
+      // e.payload is set by our auth client on non-2xx responses.
+      const backendDetail =
+        (e?.payload && typeof e.payload === 'object' && (e.payload.detail || e.payload.message)) ||
+        null;
+
+      // If backend already formats a useful message in `detail`,
+      // show it verbatim (this is what the user requested).
+      if (backendDetail) {
+        setError(String(backendDetail));
+      } else if (status) {
+        // Fallback: keep prior formatting, but avoid duplicating generic text.
         const message = e?.message || 'Login failed';
         setError(`Login failed: ${status}: ${message}`);
       } else {
