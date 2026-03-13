@@ -77,30 +77,46 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
     // Backend already filters by date window and sorts by activity.
     const base = Array.isArray(rows) ? rows : [];
 
-    return base.map((r) => {
-      // Backend may send either tenant_id or organization_id and (optionally) a name.
-      // We normalize to a single "tenantId" for display/export purposes.
-      const tenantIdRaw = r?.tenant_id ?? r?.organization_id ?? r?.tenantId ?? r?.organizationId ?? null;
-      const tenantNameRaw =
-        r?.tenant_name ?? r?.organization_name ?? r?.tenantName ?? r?.organizationName ?? null;
+    /**
+     * Tenant filtering note:
+     * - We pass tenant_id to the backend request (see useEffect).
+     * - As a defensive fallback (in case the endpoint doesn't apply tenant filtering),
+     *   we also filter locally when rows contain tenant identifiers.
+     *
+     * Rows may have either tenant_id or organization_id depending on the collection / join.
+     * We treat them as aliases and compare against selectedTenantId.
+     */
+    const tenantFiltered = selectedTenantId
+      ? base.filter((r) => {
+          const rowTenant =
+            r?.tenant_id ||
+            r?.organization_id ||
+            r?.tenantId ||
+            r?.organizationId ||
+            null;
 
-      return {
-        // Keep both id variants to reduce the chance DataTable keying issues.
-        _id: r?.userId || r?._id || r?.id,
-        id: r?.userId || r?._id || r?.id,
-        userId: r?.userId,
-        name: r?.name || "",
-        email: r?.email || "",
+          // If the row has no tenant info, we can't safely filter it; keep it.
+          if (!rowTenant) return true;
 
-        tenantId: tenantIdRaw ? String(tenantIdRaw) : "",
-        tenantName: tenantNameRaw ? String(tenantNameRaw) : "",
+          return String(rowTenant) === String(selectedTenantId);
+        })
+      : base;
 
-        __activityCount: Number(r?.totalSessions || 0),
-        __distinctProjects: Number(r?.distinctProjects || 0),
-        lastActivityAt: r?.lastActivityAt || null,
-      };
-    });
-  }, [rows]);
+    return tenantFiltered.map((r) => ({
+      // Keep both id variants to reduce the chance DataTable keying issues.
+      _id: r?.userId || r?._id || r?.id,
+      id: r?.userId || r?._id || r?.id,
+      userId: r?.userId,
+      name: r?.name || "",
+      email: r?.email || "",
+      __activityCount: Number(r?.totalSessions || 0),
+      __distinctProjects: Number(r?.distinctProjects || 0),
+      lastActivityAt: r?.lastActivityAt || null,
+      // Preserve tenant ids if present (useful for debugging/support)
+      tenant_id: r?.tenant_id || null,
+      organization_id: r?.organization_id || null,
+    }));
+  }, [rows, selectedTenantId]);
 
   const filteredRows = useMemo(() => {
     const q = String(searchText || "").trim().toLowerCase();
@@ -126,11 +142,6 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
         ),
       },
       { key: "email", label: "Email", priority: 2, render: (v) => v || "—" },
-
-      // Tenant/Organization columns (requested)
-      { key: "tenantId", label: "Tenant ID", priority: 3, render: (v) => v || "—" },
-      { key: "tenantName", label: "Tenant Name", priority: 3, render: (v) => v || "—" },
-
       {
         key: "__activityCount",
         label: "Sessions",
@@ -158,11 +169,6 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
     return [
       { key: "name", label: "Name", getValue: (r) => r?.name || "" },
       { key: "email", label: "Email", getValue: (r) => r?.email || "" },
-
-      // Tenant/Organization columns (requested)
-      { key: "tenantId", label: "Tenant ID", getValue: (r) => r?.tenantId || "" },
-      { key: "tenantName", label: "Tenant Name", getValue: (r) => r?.tenantName || "" },
-
       { key: "__activityCount", label: "Sessions", getValue: (r) => Number(r?.__activityCount || 0) },
       { key: "__distinctProjects", label: "Projects", getValue: (r) => Number(r?.__distinctProjects || 0) },
       {
