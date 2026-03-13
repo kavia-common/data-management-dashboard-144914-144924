@@ -1,5 +1,6 @@
 import { getApiBase } from "./config";
 import { buildAuthHeaders, getOrganizationId } from "./authTokenProvider";
+import { applyTenantScopeToRequest, resolveEffectiveTenantId } from "./tenantScope";
 
 /**
  * Internal helper: detect absolute URLs.
@@ -108,6 +109,23 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
     return rest || {};
   }
 
+  /**
+   * IMPORTANT:
+   * /api/dashboard/users is an analytics endpoint that supports query params like:
+   *   - from/to (time window)
+   *   - tenant_id (analytics tenant filter)
+   * We must NOT sanitize these away.
+   *
+   * This rule exists because other endpoints (e.g. /api/users root) intentionally
+   * accept only organization_id for scoping.
+   */
+  const isDashboardUsersAnalytics =
+    typeof pathOrUrl === "string" && /\/api\/dashboard\/users(?:$|[?&#/])/.test(pathOrUrl);
+
+  if (isDashboardUsersAnalytics) {
+    return params || {};
+  }
+
   return params || {};
 }
 
@@ -148,6 +166,14 @@ function ensureScopedQueryParams(pathOrUrl, params = {}) {
   const baseParams = {};
   if (orgId) baseParams.organization_id = orgId;
 
+  /**
+   * IMPORTANT:
+   * - Some endpoints must be called with ONLY organization_id (strict scoping), e.g.:
+   *     - /api/users (root)
+   *     - /api/users/tenant-summary
+   * - DO NOT apply this restriction broadly, otherwise we may drop legitimate params
+   *   like tenant_id/from/to for analytics endpoints (e.g. /api/dashboard/users).
+   */
   if (isTenantSummary || isUsersRoot) {
     return baseParams; // strictly only organization_id
   }
@@ -161,10 +187,15 @@ function ensureScopedQueryParams(pathOrUrl, params = {}) {
     return merged;
   }
 
+  // Default behavior: if caller already provided organization_id or tenant_id, respect it.
   const existingHasOrg =
     "organization_id" in (params || {}) ||
     (typeof pathOrUrl === "string" && /([?&])organization_id=/.test(pathOrUrl));
-  if (existingHasOrg) return params || {};
+  const existingHasTenant =
+    "tenant_id" in (params || {}) ||
+    (typeof pathOrUrl === "string" && /([?&])tenant_id=/.test(pathOrUrl));
+
+  if (existingHasOrg || existingHasTenant) return params || {};
   if (!orgId) return params || {};
   return { ...(params || {}), ...baseParams };
 }
@@ -356,7 +387,32 @@ export async function listDeployments(params = {}) {
  *  - Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt }>
  */
 export async function listDashboardUsersAnalytics(params = {}, options = {}) {
-  const res = await httpGet("/api/dashboard/users", { params, signal: options?.signal });
+  /**
+   * Tenant scoping:
+   * - Backend requires tenant scope, preferring `x-organization-id` header.
+   * - For Users Analytics, we may ALSO pass `tenant_id` as an analytics filter param.
+   *
+   * This function ensures:
+   * - when a tenant is selected, we always include `x-organization-id`
+   * - we do NOT rely on legacy query params for scoping unless explicitly enabled
+   */
+  const effectiveTenantId = resolveEffectiveTenantId(params?.tenant_id || params?.organization_id);
+
+  const scoped = applyTenantScopeToRequest(
+    { headers: options?.headers, params },
+    effectiveTenantId,
+    {
+      preferHeader: true,
+      legacyQueryFallback: false, // preferred behavior; avoid patchy mixed modes
+      debugLabel: "listDashboardUsersAnalytics",
+    }
+  );
+
+  const res = await httpGet("/api/dashboard/users", {
+    params: scoped.params,
+    headers: scoped.headers,
+    signal: options?.signal,
+  });
 
   // Backward compatible parsing:
   // - Old backend shape: Array<perUserRow>
