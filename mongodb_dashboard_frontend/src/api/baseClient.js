@@ -148,6 +148,14 @@ function ensureScopedQueryParams(pathOrUrl, params = {}) {
   const baseParams = {};
   if (orgId) baseParams.organization_id = orgId;
 
+  /**
+   * IMPORTANT:
+   * - Some endpoints must be called with ONLY organization_id (strict scoping), e.g.:
+   *     - /api/users (root)
+   *     - /api/users/tenant-summary
+   * - DO NOT apply this restriction broadly, otherwise we may drop legitimate params
+   *   like tenant_id/from/to for analytics endpoints (e.g. /api/dashboard/users).
+   */
   if (isTenantSummary || isUsersRoot) {
     return baseParams; // strictly only organization_id
   }
@@ -161,10 +169,15 @@ function ensureScopedQueryParams(pathOrUrl, params = {}) {
     return merged;
   }
 
+  // Default behavior: if caller already provided organization_id or tenant_id, respect it.
   const existingHasOrg =
     "organization_id" in (params || {}) ||
     (typeof pathOrUrl === "string" && /([?&])organization_id=/.test(pathOrUrl));
-  if (existingHasOrg) return params || {};
+  const existingHasTenant =
+    "tenant_id" in (params || {}) ||
+    (typeof pathOrUrl === "string" && /([?&])tenant_id=/.test(pathOrUrl));
+
+  if (existingHasOrg || existingHasTenant) return params || {};
   if (!orgId) return params || {};
   return { ...(params || {}), ...baseParams };
 }
