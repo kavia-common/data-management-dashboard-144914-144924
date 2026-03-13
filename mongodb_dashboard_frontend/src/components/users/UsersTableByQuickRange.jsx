@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import PropTypes from "prop-types";
 import Card from "../ui/Card.jsx";
 import DataTable from "../DataTable.jsx";
+import Button from "../ui/Button.jsx";
 import { listDashboardUsersAnalytics } from "../../api/baseClient";
 import { useQuickRange } from "../../modules/users/quickRangeContext";
 import { useTenantFilter } from "../../modules/users/tenantFilterContext";
+import { exportRowsToCsvFlow } from "../../utils/csvExport";
 
 /**
  * PUBLIC_INTERFACE
@@ -12,21 +14,19 @@ import { useTenantFilter } from "../../modules/users/tenantFilterContext";
  * Shows a Users table aligned to the Users Analytics Quick Range selection.
  *
  * Enhancement:
- * - Adds a local text search input that filters the already-fetched table rows by user name/email,
- *   without changing the underlying backend request or impacting other modules.
+ * - Adds an Export CSV control that exports exactly the dataset currently populated in the table
+ *   AFTER Quick Range + tenant + local search filters are applied.
  *
  * Key requirements:
  * - No hard-coded cap (e.g., 25) should trim results.
  * - Pagination remains 20 per page (controlled via `pageSize` prop).
+ * - CSV export must match the filtered dataset currently shown in the table (not refetched, not unfiltered).
  *
  * Implementation notes:
  * - Uses the same aggregated backend endpoint as the analytics panel:
  *     GET /api/dashboard/users
- *   This endpoint returns already-filtered, already-aggregated per-user rows for the selected
- *   quick range (and optional tenant_id), and is not subject to the /api/users param-stripping
- *   rules that can accidentally lead to capped result sets.
- * - Pagination is handled purely by DataTable (client-side slicing) at `pageSize` items/page.
  * - Search filtering is client-side on the already-loaded rows to avoid changing backend APIs.
+ * - Export uses a reusable flow: ExportRowsToCsvFlow (src/utils/csvExport.js)
  */
 export default function UsersTableByQuickRange({ pageSize = 20 }) {
   const { fromParam, toParam, label } = useQuickRange();
@@ -135,11 +135,38 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
     ];
   }, []);
 
+  const csvColumns = useMemo(() => {
+    // Explicit CSV mapping to ensure export matches exactly what this table represents.
+    // (We intentionally avoid exporting React-rendered nodes.)
+    return [
+      { key: "name", label: "Name", getValue: (r) => r?.name || "" },
+      { key: "email", label: "Email", getValue: (r) => r?.email || "" },
+      { key: "__activityCount", label: "Sessions", getValue: (r) => Number(r?.__activityCount || 0) },
+      { key: "__distinctProjects", label: "Projects", getValue: (r) => Number(r?.__distinctProjects || 0) },
+      {
+        key: "lastActivityAt",
+        label: "Last activity",
+        getValue: (r) => (r?.lastActivityAt ? new Date(r.lastActivityAt).toISOString() : ""),
+      },
+    ];
+  }, []);
+
+  const onExportCsv = () => {
+    // Export EXACTLY what is currently populated in the table after filters.
+    // Note: DataTable paginates client-side; requirement states "data currently populated in the Users view"
+    // (i.e., the filtered dataset), so we export filteredRows (all filtered, not just current page).
+    const tenantPart = selectedTenantId ? `tenant-${selectedTenantId}` : "all-tenants";
+    const filename = `users-${tenantPart}-${label.replace(/\s+/g, "_").replace(/[^\w-]/g, "")}.csv`;
+
+    exportRowsToCsvFlow({
+      filename,
+      columns: csvColumns,
+      rows: filteredRows,
+    });
+  };
+
   return (
-    <Card
-      title="Users (filtered by Quick Range)"
-      subtitle={`Showing users with activity in: ${label}`}
-    >
+    <Card title="Users (filtered by Quick Range)" subtitle={`Showing users with activity in: ${label}`}>
       <div className="card-content users-quickrange-table" style={{ paddingTop: 0 }}>
         {error ? (
           <div role="alert" className="error" style={{ marginBottom: 8 }}>
@@ -147,8 +174,8 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
           </div>
         ) : null}
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-          <label style={{ flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+          <label style={{ flex: 1, minWidth: 240 }}>
             <span
               style={{
                 display: "block",
@@ -169,19 +196,22 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
             />
           </label>
 
-          {/*
-{searchText ? (
-  <button
-    type="button"
-    className="ui-button"
-    onClick={() => setSearchText("")}
-    aria-label="Clear user name search"
-    style={{ whiteSpace: "nowrap" }}
-  >
-    Clear
-  </button>
-) : null}
-*/}
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ fontSize: 12, color: "#6B7280", whiteSpace: "nowrap" }}>
+              {loading ? "—" : `${filteredRows.length.toLocaleString()} users`}
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onExportCsv}
+              disabled={loading || filteredRows.length === 0}
+              aria-label="Export users to CSV"
+              title="Export CSV"
+              style={{ whiteSpace: "nowrap" }}
+            >
+              Export CSV
+            </Button>
+          </div>
         </div>
 
         <DataTable
