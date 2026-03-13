@@ -1,5 +1,6 @@
 import { getApiBase } from "./config";
 import { buildAuthHeaders, getOrganizationId } from "./authTokenProvider";
+import { applyTenantScopeToRequest, resolveEffectiveTenantId } from "./tenantScope";
 
 /**
  * Internal helper: detect absolute URLs.
@@ -386,7 +387,32 @@ export async function listDeployments(params = {}) {
  *  - Array<{ userId, name, email, totalSessions, distinctProjects, lastActivityAt }>
  */
 export async function listDashboardUsersAnalytics(params = {}, options = {}) {
-  const res = await httpGet("/api/dashboard/users", { params, signal: options?.signal });
+  /**
+   * Tenant scoping:
+   * - Backend requires tenant scope, preferring `x-organization-id` header.
+   * - For Users Analytics, we may ALSO pass `tenant_id` as an analytics filter param.
+   *
+   * This function ensures:
+   * - when a tenant is selected, we always include `x-organization-id`
+   * - we do NOT rely on legacy query params for scoping unless explicitly enabled
+   */
+  const effectiveTenantId = resolveEffectiveTenantId(params?.tenant_id || params?.organization_id);
+
+  const scoped = applyTenantScopeToRequest(
+    { headers: options?.headers, params },
+    effectiveTenantId,
+    {
+      preferHeader: true,
+      legacyQueryFallback: false, // preferred behavior; avoid patchy mixed modes
+      debugLabel: "listDashboardUsersAnalytics",
+    }
+  );
+
+  const res = await httpGet("/api/dashboard/users", {
+    params: scoped.params,
+    headers: scoped.headers,
+    signal: options?.signal,
+  });
 
   // Backward compatible parsing:
   // - Old backend shape: Array<perUserRow>
