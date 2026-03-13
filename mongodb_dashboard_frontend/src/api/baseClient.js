@@ -108,6 +108,23 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
     return rest || {};
   }
 
+  /**
+   * IMPORTANT:
+   * /api/dashboard/users is an analytics endpoint that supports query params like:
+   *   - from/to (time window)
+   *   - tenant_id (analytics tenant filter)
+   * We must NOT sanitize these away.
+   *
+   * This rule exists because other endpoints (e.g. /api/users root) intentionally
+   * accept only organization_id for scoping.
+   */
+  const isDashboardUsersAnalytics =
+    typeof pathOrUrl === "string" && /\/api\/dashboard\/users(?:$|[?&#/])/.test(pathOrUrl);
+
+  if (isDashboardUsersAnalytics) {
+    return params || {};
+  }
+
   return params || {};
 }
 
