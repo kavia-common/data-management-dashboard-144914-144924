@@ -13,7 +13,9 @@ import { exportRowsToCsvFlow } from "../../utils/csvExport";
  * UsersTableByQuickRange
  * Shows a Users table aligned to the Users Analytics Quick Range selection.
  *
- * Enhancement:
+ * Enhancements:
+ * - Filters the dataset by the selected tenant when a specific tenant is selected.
+ * - Displays tenant_id/organization_id and tenant/organization name as additional columns.
  * - Adds an Export CSV control that exports exactly the dataset currently populated in the table
  *   AFTER Quick Range + tenant + local search filters are applied.
  *
@@ -25,6 +27,10 @@ import { exportRowsToCsvFlow } from "../../utils/csvExport";
  * Implementation notes:
  * - Uses the same aggregated backend endpoint as the analytics panel:
  *     GET /api/dashboard/users
+ * - Tenant filtering is applied in two layers:
+ *     1) We send tenant_id to the backend (preferred, server-side filtering).
+ *     2) We also apply a defensive client-side filter on returned rows to guarantee correctness
+ *        even if the backend ignores the tenant_id parameter for this endpoint.
  * - Search filtering is client-side on the already-loaded rows to avoid changing backend APIs.
  * - Export uses a reusable flow: ExportRowsToCsvFlow (src/utils/csvExport.js)
  */
@@ -77,29 +83,63 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
     // Backend already filters by date window and sorts by activity.
     const base = Array.isArray(rows) ? rows : [];
 
-    return base.map((r) => ({
-      // Keep both id variants to reduce the chance DataTable keying issues.
-      _id: r?.userId || r?._id || r?.id,
-      id: r?.userId || r?._id || r?.id,
-      userId: r?.userId,
-      name: r?.name || "",
-      email: r?.email || "",
-      __activityCount: Number(r?.totalSessions || 0),
-      __distinctProjects: Number(r?.distinctProjects || 0),
-      lastActivityAt: r?.lastActivityAt || null,
-    }));
+    return base.map((r) => {
+      const tenantId =
+        r?.tenant_id ??
+        r?.tenantId ??
+        r?.organization_id ??
+        r?.organizationId ??
+        null;
+
+      const tenantName =
+        r?.tenant_name ??
+        r?.tenantName ??
+        r?.organization_name ??
+        r?.organizationName ??
+        r?.organization?.name ??
+        r?.organization?.tenant_name ??
+        null;
+
+      return {
+        // Keep both id variants to reduce the chance DataTable keying issues.
+        _id: r?.userId || r?._id || r?.id,
+        id: r?.userId || r?._id || r?.id,
+        userId: r?.userId,
+        name: r?.name || "",
+        email: r?.email || "",
+        __activityCount: Number(r?.totalSessions || 0),
+        __distinctProjects: Number(r?.distinctProjects || 0),
+        lastActivityAt: r?.lastActivityAt || null,
+
+        // New: tenant columns (best-effort extraction; if missing we show "—")
+        tenant_id: tenantId ? String(tenantId) : "",
+        tenant_name: tenantName ? String(tenantName) : "",
+      };
+    });
   }, [rows]);
+
+  const tenantFilteredRows = useMemo(() => {
+    // Defensive client-side tenant filtering: only apply when a specific tenant is selected.
+    // This guarantees correctness even if the backend endpoint ignores tenant_id.
+    if (!selectedTenantId) return tableRows;
+
+    const target = String(selectedTenantId);
+    return (Array.isArray(tableRows) ? tableRows : []).filter((r) => String(r?.tenant_id || "") === target);
+  }, [tableRows, selectedTenantId]);
 
   const filteredRows = useMemo(() => {
     const q = String(searchText || "").trim().toLowerCase();
-    if (!q) return tableRows;
+    if (!q) return tenantFilteredRows;
 
-    return (Array.isArray(tableRows) ? tableRows : []).filter((r) => {
+    return (Array.isArray(tenantFilteredRows) ? tenantFilteredRows : []).filter((r) => {
       const name = String(r?.name || "").toLowerCase();
       const email = String(r?.email || "").toLowerCase();
-      return name.includes(q) || email.includes(q);
+      const tenantId = String(r?.tenant_id || "").toLowerCase();
+      const tenantName = String(r?.tenant_name || "").toLowerCase();
+
+      return name.includes(q) || email.includes(q) || tenantId.includes(q) || tenantName.includes(q);
     });
-  }, [tableRows, searchText]);
+  }, [tenantFilteredRows, searchText]);
 
   const columns = useMemo(() => {
     return [
@@ -114,6 +154,18 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
         ),
       },
       { key: "email", label: "Email", priority: 2, render: (v) => v || "—" },
+      {
+        key: "tenant_id",
+        label: "Tenant ID",
+        priority: 3,
+        render: (v) => (v ? String(v) : "—"),
+      },
+      {
+        key: "tenant_name",
+        label: "Tenant name",
+        priority: 3,
+        render: (v) => (v ? String(v) : "—"),
+      },
       {
         key: "__activityCount",
         label: "Sessions",
@@ -141,6 +193,8 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
     return [
       { key: "name", label: "Name", getValue: (r) => r?.name || "" },
       { key: "email", label: "Email", getValue: (r) => r?.email || "" },
+      { key: "tenant_id", label: "Tenant ID", getValue: (r) => r?.tenant_id || "" },
+      { key: "tenant_name", label: "Tenant name", getValue: (r) => r?.tenant_name || "" },
       { key: "__activityCount", label: "Sessions", getValue: (r) => Number(r?.__activityCount || 0) },
       { key: "__distinctProjects", label: "Projects", getValue: (r) => Number(r?.__distinctProjects || 0) },
       {
