@@ -129,6 +129,12 @@ function ensureScopedQueryParams(pathOrUrl, params = {}) {
     /\/api\/users(?:$|[?&#/])/.test(pathOrUrl) &&
     !/\/api\/users\/[A-Za-z0-9_-]/.test(pathOrUrl);
 
+  // IMPORTANT: /api/dashboard/users is a tenant-scoped analytics endpoint.
+  // Unlike /api/users and /api/users/tenant-summary (which intentionally only accept organization_id),
+  // this endpoint must respect an explicit tenant selection coming from the Users Analytics tenant filter.
+  const isDashboardUsers =
+    typeof pathOrUrl === "string" && /\/api\/dashboard\/users(?:$|[?&#/])/.test(pathStr);
+
   const isProjectsSummary =
     typeof pathOrUrl === "string" &&
     /\/api\/projects\/summary(?:$|[?&#/])/.test(pathStr);
@@ -143,6 +149,25 @@ function ensureScopedQueryParams(pathOrUrl, params = {}) {
     if (existingHasTenant) return params || {};
     if (!orgId) return params || {};
     return { ...(params || {}), tenant_id: orgId };
+  }
+
+  // /api/dashboard/users:
+  // - If caller passed tenant_id or organization_id, keep it (tenant filter selection).
+  // - Else default to stored organization_id for scoping.
+  if (isDashboardUsers) {
+    const merged = { ...(params || {}) };
+
+    const hasExplicitTenant =
+      ("tenant_id" in merged && merged.tenant_id !== undefined && merged.tenant_id !== null && merged.tenant_id !== "") ||
+      ("organization_id" in merged &&
+        merged.organization_id !== undefined &&
+        merged.organization_id !== null &&
+        merged.organization_id !== "");
+
+    if (hasExplicitTenant) return merged;
+
+    if (orgId) merged.organization_id = orgId;
+    return merged;
   }
 
   const baseParams = {};
