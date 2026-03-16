@@ -143,6 +143,18 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
       },
       { key: "email", label: "Email", priority: 2, render: (v) => v || "—" },
       {
+        key: "tenant_id",
+        label: "Tenant ID",
+        priority: 2,
+        render: (v) => v || "—",
+      },
+      {
+        key: "organization_id",
+        label: "Org ID",
+        priority: 3,
+        render: (v) => v || "—",
+      },
+      {
         key: "__activityCount",
         label: "Sessions",
         priority: 1,
@@ -169,6 +181,8 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
     return [
       { key: "name", label: "Name", getValue: (r) => r?.name || "" },
       { key: "email", label: "Email", getValue: (r) => r?.email || "" },
+      { key: "tenant_id", label: "Tenant ID", getValue: (r) => r?.tenant_id || "" },
+      { key: "organization_id", label: "Org ID", getValue: (r) => r?.organization_id || "" },
       { key: "__activityCount", label: "Sessions", getValue: (r) => Number(r?.__activityCount || 0) },
       { key: "__distinctProjects", label: "Projects", getValue: (r) => Number(r?.__distinctProjects || 0) },
       {
