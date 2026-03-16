@@ -102,20 +102,25 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
         })
       : base;
 
-    return tenantFiltered.map((r) => ({
-      // Keep both id variants to reduce the chance DataTable keying issues.
-      _id: r?.userId || r?._id || r?.id,
-      id: r?.userId || r?._id || r?.id,
-      userId: r?.userId,
-      name: r?.name || "",
-      email: r?.email || "",
-      __activityCount: Number(r?.totalSessions || 0),
-      __distinctProjects: Number(r?.distinctProjects || 0),
-      lastActivityAt: r?.lastActivityAt || null,
-      // Preserve tenant ids if present (useful for debugging/support)
-      tenant_id: r?.tenant_id || null,
-      organization_id: r?.organization_id || null,
-    }));
+    return tenantFiltered.map((r) => {
+      // Tenant may come through under different keys depending on the endpoint/join.
+      const tenantId =
+        r?.tenant_id || r?.organization_id || r?.tenantId || r?.organizationId || null;
+
+      return {
+        // Keep both id variants to reduce the chance DataTable keying issues.
+        _id: r?.userId || r?._id || r?.id,
+        id: r?.userId || r?._id || r?.id,
+        userId: r?.userId,
+        name: r?.name || "",
+        email: r?.email || "",
+        tenant_id: tenantId,
+
+        __activityCount: Number(r?.totalSessions || 0),
+        __distinctProjects: Number(r?.distinctProjects || 0),
+        lastActivityAt: r?.lastActivityAt || null,
+      };
+    });
   }, [rows, selectedTenantId]);
 
   const filteredRows = useMemo(() => {
@@ -143,6 +148,12 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
       },
       { key: "email", label: "Email", priority: 2, render: (v) => v || "—" },
       {
+        key: "tenant_id",
+        label: "Tenant",
+        priority: 2,
+        render: (v) => (v ? String(v) : "—"),
+      },
+      {
         key: "__activityCount",
         label: "Sessions",
         priority: 1,
@@ -169,6 +180,7 @@ export default function UsersTableByQuickRange({ pageSize = 20 }) {
     return [
       { key: "name", label: "Name", getValue: (r) => r?.name || "" },
       { key: "email", label: "Email", getValue: (r) => r?.email || "" },
+      { key: "tenant_id", label: "Tenant", getValue: (r) => (r?.tenant_id ? String(r.tenant_id) : "") },
       { key: "__activityCount", label: "Sessions", getValue: (r) => Number(r?.__activityCount || 0) },
       { key: "__distinctProjects", label: "Projects", getValue: (r) => Number(r?.__distinctProjects || 0) },
       {
