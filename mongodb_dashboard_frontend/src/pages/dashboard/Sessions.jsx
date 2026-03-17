@@ -1,42 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
-import { listSessions, listUsers } from "../../api";
+import { listSessions } from "../../api";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
 
-// Simple helper to get distinct, sorted, non-empty values
-function distinctSorted(arr) {
-  const set = new Set();
-  (arr || []).forEach((v) => {
-    const s = String(v ?? "").trim();
-    if (s) set.add(s);
-  });
-  return Array.from(set).sort((a, b) => a.localeCompare(b));
-}
-
-// Normalize user identity from various shapes
-function normalizeUserFromItem(it) {
-  const id = it?.user_id ?? it?.user?.id ?? it?._user_id ?? null;
-  const name =
-    it?.User_name ??
-    it?.user_name ??
-    it?.user?.name ??
-    it?.username ??
-    it?.email ??
-    "";
-  return { id, name: String(name || "").trim() };
-}
-
 // PUBLIC_INTERFACE
 export default function Sessions() {
   /**
    * Sessions page with server-side search and pagination.
-   * - Debounced search across dataset via backend query param `q` (includes user filter).
-   * - Keep pagination using server-provided meta.total and page/limit.
-   * - Maintain a stable, full user dropdown independent of filtered results.
+   * - Debounced search across dataset via backend query param `q`.
+   * - "Filter by User name" is a plain text input (no dropdown).
+   * - Tenant filter remains a dropdown based on discovered tenant ids.
+   * - Pagination uses server-provided meta.total and page/limit.
    */
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -48,14 +26,10 @@ export default function Sessions() {
   const [filterUserName, setFilterUserName] = useState("");
   const [filterTenantId, setFilterTenantId] = useState("");
 
-  // Dropdown options: stable full list (primary) and tenant list
-  const [fullUserNameOptions, setFullUserNameOptions] = useState([]); // [{ id, name }]
+  // Tenant dropdown options
   const [tenantIdOptions, setTenantIdOptions] = useState([]);
 
-  // Internal: map for quick user id->name merge and to avoid shrinking
-  const userIdToNameRef = useRef(new Map());
-
-  // Keep URL query params in sync for dropdowns (so back/forward works)
+  // Keep URL query params in sync (so back/forward works)
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
     if (filterUserName) usp.set("user_name", filterUserName);
@@ -66,7 +40,7 @@ export default function Sessions() {
     window.history.replaceState({}, "", next);
   }, [filterUserName, filterTenantId]);
 
-  // Initialize dropdown selections from URL on first mount
+  // Initialize filter selections from URL on first mount
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
     const initialUser = usp.get("user_name") || "";
@@ -75,6 +49,10 @@ export default function Sessions() {
     if (initialTenant) setFilterTenantId(initialTenant);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Debounced filters/search to avoid request spam while typing
+  const debouncedFilterUserName = useDebouncedValue(filterUserName, 250);
+  const debouncedQuery = useDebouncedValue(query, 250);
 
   // Details modal state
   const [selectedSession, setSelectedSession] = useState(null);
@@ -101,9 +79,6 @@ export default function Sessions() {
   // PUBLIC_INTERFACE
   function buildRestrictedColumns(rows = []) {
     /** Build DataTable columns strictly from the allowed list, preserving order. */
-    const presentKeys = new Set();
-    (rows || []).forEach((r) => Object.keys(r || {}).forEach((k) => presentKeys.add(k)));
-
     return allowedOrdered.map((k) => {
       const label = k === "User_name" ? "User name" : toLabel(k);
 
@@ -135,37 +110,13 @@ export default function Sessions() {
   // Aggregates for charts
   const [aggLoading, setAggLoading] = useState(false);
   const [aggError, setAggError] = useState("");
-  const [byOrg, setByOrg] = useState([]);   // [{ organization_name, session_count }]
+  const [byOrg, setByOrg] = useState([]); // [{ organization_name, session_count }]
   const [byType, setByType] = useState([]); // [{ session_type, session_count }]
-
-  // Merge users discovered from any array of session-like items into cache and full list
-  function mergeDiscoveredUsers(itemsArr = []) {
-    const map = userIdToNameRef.current;
-    let changed = false;
-    (itemsArr || []).forEach((it) => {
-      const { id, name } = normalizeUserFromItem(it);
-      if (!id) return;
-      const current = map.get(id);
-      const nextName = name || current || "";
-      if (!current || (nextName && current !== nextName)) {
-        map.set(id, nextName);
-        changed = true;
-      }
-    });
-    if (changed) {
-      // Rebuild stable options array sorted by name, with fallback label if empty
-      const arr = Array.from(map.entries())
-        .map(([id, nm]) => ({ id, name: nm || String(id) }))
-        .sort((a, b) => a.name.localeCompare(b.name));
-      setFullUserNameOptions(arr);
-    }
-  }
 
   async function loadAggregates(qStr = "") {
     /**
      * Fetch sessions across multiple pages (capped) and build client-side aggregates
-     * for charts: by organization_name and by session_type. Also merge-in discovered users
-     * and tenant ids without shrinking options when filters change.
+     * for charts: by organization_name and by session_type.
      */
     setAggLoading(true);
     setAggError("");
@@ -174,8 +125,13 @@ export default function Sessions() {
       const maxPages = 10;
       let page = 1;
       const all = [];
+
       while (page <= maxPages) {
         const params = { page, limit, q: qStr };
+        if (filterTenantId && filterTenantId.trim()) {
+          params.tenant_id = filterTenantId.trim();
+        }
+
         const res = await listSessions(params);
         const arr = Array.isArray(res?.items) ? res.items : [];
         all.push(...arr);
@@ -187,16 +143,16 @@ export default function Sessions() {
       const orgCounts = new Map();
       all.forEach((it) => {
         let org =
-          it?.organization_name ||
-          it?.organization?.name ||
-          it?.tenant_id ||
-          "";
+          it?.organization_name || it?.organization?.name || it?.tenant_id || "";
         org = String(org || "").trim();
         if (!org) org = "Unknown";
         orgCounts.set(org, (orgCounts.get(org) || 0) + 1);
       });
       const orgArr = Array.from(orgCounts.entries())
-        .map(([organization_name, session_count]) => ({ organization_name, session_count }))
+        .map(([organization_name, session_count]) => ({
+          organization_name,
+          session_count,
+        }))
         .sort((a, b) => b.session_count - a.session_count);
 
       // Aggregate by type
@@ -214,9 +170,6 @@ export default function Sessions() {
       setByOrg(orgArr);
       setByType(typeArr);
 
-      // Merge discovered users from aggregate fetch (broad set)
-      mergeDiscoveredUsers(all);
-
       // Merge tenant IDs (union)
       const tenantIds = new Set(tenantIdOptions);
       (all || []).forEach((it) => {
@@ -227,61 +180,24 @@ export default function Sessions() {
     } catch (e) {
       setByOrg([]);
       setByType([]);
-      setAggError(e?.response?.data?.message || e?.message || "Failed to load session aggregates.");
+      setAggError(
+        e?.response?.data?.message || e?.message || "Failed to load session aggregates."
+      );
     } finally {
       setAggLoading(false);
     }
   }
 
-  // Try to pre-populate full user list from dedicated users endpoint (if available)
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await listUsers({}); // baseClient will ensure organization_id scope
-        const items = Array.isArray(res?.items) ? res.items : [];
-        // Normalize users to { id, name }
-        const preUsers = items
-          .map((u) => {
-            const id = u?._id ?? u?.id ?? u?.user_id ?? null;
-            const name =
-              u?.name ??
-              u?.full_name ??
-              u?.username ??
-              u?.email ??
-              "";
-            return { id, name: String(name || "").trim() };
-          })
-          .filter((u) => u.id);
-        // Fill map first to avoid flicker
-        const map = userIdToNameRef.current;
-        preUsers.forEach((u) => {
-          if (!map.has(u.id)) map.set(u.id, u.name || String(u.id));
-        });
-        if (!cancelled) {
-          const arr = Array.from(map.entries())
-            .map(([id, nm]) => ({ id, name: nm || String(id) }))
-            .sort((a, b) => a.name.localeCompare(b.name));
-          setFullUserNameOptions(arr);
-        }
-      } catch {
-        // If listUsers is not available or fails, ignore; we'll progressively build from sessions
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   // PUBLIC_INTERFACE
   async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
     /**
-     * Load sessions with pagination, q param (includes dropdown user filter), and sorting.
-     * Does not rebuild user options from filtered data; only merges-in newly discovered users.
+     * Load sessions with pagination, optional text search (qStr), and sorting.
+     * User name filter is applied by appending to the backend `q` param (debounced).
      */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError("");
+
     try {
       const sortFieldMap = {
         User_name: "user_name",
@@ -289,19 +205,24 @@ export default function Sessions() {
         organization_name: "organization_name",
         service_type: "service_type",
       };
+
       const params = { page, limit, q: qStr };
 
       if (filterTenantId && filterTenantId.trim()) {
         params.tenant_id = filterTenantId.trim();
       }
-      if (filterUserName && filterUserName.trim()) {
-        params.q = filterUserName.trim() + (qStr && qStr !== filterUserName.trim() ? ` ${qStr}` : "");
+
+      const userQ = (debouncedFilterUserName || "").trim();
+      if (userQ) {
+        const baseQ = (qStr || "").trim();
+        params.q = baseQ ? `${userQ} ${baseQ}` : userQ;
       }
 
       if (sortKey) {
         const backendField = sortFieldMap[sortKey] || String(sortKey);
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
       }
+
       const res = await listSessions(params);
       const arr = res?.items ?? (Array.isArray(res) ? res : []);
       if (requestId !== activeRequestRef.current) return;
@@ -313,9 +234,6 @@ export default function Sessions() {
         total: res?.meta?.total ?? (Array.isArray(arr) ? arr.length : 0),
       });
       setColumns(buildRestrictedColumns(arr));
-
-      // Merge-in any new users from this page (do not shrink options)
-      mergeDiscoveredUsers(arr);
 
       // Merge-in tenant IDs seen on this page as well
       const tenants = new Set(tenantIdOptions);
@@ -342,28 +260,26 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
-  // Debounced server-side search on query change (250ms default)
-  const debouncedQuery = useDebouncedValue(query, 250);
+  // Debounced server-side search on query change and user-name filter change
   useEffect(() => {
     const baseQ = (debouncedQuery || "").trim();
-    const userQ = (filterUserName || "").trim();
+    const userQ = (debouncedFilterUserName || "").trim();
     const combinedQ = userQ ? (baseQ ? `${userQ} ${baseQ}` : userQ) : baseQ;
 
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, combinedQ, key, dir);
     loadAggregates(combinedQ);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, filterUserName]);
+  }, [debouncedQuery, debouncedFilterUserName]);
 
-  // Immediate refetch when tenant filter changes (do not rebuild options from filtered data)
+  // Immediate refetch when tenant filter changes
   useEffect(() => {
     const baseQ = (query || "").trim();
-    const userQ = (filterUserName || "").trim();
+    const userQ = (debouncedFilterUserName || "").trim();
     const combinedQ = userQ ? (baseQ ? `${userQ} ${baseQ}` : userQ) : baseQ;
 
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, combinedQ, key, dir);
-    // Keep aggregates broad and independent of dropdown changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterTenantId]);
 
@@ -383,7 +299,10 @@ export default function Sessions() {
       try {
         const keys = Object.keys(row || {});
         // eslint-disable-next-line no-console
-        console.debug("[Sessions] Row clicked (tenant_id scoped) -> opening details modal with keys:", keys);
+        console.debug(
+          "[Sessions] Row clicked (tenant_id scoped) -> opening details modal with keys:",
+          keys
+        );
       } catch {
         // ignore logging errors
       }
@@ -422,11 +341,7 @@ export default function Sessions() {
           subtitle="Count of sessions per organization"
         >
           <div className="chart-wrapper" style={{ height: 320 }}>
-            <SessionsByOrganization
-              data={byOrg}
-              loading={aggLoading}
-              error={aggError}
-            />
+            <SessionsByOrganization data={byOrg} loading={aggLoading} error={aggError} />
           </div>
         </Card>
 
@@ -448,7 +363,16 @@ export default function Sessions() {
 
       {/* Table */}
       <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
-        <div className="toolbar" aria-label="Sessions toolbar" style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <div
+          className="toolbar"
+          aria-label="Sessions toolbar"
+          style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 8,
+            alignItems: "center",
+          }}
+        >
           {/* <input
             className="input-search"
             placeholder="Search sessions (user, org, service, status, etc.)..."
@@ -457,22 +381,23 @@ export default function Sessions() {
             onChange={(e) => setQuery(e.target.value)}
             style={{ minWidth: 280 }}
           /> */}
-          <label htmlFor="filter-user" className="sr-only">Filter by User name</label>
-          <select
+
+          <label htmlFor="filter-user" className="sr-only">
+            Filter by User name
+          </label>
+          <input
             id="filter-user"
             className="input-filter"
-            aria-label="Filter by User"
+            aria-label="Filter by User name"
             value={filterUserName}
             onChange={(e) => setFilterUserName(e.target.value)}
+            placeholder="Filter by User name"
             style={{ minWidth: 220 }}
-          >
-            <option value="">All users</option>
-            {fullUserNameOptions.map((u) => (
-              <option key={u.id ?? u.name} value={u.id ?? u.name}>{u.name || String(u.id)}</option>
-            ))}
-          </select>
+          />
 
-          <label htmlFor="filter-tenant" className="sr-only">Filter by Tenant ID</label>
+          <label htmlFor="filter-tenant" className="sr-only">
+            Filter by Tenant ID
+          </label>
           <select
             id="filter-tenant"
             className="input-filter"
@@ -483,18 +408,22 @@ export default function Sessions() {
           >
             <option value="">All tenants</option>
             {tenantIdOptions.map((t) => (
-              <option key={t} value={t}>{t}</option>
+              <option key={t} value={t}>
+                {t}
+              </option>
             ))}
           </select>
 
           <div style={{ width: 8 }} />
           <div className="spacer" style={{ flex: 1 }} />
         </div>
+
         {error && (
           <div className="error" role="alert" style={{ marginBottom: 8 }}>
             {error}
           </div>
         )}
+
         <DataTable
           columns={Array.isArray(columns) ? columns : []}
           data={Array.isArray(items) ? items : []}
