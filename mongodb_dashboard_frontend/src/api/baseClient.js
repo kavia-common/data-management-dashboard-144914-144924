@@ -85,7 +85,15 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
   }
 
   if (isSessionTrackingRoot(pathOrUrl)) {
-    // Remove any organization_id remnants and 'filter' for session-tracking as backend ignores it now.
+    /**
+     * Session Tracking list endpoint contract:
+     * - Backend supports dedicated filtering via query params like `user_name`, `userId`, `q`, `start/end`, etc.
+     * - Backend ignores `filter` (legacy JSON filter param) for this endpoint.
+     * - Tenant scoping is handled separately (ensureScopedQueryParams => tenant_id).
+     *
+     * Therefore we ONLY strip parameters that are known-bad/ignored (`organization_id`, `filter`)
+     * and preserve everything else (including `user_name`) to avoid breaking UI filters.
+     */
     const { organization_id, filter, ...rest } = params || {};
     return rest || {};
   }
