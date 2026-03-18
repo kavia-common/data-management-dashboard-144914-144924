@@ -109,76 +109,6 @@ export default function Sessions() {
 
   const [columns, setColumns] = useState(buildRestrictedColumns([]));
 
-  // PUBLIC_INTERFACE
-  function applyFrontendUserNameFilter(rows = [], userName = "") {
-    /**
-     * Frontend-only filter for Session Tracking table by user name.
-     *
-     * Why this exists:
-     * - The Session Tracking backend may return the username under different keys depending on
-     *   ingestion source / historical data (e.g. User_name, user_name, userName, UserName, etc.).
-     * - The requirement here is: filtering by a user name like "Chris" must work purely on the frontend.
-     *
-     * Behavior:
-     * - Case-insensitive substring match.
-     * - Trims whitespace on both the filter input and the candidate value.
-     */
-    const needle = String(userName || "").trim().toLowerCase();
-    if (!needle) return Array.isArray(rows) ? rows : [];
-
-    const getUserNameCandidate = (row) => {
-      if (!row || typeof row !== "object") return "";
-
-      // Prefer explicit known fields (including common casing variants).
-      const direct =
-        row.User_name ??
-        row.user_name ??
-        row.userName ??
-        row.UserName ??
-        row.USER_NAME ??
-        row.User_Name ??
-        row.username ??
-        row.user ??
-        row.email;
-
-      // Sometimes the record nests user info.
-      const nested =
-        row?.user?.name ??
-        row?.user?.User_name ??
-        row?.user?.user_name ??
-        row?.user?.userName ??
-        row?.user?.UserName ??
-        row?.user?.username ??
-        row?.user?.email ??
-        row?.user_profile?.name ??
-        row?.user_profile?.user_name ??
-        row?.user_profile?.User_name;
-
-      // If `row.user` is an object, `direct` might be the whole object; avoid stringifying [object Object]
-      const candidate =
-        typeof direct === "string" || typeof direct === "number" ? direct : nested;
-
-      return String(candidate ?? "").trim();
-    };
-
-    return (Array.isArray(rows) ? rows : []).filter((row) => {
-      const candidate = getUserNameCandidate(row).toLowerCase();
-      return candidate.includes(needle);
-    });
-  }
-
-  // Derived rows for the table: strict username filter is applied ONLY on the frontend.
-  const filteredItems = useMemo(() => {
-    return applyFrontendUserNameFilter(serverItems, filterUserName);
-  }, [serverItems, filterUserName]);
-
-  // Keep table contents reactive to username changes without relying on backend search.
-  useEffect(() => {
-    setItems(filteredItems);
-    setColumns(buildRestrictedColumns(filteredItems));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredItems]);
-
   // Aggregates for charts
   const [aggLoading, setAggLoading] = useState(false);
   const [aggError, setAggError] = useState("");
@@ -189,6 +119,9 @@ export default function Sessions() {
     /**
      * Fetch sessions across multiple pages (capped) and build client-side aggregates
      * for charts: by organization_name and by session_type.
+     *
+     * Note: We include the username filter into the backend query (`q`) so aggregates reflect
+     * the same dataset shown in the table when filtering by user.
      */
     setAggLoading(true);
     setAggError("");
@@ -198,8 +131,16 @@ export default function Sessions() {
       let page = 1;
       const all = [];
 
+      const qParts = [];
+      if (qStr && String(qStr).trim()) qParts.push(String(qStr).trim());
+      if (filterUserName && String(filterUserName).trim()) {
+        qParts.push(String(filterUserName).trim());
+      }
+      const effectiveQ = qParts.join(" ").trim();
+
       while (page <= maxPages) {
-        const params = { page, limit, q: qStr };
+        const params = { page, limit };
+        if (effectiveQ) params.q = effectiveQ;
         if (filterTenantId && filterTenantId.trim()) {
           params.tenant_id = filterTenantId.trim();
         }
@@ -264,8 +205,9 @@ export default function Sessions() {
   async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
     /**
      * Load sessions with pagination, optional text search (qStr), and sorting.
-     * IMPORTANT: "Filter by User name" is handled on the frontend only, so the table
-     * will always show ONLY the selected user's rows, regardless of backend search semantics.
+     *
+     * Fix: "Filter by User name" must search across the full dataset (not just current page),
+     * so we include it in the backend query param `q` and render the returned rows.
      */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
@@ -279,13 +221,22 @@ export default function Sessions() {
         service_type: "service_type",
       };
 
-      const params = { page, limit, q: qStr };
+      // Combine free-text search with username filter into a single backend `q`.
+      // Backend applies case-insensitive search across multiple fields, including user_name.
+      const qParts = [];
+      if (qStr && String(qStr).trim()) qParts.push(String(qStr).trim());
+      if (filterUserName && String(filterUserName).trim()) {
+        qParts.push(String(filterUserName).trim());
+      }
+      const effectiveQ = qParts.join(" ").trim();
+
+      const params = { page, limit };
+      if (effectiveQ) params.q = effectiveQ;
 
       if (filterTenantId && filterTenantId.trim()) {
         params.tenant_id = filterTenantId.trim();
       }
 
-      // NOTE: Do NOT push username filter into backend q; username filtering must be frontend-only.
       if (sortKey) {
         const backendField = sortFieldMap[sortKey] || String(sortKey);
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
@@ -297,20 +248,16 @@ export default function Sessions() {
 
       const safeArr = Array.isArray(arr) ? arr : [];
       setServerItems(safeArr);
+      setItems(safeArr);
 
-      // Apply strict frontend-only username filter to populate the table.
-      const nextFiltered = applyFrontendUserNameFilter(safeArr, filterUserName);
-      setItems(nextFiltered);
-
-      // Keep pagination meta from server (it refers to the server-side result set).
+      // Pagination meta should reflect the server-side filtered result set (including `q`).
       setMeta({
         page: res?.meta?.page || page,
         limit: res?.meta?.limit || limit,
         total: res?.meta?.total ?? safeArr.length,
       });
 
-      // Build columns from the filtered view (so renderers see representative data).
-      setColumns(buildRestrictedColumns(nextFiltered));
+      setColumns(buildRestrictedColumns(safeArr));
 
       // Merge-in tenant IDs seen on this page as well
       const tenants = new Set(tenantIdOptions);
@@ -343,6 +290,7 @@ export default function Sessions() {
     const baseQ = (debouncedQuery || "").trim();
 
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+    // Always reset to page 1 when query/username changes.
     load(1, meta.limit || 10, baseQ, key, dir);
     loadAggregates(baseQ);
     // eslint-disable-next-line react-hooks/exhaustive-deps
