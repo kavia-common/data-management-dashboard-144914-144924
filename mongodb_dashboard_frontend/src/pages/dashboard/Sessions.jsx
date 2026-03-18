@@ -119,42 +119,46 @@ export default function Sessions() {
   const [byOrg, setByOrg] = useState([]); // [{ organization_name, session_count }]
   const [byType, setByType] = useState([]); // [{ session_type, session_count }]
 
-  async function loadAggregates(qStr = "") {
+  // PUBLIC_INTERFACE
+  async function loadAggregatesFromPage({ page, limit, qStr }) {
     /**
-     * Fetch sessions across multiple pages (capped) and build client-side aggregates
-     * for charts: by organization_name and by session_type.
+     * SessionAggregatesFromFirstPageFlow
      *
-     * - Free-text search uses backend `q`.
-     * - Tenant scoping is applied via tenant_id.
+     * Purpose:
+     *  Build lightweight chart aggregates from a *single* page of session tracking data.
+     *
+     * Why:
+     *  The previous implementation preloaded many pages on mount (e.g., ~10 pages * 200 = 2000 rows),
+     *  which caused a burst of /api/session-tracking calls. This flow intentionally does NOT prefetch.
+     *
+     * Contract:
+     *  Inputs:
+     *   - page: number (>= 1)
+     *   - limit: number (>= 1, <= 200 recommended)
+     *   - qStr: string (optional; becomes backend `q`)
+     *  Output:
+     *   - side effects: sets byOrg/byType and may extend tenantIdOptions based on that single page
+     *  Errors:
+     *   - sets aggError and clears aggregates on failure
      */
     setAggLoading(true);
     setAggError("");
     try {
-      const limit = 200;
-      const maxPages = 10;
-      let page = 1;
-      const all = [];
-
       const effectiveQ = qStr && String(qStr).trim() ? String(qStr).trim() : "";
 
-      while (page <= maxPages) {
-        const params = { page, limit };
-        if (effectiveQ) params.q = effectiveQ;
+      const params = { page, limit };
+      if (effectiveQ) params.q = effectiveQ;
 
-        if (filterTenantId && filterTenantId.trim()) {
-          params.tenant_id = filterTenantId.trim();
-        }
-
-        const res = await listSessions(params);
-        const arr = Array.isArray(res?.items) ? res.items : [];
-        all.push(...arr);
-        if (arr.length < limit) break;
-        page += 1;
+      if (filterTenantId && filterTenantId.trim()) {
+        params.tenant_id = filterTenantId.trim();
       }
 
-      // Aggregate by organization
+      const res = await listSessions(params);
+      const items = Array.isArray(res?.items) ? res.items : [];
+
+      // Aggregate by organization (single page view)
       const orgCounts = new Map();
-      all.forEach((it) => {
+      items.forEach((it) => {
         let org = it?.organization_name || it?.organization?.name || it?.tenant_id || "";
         org = String(org || "").trim();
         if (!org) org = "Unknown";
@@ -167,9 +171,9 @@ export default function Sessions() {
         }))
         .sort((a, b) => b.session_count - a.session_count);
 
-      // Aggregate by type
+      // Aggregate by type (single page view)
       const typeCounts = new Map();
-      all.forEach((it) => {
+      items.forEach((it) => {
         let t = it?.session_type || it?.type || it?.service_type || "";
         t = String(t || "").trim();
         if (!t) t = "Unknown";
@@ -182,9 +186,9 @@ export default function Sessions() {
       setByOrg(orgArr);
       setByType(typeArr);
 
-      // Merge tenant IDs (union)
+      // Merge tenant IDs (union) from this page only
       const tenantIds = new Set(tenantIdOptions);
-      (all || []).forEach((it) => {
+      (items || []).forEach((it) => {
         const t = String(it?.tenant_id ?? "").trim();
         if (t) tenantIds.add(t);
       });
@@ -192,9 +196,7 @@ export default function Sessions() {
     } catch (e) {
       setByOrg([]);
       setByType([]);
-      setAggError(
-        e?.response?.data?.message || e?.message || "Failed to load session aggregates."
-      );
+      setAggError(e?.response?.data?.message || e?.message || "Failed to load session aggregates.");
     } finally {
       setAggLoading(false);
     }
@@ -265,11 +267,15 @@ export default function Sessions() {
     }
   }
 
-  // Initial load
+  // Initial load (first page only)
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, "", key, dir);
-    loadAggregates("");
+    const initialLimit = meta.limit || 10;
+
+    load(1, initialLimit, "", key, dir);
+
+    // IMPORTANT: do NOT prefetch many pages for aggregates; only use first page.
+    loadAggregatesFromPage({ page: 1, limit: initialLimit, qStr: "" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
@@ -278,9 +284,13 @@ export default function Sessions() {
     const baseQ = (debouncedQuery || "").trim();
 
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+    const effectiveLimit = meta.limit || 10;
+
     // Always reset to page 1 when query changes.
-    load(1, meta.limit || 10, baseQ, key, dir);
-    loadAggregates(baseQ);
+    load(1, effectiveLimit, baseQ, key, dir);
+
+    // Keep aggregates aligned with what's initially visible (page 1 only).
+    loadAggregatesFromPage({ page: 1, limit: effectiveLimit, qStr: baseQ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery]);
 
@@ -289,7 +299,12 @@ export default function Sessions() {
     const baseQ = (query || "").trim();
 
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, baseQ, key, dir);
+    const effectiveLimit = meta.limit || 10;
+
+    load(1, effectiveLimit, baseQ, key, dir);
+
+    // Keep aggregates aligned with what's initially visible (page 1 only).
+    loadAggregatesFromPage({ page: 1, limit: effectiveLimit, qStr: baseQ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterTenantId]);
 
@@ -426,7 +441,13 @@ export default function Sessions() {
             } else if (!lastSortRef.current) {
               lastSortRef.current = { key: "", dir: "asc" };
             }
-            await load(page, limit, (query || "").trim(), sortKey, sortDir);
+
+            const baseQ = (query || "").trim();
+            await load(page, limit, baseQ, sortKey, sortDir);
+
+            // IMPORTANT: aggregates follow the user's explicit pagination action.
+            // This intentionally fetches only the selected page to avoid prefetching many pages.
+            await loadAggregatesFromPage({ page, limit, qStr: baseQ });
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
