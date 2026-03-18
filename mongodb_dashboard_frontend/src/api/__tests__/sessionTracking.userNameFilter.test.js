@@ -3,7 +3,8 @@ import { listSessions } from "../baseClient";
 describe("Session Tracking - user_name filtering", () => {
   beforeEach(() => {
     // Minimal org scope for ensureScopedQueryParams; baseClient uses this.
-    window.localStorage.setItem("organization_id", "orgTest");
+    // NOTE: authTokenProvider.getOrganizationId() reads from this key.
+    window.localStorage.setItem("org_id", "orgTest");
   });
 
   afterEach(() => {
