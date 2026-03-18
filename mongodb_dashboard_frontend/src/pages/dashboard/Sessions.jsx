@@ -113,21 +113,57 @@ export default function Sessions() {
   function applyFrontendUserNameFilter(rows = [], userName = "") {
     /**
      * Frontend-only filter for Session Tracking table by user name.
-     * Matches against common fields where the username may appear.
-     * Uses case-insensitive substring match to align with typical "search by name" UX.
+     *
+     * Why this exists:
+     * - The Session Tracking backend may return the username under different keys depending on
+     *   ingestion source / historical data (e.g. User_name, user_name, userName, UserName, etc.).
+     * - The requirement here is: filtering by a user name like "Chris" must work purely on the frontend.
+     *
+     * Behavior:
+     * - Case-insensitive substring match.
+     * - Trims whitespace on both the filter input and the candidate value.
      */
     const needle = String(userName || "").trim().toLowerCase();
     if (!needle) return Array.isArray(rows) ? rows : [];
 
-    return (Array.isArray(rows) ? rows : []).filter((row) => {
-      const candidate =
-        row?.User_name ??
-        row?.user_name ??
+    const getUserNameCandidate = (row) => {
+      if (!row || typeof row !== "object") return "";
+
+      // Prefer explicit known fields (including common casing variants).
+      const direct =
+        row.User_name ??
+        row.user_name ??
+        row.userName ??
+        row.UserName ??
+        row.USER_NAME ??
+        row.User_Name ??
+        row.username ??
+        row.user ??
+        row.email;
+
+      // Sometimes the record nests user info.
+      const nested =
         row?.user?.name ??
-        row?.username ??
-        row?.email ??
-        "";
-      return String(candidate || "").toLowerCase().includes(needle);
+        row?.user?.User_name ??
+        row?.user?.user_name ??
+        row?.user?.userName ??
+        row?.user?.UserName ??
+        row?.user?.username ??
+        row?.user?.email ??
+        row?.user_profile?.name ??
+        row?.user_profile?.user_name ??
+        row?.user_profile?.User_name;
+
+      // If `row.user` is an object, `direct` might be the whole object; avoid stringifying [object Object]
+      const candidate =
+        typeof direct === "string" || typeof direct === "number" ? direct : nested;
+
+      return String(candidate ?? "").trim();
+    };
+
+    return (Array.isArray(rows) ? rows : []).filter((row) => {
+      const candidate = getUserNameCandidate(row).toLowerCase();
+      return candidate.includes(needle);
     });
   }
 
