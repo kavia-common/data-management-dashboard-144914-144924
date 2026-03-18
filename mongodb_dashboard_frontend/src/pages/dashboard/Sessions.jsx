@@ -120,8 +120,10 @@ export default function Sessions() {
      * Fetch sessions across multiple pages (capped) and build client-side aggregates
      * for charts: by organization_name and by session_type.
      *
-     * Note: We include the username filter into the backend query (`q`) so aggregates reflect
-     * the same dataset shown in the table when filtering by user.
+     * IMPORTANT:
+     * - Free-text search uses backend `q`.
+     * - Username filtering uses backend `filter.user_name` (strict match) so aggregates reflect
+     *   the same dataset shown in the table across all pages.
      */
     setAggLoading(true);
     setAggError("");
@@ -131,16 +133,19 @@ export default function Sessions() {
       let page = 1;
       const all = [];
 
-      const qParts = [];
-      if (qStr && String(qStr).trim()) qParts.push(String(qStr).trim());
-      if (filterUserName && String(filterUserName).trim()) {
-        qParts.push(String(filterUserName).trim());
-      }
-      const effectiveQ = qParts.join(" ").trim();
+      const effectiveQ = (qStr && String(qStr).trim()) ? String(qStr).trim() : "";
+      const effectiveUserName =
+        filterUserName && String(filterUserName).trim() ? String(filterUserName).trim() : "";
 
       while (page <= maxPages) {
         const params = { page, limit };
         if (effectiveQ) params.q = effectiveQ;
+
+        if (effectiveUserName) {
+          // Server-side strict username filter (stable across pagination)
+          params.filter = { user_name: effectiveUserName };
+        }
+
         if (filterTenantId && filterTenantId.trim()) {
           params.tenant_id = filterTenantId.trim();
         }
@@ -206,8 +211,9 @@ export default function Sessions() {
     /**
      * Load sessions with pagination, optional text search (qStr), and sorting.
      *
-     * Fix: "Filter by User name" must search across the full dataset (not just current page),
-     * so we include it in the backend query param `q` and render the returned rows.
+     * Fix:
+     * - "Filter by User name" MUST be applied server-side via `filter.user_name`,
+     *   otherwise pagination will show other users on pages > 1.
      */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
@@ -221,17 +227,17 @@ export default function Sessions() {
         service_type: "service_type",
       };
 
-      // Combine free-text search with username filter into a single backend `q`.
-      // Backend applies case-insensitive search across multiple fields, including user_name.
-      const qParts = [];
-      if (qStr && String(qStr).trim()) qParts.push(String(qStr).trim());
-      if (filterUserName && String(filterUserName).trim()) {
-        qParts.push(String(filterUserName).trim());
-      }
-      const effectiveQ = qParts.join(" ").trim();
+      const effectiveQ = (qStr && String(qStr).trim()) ? String(qStr).trim() : "";
+      const effectiveUserName =
+        filterUserName && String(filterUserName).trim() ? String(filterUserName).trim() : "";
 
       const params = { page, limit };
       if (effectiveQ) params.q = effectiveQ;
+
+      if (effectiveUserName) {
+        // Server-side strict username filter (stable across pagination)
+        params.filter = { user_name: effectiveUserName };
+      }
 
       if (filterTenantId && filterTenantId.trim()) {
         params.tenant_id = filterTenantId.trim();
@@ -250,7 +256,7 @@ export default function Sessions() {
       setServerItems(safeArr);
       setItems(safeArr);
 
-      // Pagination meta should reflect the server-side filtered result set (including `q`).
+      // Pagination meta should reflect the server-side filtered result set (including q + filter).
       setMeta({
         page: res?.meta?.page || page,
         limit: res?.meta?.limit || limit,

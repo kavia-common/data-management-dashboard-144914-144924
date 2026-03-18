@@ -85,8 +85,9 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
   }
 
   if (isSessionTrackingRoot(pathOrUrl)) {
-    // Remove any organization_id remnants and 'filter' for session-tracking as backend ignores it now.
-    const { organization_id, filter, ...rest } = params || {};
+    // Session Tracking supports `filter` and `q` per backend OpenAPI.
+    // We still strip organization_id because this endpoint uses tenant_id scoping instead.
+    const { organization_id, ...rest } = params || {};
     return rest || {};
   }
 
