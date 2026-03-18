@@ -6,59 +6,39 @@ import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
+import Input from "../../components/ui/Input.jsx";
 
 // PUBLIC_INTERFACE
 export default function Sessions() {
   /**
-   * Sessions page with server-side search and pagination.
-   * - Debounced search across dataset via backend query param `q`.
-   * - Tenant filter remains a dropdown based on discovered tenant ids.
-   * - Pagination uses server-provided meta.total and page/limit.
+   * Session Tracking module page with server-side search and pagination.
    *
-   * Note: "Filter by User name" has been removed from the Session Tracking module.
+   * Requirement implemented:
+   * - Add a User_name search filter in the Session Tracking table UI.
+   * - The filter searches across ALL sessions server-side (via backend query param `q`)
+   *   so only that user’s sessions are returned, including across pagination.
+   *
+   * Implementation details:
+   * - We send `q=userName` to /api/session-tracking.
+   * - We keep tenant_id filter as-is and combine it with q.
+   * - We debounce typing to avoid request spam.
    */
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
-  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   // UI filters
   const [filterTenantId, setFilterTenantId] = useState("");
+  const [userNameQuery, setUserNameQuery] = useState("");
 
   // Tenant dropdown options
   const [tenantIdOptions, setTenantIdOptions] = useState([]);
 
-  // Keep URL query params in sync (so back/forward works)
-  useEffect(() => {
-    const usp = new URLSearchParams(window.location.search);
-    // Explicitly delete legacy param if present, so URLs don't keep stale filter state.
-    usp.delete("user_name");
-
-    if (filterTenantId) usp.set("tenant_id", filterTenantId);
-    else usp.delete("tenant_id");
-
-    const next = `${window.location.pathname}?${usp.toString()}`;
-    window.history.replaceState({}, "", next);
-  }, [filterTenantId]);
-
-  // Initialize filter selections from URL on first mount
-  useEffect(() => {
-    const usp = new URLSearchParams(window.location.search);
-    const initialTenant = usp.get("tenant_id") || "";
-    if (initialTenant) setFilterTenantId(initialTenant);
-
-    // Cleanup legacy param on initial mount too.
-    if (usp.has("user_name")) {
-      usp.delete("user_name");
-      const next = `${window.location.pathname}?${usp.toString()}`;
-      window.history.replaceState({}, "", next);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Pagination meta (server-driven)
+  const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   // Debounced search to avoid request spam while typing
-  const debouncedQuery = useDebouncedValue(query, 250);
+  const debouncedUserNameQuery = useDebouncedValue(userNameQuery, 250);
 
   // Details modal state
   const [selectedSession, setSelectedSession] = useState(null);
@@ -119,46 +99,69 @@ export default function Sessions() {
   const [byOrg, setByOrg] = useState([]); // [{ organization_name, session_count }]
   const [byType, setByType] = useState([]); // [{ session_type, session_count }]
 
-  // PUBLIC_INTERFACE
-  async function loadAggregatesFromPage({ page, limit, qStr }) {
+  // Keep URL query params in sync (so back/forward works)
+  useEffect(() => {
+    const usp = new URLSearchParams(window.location.search);
+
+    if (filterTenantId) usp.set("tenant_id", filterTenantId);
+    else usp.delete("tenant_id");
+
+    // We intentionally persist the username filter in the URL to support sharing/back-forward.
+    if (userNameQuery && userNameQuery.trim()) usp.set("user_name", userNameQuery.trim());
+    else usp.delete("user_name");
+
+    const next = `${window.location.pathname}?${usp.toString()}`;
+    window.history.replaceState({}, "", next);
+  }, [filterTenantId, userNameQuery]);
+
+  // Initialize filter selections from URL on first mount
+  useEffect(() => {
+    const usp = new URLSearchParams(window.location.search);
+    const initialTenant = usp.get("tenant_id") || "";
+    const initialUserName = usp.get("user_name") || "";
+
+    if (initialTenant) setFilterTenantId(initialTenant);
+    if (initialUserName) setUserNameQuery(initialUserName);
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function loadAggregates(qStr = "") {
     /**
-     * SessionAggregatesFromFirstPageFlow
+     * Fetch sessions across multiple pages (capped) and build client-side aggregates
+     * for charts: by organization_name and by session_type.
      *
-     * Purpose:
-     *  Build lightweight chart aggregates from a *single* page of session tracking data.
-     *
-     * Why:
-     *  The previous implementation preloaded many pages on mount (e.g., ~10 pages * 200 = 2000 rows),
-     *  which caused a burst of /api/session-tracking calls. This flow intentionally does NOT prefetch.
-     *
-     * Contract:
-     *  Inputs:
-     *   - page: number (>= 1)
-     *   - limit: number (>= 1, <= 200 recommended)
-     *   - qStr: string (optional; becomes backend `q`)
-     *  Output:
-     *   - side effects: sets byOrg/byType and may extend tenantIdOptions based on that single page
-     *  Errors:
-     *   - sets aggError and clears aggregates on failure
+     * - Free-text search uses backend `q` (here used to represent username filter).
+     * - Tenant scoping is applied via tenant_id.
      */
     setAggLoading(true);
     setAggError("");
     try {
+      const limit = 200;
+      const maxPages = 10;
+      let page = 1;
+      const all = [];
+
       const effectiveQ = qStr && String(qStr).trim() ? String(qStr).trim() : "";
 
-      const params = { page, limit };
-      if (effectiveQ) params.q = effectiveQ;
+      while (page <= maxPages) {
+        const params = { page, limit };
+        if (effectiveQ) params.q = effectiveQ;
 
-      if (filterTenantId && filterTenantId.trim()) {
-        params.tenant_id = filterTenantId.trim();
+        if (filterTenantId && filterTenantId.trim()) {
+          params.tenant_id = filterTenantId.trim();
+        }
+
+        const res = await listSessions(params);
+        const arr = Array.isArray(res?.items) ? res.items : [];
+        all.push(...arr);
+        if (arr.length < limit) break;
+        page += 1;
       }
 
-      const res = await listSessions(params);
-      const items = Array.isArray(res?.items) ? res.items : [];
-
-      // Aggregate by organization (single page view)
+      // Aggregate by organization
       const orgCounts = new Map();
-      items.forEach((it) => {
+      all.forEach((it) => {
         let org = it?.organization_name || it?.organization?.name || it?.tenant_id || "";
         org = String(org || "").trim();
         if (!org) org = "Unknown";
@@ -171,9 +174,9 @@ export default function Sessions() {
         }))
         .sort((a, b) => b.session_count - a.session_count);
 
-      // Aggregate by type (single page view)
+      // Aggregate by type
       const typeCounts = new Map();
-      items.forEach((it) => {
+      all.forEach((it) => {
         let t = it?.session_type || it?.type || it?.service_type || "";
         t = String(t || "").trim();
         if (!t) t = "Unknown";
@@ -186,9 +189,9 @@ export default function Sessions() {
       setByOrg(orgArr);
       setByType(typeArr);
 
-      // Merge tenant IDs (union) from this page only
+      // Merge tenant IDs (union)
       const tenantIds = new Set(tenantIdOptions);
-      (items || []).forEach((it) => {
+      (all || []).forEach((it) => {
         const t = String(it?.tenant_id ?? "").trim();
         if (t) tenantIds.add(t);
       });
@@ -196,7 +199,9 @@ export default function Sessions() {
     } catch (e) {
       setByOrg([]);
       setByType([]);
-      setAggError(e?.response?.data?.message || e?.message || "Failed to load session aggregates.");
+      setAggError(
+        e?.response?.data?.message || e?.message || "Failed to load session aggregates."
+      );
     } finally {
       setAggLoading(false);
     }
@@ -207,7 +212,8 @@ export default function Sessions() {
     /**
      * Load sessions with pagination, optional text search (qStr), and sorting.
      *
-     * Note: Username filtering has been removed from Session Tracking.
+     * NOTE: We use backend `q` for the User_name filter to ensure the filtering happens
+     * server-side and applies across ALL sessions (and across pagination).
      */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
@@ -267,44 +273,29 @@ export default function Sessions() {
     }
   }
 
-  // Initial load (first page only)
+  // Initial load
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    const initialLimit = meta.limit || 10;
-
-    load(1, initialLimit, "", key, dir);
-
-    // IMPORTANT: do NOT prefetch many pages for aggregates; only use first page.
-    loadAggregatesFromPage({ page: 1, limit: initialLimit, qStr: "" });
+    load(1, meta.limit || 10, (userNameQuery || "").trim(), key, dir);
+    loadAggregates((userNameQuery || "").trim());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
-  // Debounced server-side search on query change
+  // Debounced server-side username search
   useEffect(() => {
-    const baseQ = (debouncedQuery || "").trim();
-
+    const q = (debouncedUserNameQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    const effectiveLimit = meta.limit || 10;
-
-    // Always reset to page 1 when query changes.
-    load(1, effectiveLimit, baseQ, key, dir);
-
-    // Keep aggregates aligned with what's initially visible (page 1 only).
-    loadAggregatesFromPage({ page: 1, limit: effectiveLimit, qStr: baseQ });
+    // Always reset to page 1 when filter changes.
+    load(1, meta.limit || 10, q, key, dir);
+    loadAggregates(q);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery]);
+  }, [debouncedUserNameQuery]);
 
   // Immediate refetch when tenant filter changes
   useEffect(() => {
-    const baseQ = (query || "").trim();
-
+    const q = (userNameQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    const effectiveLimit = meta.limit || 10;
-
-    load(1, effectiveLimit, baseQ, key, dir);
-
-    // Keep aggregates aligned with what's initially visible (page 1 only).
-    loadAggregatesFromPage({ page: 1, limit: effectiveLimit, qStr: baseQ });
+    load(1, meta.limit || 10, q, key, dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterTenantId]);
 
@@ -325,7 +316,7 @@ export default function Sessions() {
         const keys = Object.keys(row || {});
         // eslint-disable-next-line no-console
         console.debug(
-          "[Sessions] Row clicked (tenant_id scoped) -> opening details modal with keys:",
+          "[Sessions] Row clicked -> opening details modal with keys:",
           keys
         );
       } catch {
@@ -378,7 +369,7 @@ export default function Sessions() {
       </div>
 
       {/* Table */}
-      <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
+      <Card title="Session Tracking" subtitle="Filter sessions without page reloads">
         <div
           className="toolbar"
           aria-label="Sessions toolbar"
@@ -389,14 +380,18 @@ export default function Sessions() {
             alignItems: "center",
           }}
         >
-          {/* <input
+          <label htmlFor="filter-user-name" className="sr-only">
+            Filter by User name
+          </label>
+          <Input
+            id="filter-user-name"
             className="input-search"
-            placeholder="Search sessions (user, org, service, status, etc.)..."
-            aria-label="Search sessions"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Filter by User name (server-side)..."
+            aria-label="Filter by User name"
+            value={userNameQuery}
+            onChange={(e) => setUserNameQuery(e.target.value)}
             style={{ minWidth: 280 }}
-          /> */}
+          />
 
           <label htmlFor="filter-tenant" className="sr-only">
             Filter by Tenant ID
@@ -419,6 +414,17 @@ export default function Sessions() {
 
           <div style={{ width: 8 }} />
           <div className="spacer" style={{ flex: 1 }} />
+
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => setUserNameQuery("")}
+            disabled={!userNameQuery}
+            aria-label="Clear user name filter"
+            title="Clear"
+          >
+            Clear
+          </button>
         </div>
 
         {error && (
@@ -441,13 +447,8 @@ export default function Sessions() {
             } else if (!lastSortRef.current) {
               lastSortRef.current = { key: "", dir: "asc" };
             }
-
-            const baseQ = (query || "").trim();
-            await load(page, limit, baseQ, sortKey, sortDir);
-
-            // IMPORTANT: aggregates follow the user's explicit pagination action.
-            // This intentionally fetches only the selected page to avoid prefetching many pages.
-            await loadAggregatesFromPage({ page, limit, qStr: baseQ });
+            // Critical: pass the username filter to ensure server-side filtering across pagination.
+            await load(page, limit, (userNameQuery || "").trim(), sortKey, sortDir);
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
