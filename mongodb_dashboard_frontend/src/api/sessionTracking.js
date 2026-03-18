@@ -16,27 +16,16 @@ import { buildQueryString } from './util';
  *  - sort?: string
  *  - q?: string (server-side multi-field text search)
  *  - filter?: object (server-side JSON filter; will be JSON-stringified into `filter` query param)
- *  - user_name?: string (convenience alias; applied as strict server-side filter: { user_name: <trimmed> })
  *
  * Output:
  *  - Promise<{ items: any[], total: number, meta: any }>
  *
  * Notes / invariants:
- *  - When `user_name` is provided, it is applied as a strict filter (exact match) so that
- *    pagination across all pages returns sessions for that user only.
- *  - If both `filter.user_name` and `user_name` are provided, `user_name` wins.
  *  - The backend may return either a raw array or an envelope { data, meta }.
+ *  - Username filtering has been removed from the Session Tracking module.
  */
 export async function fetchSessionTracking(params = {}) {
-  const {
-    page,
-    limit,
-    tenant_id,
-    sort,
-    q,
-    filter,
-    user_name,
-  } = params || {};
+  const { page, limit, tenant_id, sort, q, filter } = params || {};
 
   const safeParams = {};
   if (page !== undefined) safeParams.page = page;
@@ -45,20 +34,10 @@ export async function fetchSessionTracking(params = {}) {
   if (sort !== undefined) safeParams.sort = sort;
   if (q !== undefined) safeParams.q = q;
 
-  // Build effective filter, enforcing strict user_name filtering when provided.
-  const effectiveFilter = (filter && typeof filter === 'object' && !Array.isArray(filter))
-    ? { ...filter }
-    : {};
-
-  const normalizedUserName = typeof user_name === 'string' ? user_name.trim() : '';
-  if (normalizedUserName) {
-    effectiveFilter.user_name = normalizedUserName;
-  }
-
-  // Only send filter when it's non-empty, to avoid confusing intermediaries/caches.
-  if (Object.keys(effectiveFilter).length > 0) {
+  // Only send filter when it's a non-empty object.
+  if (filter && typeof filter === 'object' && !Array.isArray(filter) && Object.keys(filter).length > 0) {
     // Use the existing shared serializer to ensure consistent encoding with other modules.
-    safeParams.filter = buildFilterParam(effectiveFilter);
+    safeParams.filter = buildFilterParam(filter);
   }
 
   const qs = buildQueryString(safeParams);

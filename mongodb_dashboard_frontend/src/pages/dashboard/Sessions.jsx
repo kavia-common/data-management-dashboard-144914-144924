@@ -12,20 +12,18 @@ export default function Sessions() {
   /**
    * Sessions page with server-side search and pagination.
    * - Debounced search across dataset via backend query param `q`.
-   * - "Filter by User name" is a plain text input (no dropdown).
    * - Tenant filter remains a dropdown based on discovered tenant ids.
    * - Pagination uses server-provided meta.total and page/limit.
+   *
+   * Note: "Filter by User name" has been removed from the Session Tracking module.
    */
   const [items, setItems] = useState([]);
-  // Keep the last server result separate so we can apply strict frontend-only filters.
-  const [serverItems, setServerItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   // UI filters
-  const [filterUserName, setFilterUserName] = useState("");
   const [filterTenantId, setFilterTenantId] = useState("");
 
   // Tenant dropdown options
@@ -34,26 +32,32 @@ export default function Sessions() {
   // Keep URL query params in sync (so back/forward works)
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
-    if (filterUserName) usp.set("user_name", filterUserName);
-    else usp.delete("user_name");
+    // Explicitly delete legacy param if present, so URLs don't keep stale filter state.
+    usp.delete("user_name");
+
     if (filterTenantId) usp.set("tenant_id", filterTenantId);
     else usp.delete("tenant_id");
+
     const next = `${window.location.pathname}?${usp.toString()}`;
     window.history.replaceState({}, "", next);
-  }, [filterUserName, filterTenantId]);
+  }, [filterTenantId]);
 
   // Initialize filter selections from URL on first mount
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
-    const initialUser = usp.get("user_name") || "";
     const initialTenant = usp.get("tenant_id") || "";
-    if (initialUser) setFilterUserName(initialUser);
     if (initialTenant) setFilterTenantId(initialTenant);
+
+    // Cleanup legacy param on initial mount too.
+    if (usp.has("user_name")) {
+      usp.delete("user_name");
+      const next = `${window.location.pathname}?${usp.toString()}`;
+      window.history.replaceState({}, "", next);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Debounced filters/search to avoid request spam while typing
-  const debouncedFilterUserName = useDebouncedValue(filterUserName, 250);
+  // Debounced search to avoid request spam while typing
   const debouncedQuery = useDebouncedValue(query, 250);
 
   // Details modal state
@@ -79,7 +83,7 @@ export default function Sessions() {
   }
 
   // PUBLIC_INTERFACE
-  function buildRestrictedColumns(rows = []) {
+  function buildRestrictedColumns() {
     /** Build DataTable columns strictly from the allowed list, preserving order. */
     return allowedOrdered.map((k) => {
       const label = k === "User_name" ? "User name" : toLabel(k);
@@ -107,7 +111,7 @@ export default function Sessions() {
     });
   }
 
-  const [columns, setColumns] = useState(buildRestrictedColumns([]));
+  const [columns, setColumns] = useState(buildRestrictedColumns());
 
   // Aggregates for charts
   const [aggLoading, setAggLoading] = useState(false);
@@ -120,10 +124,8 @@ export default function Sessions() {
      * Fetch sessions across multiple pages (capped) and build client-side aggregates
      * for charts: by organization_name and by session_type.
      *
-     * IMPORTANT:
      * - Free-text search uses backend `q`.
-     * - Username filtering uses backend `filter.user_name` (strict match) so aggregates reflect
-     *   the same dataset shown in the table across all pages.
+     * - Tenant scoping is applied via tenant_id.
      */
     setAggLoading(true);
     setAggError("");
@@ -133,18 +135,11 @@ export default function Sessions() {
       let page = 1;
       const all = [];
 
-      const effectiveQ = (qStr && String(qStr).trim()) ? String(qStr).trim() : "";
-      const effectiveUserName =
-        filterUserName && String(filterUserName).trim() ? String(filterUserName).trim() : "";
+      const effectiveQ = qStr && String(qStr).trim() ? String(qStr).trim() : "";
 
       while (page <= maxPages) {
         const params = { page, limit };
         if (effectiveQ) params.q = effectiveQ;
-
-        if (effectiveUserName) {
-          // Server-side strict username filter (stable across pagination)
-          params.filter = { user_name: effectiveUserName };
-        }
 
         if (filterTenantId && filterTenantId.trim()) {
           params.tenant_id = filterTenantId.trim();
@@ -160,8 +155,7 @@ export default function Sessions() {
       // Aggregate by organization
       const orgCounts = new Map();
       all.forEach((it) => {
-        let org =
-          it?.organization_name || it?.organization?.name || it?.tenant_id || "";
+        let org = it?.organization_name || it?.organization?.name || it?.tenant_id || "";
         org = String(org || "").trim();
         if (!org) org = "Unknown";
         orgCounts.set(org, (orgCounts.get(org) || 0) + 1);
@@ -211,9 +205,7 @@ export default function Sessions() {
     /**
      * Load sessions with pagination, optional text search (qStr), and sorting.
      *
-     * Fix:
-     * - "Filter by User name" MUST be applied server-side via `filter.user_name`,
-     *   otherwise pagination will show other users on pages > 1.
+     * Note: Username filtering has been removed from Session Tracking.
      */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
@@ -227,17 +219,10 @@ export default function Sessions() {
         service_type: "service_type",
       };
 
-      const effectiveQ = (qStr && String(qStr).trim()) ? String(qStr).trim() : "";
-      const effectiveUserName =
-        filterUserName && String(filterUserName).trim() ? String(filterUserName).trim() : "";
+      const effectiveQ = qStr && String(qStr).trim() ? String(qStr).trim() : "";
 
       const params = { page, limit };
       if (effectiveQ) params.q = effectiveQ;
-
-      if (effectiveUserName) {
-        // Server-side strict username filter (stable across pagination)
-        params.filter = { user_name: effectiveUserName };
-      }
 
       if (filterTenantId && filterTenantId.trim()) {
         params.tenant_id = filterTenantId.trim();
@@ -253,17 +238,15 @@ export default function Sessions() {
       if (requestId !== activeRequestRef.current) return;
 
       const safeArr = Array.isArray(arr) ? arr : [];
-      setServerItems(safeArr);
       setItems(safeArr);
 
-      // Pagination meta should reflect the server-side filtered result set (including q + filter).
       setMeta({
         page: res?.meta?.page || page,
         limit: res?.meta?.limit || limit,
         total: res?.meta?.total ?? safeArr.length,
       });
 
-      setColumns(buildRestrictedColumns(safeArr));
+      setColumns(buildRestrictedColumns());
 
       // Merge-in tenant IDs seen on this page as well
       const tenants = new Set(tenantIdOptions);
@@ -274,9 +257,8 @@ export default function Sessions() {
       setTenantIdOptions(Array.from(tenants).sort((a, b) => a.localeCompare(b)));
     } catch (e) {
       if (requestId !== activeRequestRef.current) return;
-      setServerItems([]);
       setItems([]);
-      setColumns(buildRestrictedColumns([]));
+      setColumns(buildRestrictedColumns());
       setError(e?.response?.data?.message || e?.message || "Failed to load sessions.");
     } finally {
       if (requestId === activeRequestRef.current) setLoading(false);
@@ -291,16 +273,16 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
-  // Debounced server-side search on query change and user-name filter change
+  // Debounced server-side search on query change
   useEffect(() => {
     const baseQ = (debouncedQuery || "").trim();
 
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    // Always reset to page 1 when query/username changes.
+    // Always reset to page 1 when query changes.
     load(1, meta.limit || 10, baseQ, key, dir);
     loadAggregates(baseQ);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, debouncedFilterUserName]);
+  }, [debouncedQuery]);
 
   // Immediate refetch when tenant filter changes
   useEffect(() => {
@@ -373,18 +355,9 @@ export default function Sessions() {
           </div>
         </Card>
 
-        <Card
-          className="chart-card"
-          title="Sessions by Type"
-          subtitle="Count of sessions per type"
-        >
+        <Card className="chart-card" title="Sessions by Type" subtitle="Count of sessions per type">
           <div className="chart-wrapper" style={{ minHeight: 320 }}>
-            <SessionsByType
-              data={byType}
-              loading={aggLoading}
-              error={aggError}
-              maxItems={5}
-            />
+            <SessionsByType data={byType} loading={aggLoading} error={aggError} maxItems={5} />
           </div>
         </Card>
       </div>
@@ -409,19 +382,6 @@ export default function Sessions() {
             onChange={(e) => setQuery(e.target.value)}
             style={{ minWidth: 280 }}
           /> */}
-
-          <label htmlFor="filter-user" className="sr-only">
-            Filter by User name
-          </label>
-          <input
-            id="filter-user"
-            className="input-filter"
-            aria-label="Filter by User name"
-            value={filterUserName}
-            onChange={(e) => setFilterUserName(e.target.value)}
-            placeholder="Filter by User name"
-            style={{ minWidth: 220 }}
-          />
 
           <label htmlFor="filter-tenant" className="sr-only">
             Filter by Tenant ID
