@@ -31,11 +31,15 @@ export default function Sessions() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // UI filters
+  // UI filters (table)
   const [filterTenantId, setFilterTenantId] = useState("");
   const [userNameQuery, setUserNameQuery] = useState("");
 
-  // Tenant dropdown options
+  // Chart-specific tenant filters
+  const [chartTenantOrgId, setChartTenantOrgId] = useState("");
+  const [chartTenantTypeId, setChartTenantTypeId] = useState("");
+
+  // Tenant dropdown options (shared source; used by table + charts)
   const [tenantIdOptions, setTenantIdOptions] = useState([]);
 
   // Pagination meta (server-driven)
@@ -130,14 +134,14 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function loadAggregates(userName = "") {
+  async function loadAggregates({ userName = "", tenantId = "" } = {}) {
     /**
      * Fetch sessions across multiple pages (capped) and build client-side aggregates
-     * for charts: by organization_name and by session_type.
+     * for charts.
      *
      * IMPORTANT:
      * - We use backend `filter` with { user_name: <value> } for strict user-only results.
-     * - Tenant scoping is applied via tenant_id.
+     * - Tenant scoping is applied via tenant_id when provided.
      */
     setAggLoading(true);
     setAggError("");
@@ -149,6 +153,7 @@ export default function Sessions() {
 
       const effectiveUserName =
         userName && String(userName).trim() ? String(userName).trim() : "";
+      const effectiveTenantId = tenantId && String(tenantId).trim() ? String(tenantId).trim() : "";
 
       while (page <= maxPages) {
         const params = { page, limit };
@@ -158,8 +163,8 @@ export default function Sessions() {
           params.filter = { user_name: effectiveUserName };
         }
 
-        if (filterTenantId && filterTenantId.trim()) {
-          params.tenant_id = filterTenantId.trim();
+        if (effectiveTenantId) {
+          params.tenant_id = effectiveTenantId;
         }
 
         const res = await listSessions(params);
@@ -199,7 +204,7 @@ export default function Sessions() {
       setByOrg(orgArr);
       setByType(typeArr);
 
-      // Merge tenant IDs (union)
+      // Merge tenant IDs (union) for dropdown options
       const tenantIds = new Set(tenantIdOptions);
       (all || []).forEach((it) => {
         const t = String(it?.tenant_id ?? "").trim();
@@ -294,8 +299,15 @@ export default function Sessions() {
   // Initial load
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, (userNameQuery || "").trim(), key, dir);
-    loadAggregates((userNameQuery || "").trim());
+    const q = (userNameQuery || "").trim();
+    load(1, meta.limit || 10, q, key, dir);
+
+    // Initialize chart tenant filters from the table tenant filter (if present) for a consistent first render.
+    const initialChartTenant = (filterTenantId || "").trim();
+    setChartTenantOrgId(initialChartTenant);
+    setChartTenantTypeId(initialChartTenant);
+
+    loadAggregates({ userName: q, tenantId: initialChartTenant });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
@@ -305,17 +317,33 @@ export default function Sessions() {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     // Always reset to page 1 when filter changes.
     load(1, meta.limit || 10, q, key, dir);
-    loadAggregates(q);
+
+    // Keep aggregates in sync with username filter as well.
+    loadAggregates({ userName: q, tenantId: (chartTenantOrgId || "").trim() });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedUserNameQuery]);
 
-  // Immediate refetch when tenant filter changes
+  // Immediate refetch when tenant filter changes (table)
   useEffect(() => {
     const q = (userNameQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, q, key, dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterTenantId]);
+
+  // Re-fetch aggregates when the Organization chart tenant changes
+  useEffect(() => {
+    const q = (userNameQuery || "").trim();
+    loadAggregates({ userName: q, tenantId: (chartTenantOrgId || "").trim() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartTenantOrgId]);
+
+  // Re-fetch aggregates when the Type chart tenant changes
+  useEffect(() => {
+    const q = (userNameQuery || "").trim();
+    loadAggregates({ userName: q, tenantId: (chartTenantTypeId || "").trim() });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartTenantTypeId]);
 
   // Toggle global dimming class while modal is open
   useEffect(() => {
@@ -374,12 +402,68 @@ export default function Sessions() {
           title="Sessions by Organization"
           subtitle="Count of sessions per organization"
         >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              marginBottom: 10,
+            }}
+          >
+            <label htmlFor="chart-tenant-org" style={{ fontSize: 12, color: "var(--text-secondary, #6B7280)" }}>
+              Tenant
+            </label>
+            <select
+              id="chart-tenant-org"
+              aria-label="Tenant selector for sessions by organization chart"
+              value={chartTenantOrgId}
+              onChange={(e) => setChartTenantOrgId(e.target.value)}
+              style={{ minWidth: 200 }}
+            >
+              <option value="">All tenants</option>
+              {tenantIdOptions.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="chart-wrapper" style={{ height: 320 }}>
             <SessionsByOrganization data={byOrg} loading={aggLoading} error={aggError} />
           </div>
         </Card>
 
         <Card className="chart-card" title="Sessions by Type" subtitle="Count of sessions per type">
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flexWrap: "wrap",
+              marginBottom: 10,
+            }}
+          >
+            <label htmlFor="chart-tenant-type" style={{ fontSize: 12, color: "var(--text-secondary, #6B7280)" }}>
+              Tenant
+            </label>
+            <select
+              id="chart-tenant-type"
+              aria-label="Tenant selector for sessions by type chart"
+              value={chartTenantTypeId}
+              onChange={(e) => setChartTenantTypeId(e.target.value)}
+              style={{ minWidth: 200 }}
+            >
+              <option value="">All tenants</option>
+              {tenantIdOptions.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div className="chart-wrapper" style={{ minHeight: 320 }}>
             <SessionsByType data={byType} loading={aggLoading} error={aggError} maxItems={5} />
           </div>
