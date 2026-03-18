@@ -47,6 +47,8 @@ export default function DataTable({
   fetchPage, // optional: async function (page, pageSize, sortKey, sortDir) => void to load data from server on page change
   // PUBLIC_INTERFACE
   paginationTitle = "Pages", // optional title beside pagination controls to improve visibility
+  // PUBLIC_INTERFACE
+  disableInitialFetch = false, // when true, DataTable will not auto-call fetchPage on mount (parent owns initial load)
 }) {
   /**
    * DataTable with sticky header and always-visible pagination.
@@ -119,10 +121,17 @@ export default function DataTable({
 
     // If in server mode, ask parent to load data for the new page
     if (typeof fetchPage === "function") {
-      try {
-        await fetchPage(next, Math.max(1, pageSize), sortKey, sortDir);
-      } catch {
-        // swallow; parent can own error UI
+      // Special case: on initial mount, some parents already fetched page 1.
+      // We avoid duplicate requests when the parent opts out via disableInitialFetch.
+      const isInitialAutoFetchSuppressed =
+        !!disableInitialFetch && next === Math.max(1, initialPage || 1) && sortKey === "" && sortDir === "asc";
+
+      if (!isInitialAutoFetchSuppressed) {
+        try {
+          await fetchPage(next, Math.max(1, pageSize), sortKey, sortDir);
+        } catch {
+          // swallow; parent can own error UI
+        }
       }
     }
     if (bodyRef.current) {

@@ -419,6 +419,7 @@ export default function Sessions() {
           pageSize={meta.limit || 10}
           initialPage={meta.page || 1}
           serverTotal={meta.total}
+          disableInitialFetch
           fetchPage={async (page, limit, sortKey, sortDir) => {
             if (sortKey) {
               lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
