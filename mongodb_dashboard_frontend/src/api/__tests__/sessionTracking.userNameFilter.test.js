@@ -12,7 +12,7 @@ describe("Session Tracking - user_name filtering", () => {
     global.fetch = undefined;
   });
 
-  test("listSessions forwards user_name query param (used by backend for case-insensitive match)", async () => {
+  test("listSessions forwards User_name/user_name query param (used by backend for case-insensitive match)", async () => {
     global.fetch = jest.fn(async () => ({
       ok: true,
       status: 200,

@@ -59,11 +59,23 @@ function toQuery(params = {}) {
  * Determine if the requested path is the session-tracking collection root.
  */
 function isSessionTrackingRoot(pathOrUrl) {
-  return (
-    typeof pathOrUrl === "string" &&
-    /\/api\/session-tracking(?:$|[?&#/])/.test(pathOrUrl) &&
-    !/\/api\/session-tracking\/[A-Za-z0-9_-]/.test(pathOrUrl)
-  );
+  /**
+   * Session tracking list endpoint detection.
+   *
+   * IMPORTANT INVARIANT:
+   * - The backend route is `/api/session-tracking` (hyphen).
+   * - Some older/alternate code may still refer to `/api/session_tracking` (underscore).
+   *
+   * This helper must recognize BOTH forms so tenant scoping and param sanitization
+   * are applied consistently, otherwise list calls may fail with:
+   *   400: "tenant_id is required"
+   */
+  if (typeof pathOrUrl !== "string") return false;
+
+  const re = /\/api\/session[-_]?tracking(?:$|[?&#/])/;
+  const reId = /\/api\/session[-_]?tracking\/[A-Za-z0-9_-]/;
+
+  return re.test(pathOrUrl) && !reId.test(pathOrUrl);
 }
 
 /**
