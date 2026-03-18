@@ -19,7 +19,14 @@ import { buildQueryString } from './util';
  */
 export async function fetchSessionTracking(params = {}) {
   const {
-    page, limit, tenant_id, sort, q, user_name,
+    page,
+    limit,
+    tenant_id,
+    sort,
+    q,
+    // Accept both keys from callers, but send canonical `User_name` to backend.
+    User_name,
+    user_name,
     // ignore any deprecated params that callers might send
   } = params || {};
 
@@ -29,7 +36,12 @@ export async function fetchSessionTracking(params = {}) {
   if (tenant_id !== undefined) safeParams.tenant_id = tenant_id;
   if (sort !== undefined) safeParams.sort = sort;
   if (q !== undefined) safeParams.q = q;
-  if (user_name !== undefined) safeParams.user_name = user_name;
+
+  const effectiveUserName =
+    User_name !== undefined && User_name !== null && String(User_name).trim() !== ''
+      ? User_name
+      : user_name;
+  if (effectiveUserName !== undefined) safeParams.User_name = effectiveUserName;
 
   const qs = buildQueryString(safeParams);
   const url = `/api/session-tracking${qs}`;

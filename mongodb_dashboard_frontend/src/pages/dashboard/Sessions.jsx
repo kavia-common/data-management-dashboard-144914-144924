@@ -32,8 +32,14 @@ export default function Sessions() {
   // Keep URL query params in sync (so back/forward works)
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
-    if (filterUserName) usp.set("user_name", filterUserName);
-    else usp.delete("user_name");
+
+    // Canonical query key for username filter: `User_name`
+    if (filterUserName) usp.set("User_name", filterUserName);
+    else usp.delete("User_name");
+
+    // Backward-compat: remove legacy key if present so the URL stays canonical.
+    usp.delete("user_name");
+
     if (filterTenantId) usp.set("tenant_id", filterTenantId);
     else usp.delete("tenant_id");
     const next = `${window.location.pathname}?${usp.toString()}`;
@@ -43,7 +49,7 @@ export default function Sessions() {
   // Initialize filter selections from URL on first mount
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
-    const initialUser = usp.get("user_name") || "";
+    const initialUser = usp.get("User_name") || usp.get("user_name") || "";
     const initialTenant = usp.get("tenant_id") || "";
     if (initialUser) setFilterUserName(initialUser);
     if (initialTenant) setFilterTenantId(initialTenant);
@@ -218,7 +224,7 @@ export default function Sessions() {
 
       const userQ = (debouncedFilterUserName || "").trim();
       if (userQ) {
-        params.user_name = userQ;
+        params.User_name = userQ;
       }
 
       if (sortKey) {
