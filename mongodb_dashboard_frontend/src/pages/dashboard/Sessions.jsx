@@ -192,7 +192,11 @@ export default function Sessions() {
   async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
     /**
      * Load sessions with pagination, optional text search (qStr), and sorting.
-     * User name filter is applied by appending to the backend `q` param (debounced).
+     *
+     * Contract:
+     * - `filterUserName` is sent as query param `user_name` (server performs case-insensitive match
+     *   against both `user_name` and `User_name` fields).
+     * - `query` is sent as query param `q` for broad multi-field search.
      */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
@@ -214,8 +218,7 @@ export default function Sessions() {
 
       const userQ = (debouncedFilterUserName || "").trim();
       if (userQ) {
-        const baseQ = (qStr || "").trim();
-        params.q = baseQ ? `${userQ} ${baseQ}` : userQ;
+        params.user_name = userQ;
       }
 
       if (sortKey) {
@@ -263,23 +266,21 @@ export default function Sessions() {
   // Debounced server-side search on query change and user-name filter change
   useEffect(() => {
     const baseQ = (debouncedQuery || "").trim();
-    const userQ = (debouncedFilterUserName || "").trim();
-    const combinedQ = userQ ? (baseQ ? `${userQ} ${baseQ}` : userQ) : baseQ;
 
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, combinedQ, key, dir);
-    loadAggregates(combinedQ);
+    load(1, meta.limit || 10, baseQ, key, dir);
+    // Aggregates are intentionally driven by broad `q` only (not user_name),
+    // so charts remain consistent with "search" rather than "username filter".
+    loadAggregates(baseQ);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedQuery, debouncedFilterUserName]);
 
   // Immediate refetch when tenant filter changes
   useEffect(() => {
     const baseQ = (query || "").trim();
-    const userQ = (debouncedFilterUserName || "").trim();
-    const combinedQ = userQ ? (baseQ ? `${userQ} ${baseQ}` : userQ) : baseQ;
 
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, combinedQ, key, dir);
+    load(1, meta.limit || 10, baseQ, key, dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterTenantId]);
 
