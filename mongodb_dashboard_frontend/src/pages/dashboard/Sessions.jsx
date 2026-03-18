@@ -13,15 +13,19 @@ export default function Sessions() {
   /**
    * Session Tracking module page with server-side search and pagination.
    *
-   * Requirement implemented:
-   * - Add a User_name search filter in the Session Tracking table UI.
-   * - The filter searches across ALL sessions server-side (via backend query param `q`)
-   *   so only that user’s sessions are returned, including across pagination.
+   * Requirement:
+   * - Searching by User_name must correctly populate the table and show ONLY that user's sessions.
    *
-   * Implementation details:
-   * - We send `q=userName` to /api/session-tracking.
-   * - We keep tenant_id filter as-is and combine it with q.
-   * - We debounce typing to avoid request spam.
+   * Backend contract (OpenAPI):
+   * - /api/session-tracking supports:
+   *    - `filter`: JSON string (server-side Mongo filter)
+   *    - `q`: multi-field text search (broad search across many fields)
+   *
+   * Fix:
+   * - Use `filter: { user_name: <User_name> }` for strict user-only matching,
+   *   rather than `q` (which is broader and can include matches across many fields).
+   * - Keep tenant scoping via `tenant_id` (baseClient will also enforce it).
+   * - Debounce typing to avoid request spam.
    */
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -126,12 +130,13 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function loadAggregates(qStr = "") {
+  async function loadAggregates(userName = "") {
     /**
      * Fetch sessions across multiple pages (capped) and build client-side aggregates
      * for charts: by organization_name and by session_type.
      *
-     * - Free-text search uses backend `q` (here used to represent username filter).
+     * IMPORTANT:
+     * - We use backend `filter` with { user_name: <value> } for strict user-only results.
      * - Tenant scoping is applied via tenant_id.
      */
     setAggLoading(true);
@@ -142,11 +147,16 @@ export default function Sessions() {
       let page = 1;
       const all = [];
 
-      const effectiveQ = qStr && String(qStr).trim() ? String(qStr).trim() : "";
+      const effectiveUserName =
+        userName && String(userName).trim() ? String(userName).trim() : "";
 
       while (page <= maxPages) {
         const params = { page, limit };
-        if (effectiveQ) params.q = effectiveQ;
+
+        // Strict username filter so chart data matches the table results.
+        if (effectiveUserName) {
+          params.filter = { user_name: effectiveUserName };
+        }
 
         if (filterTenantId && filterTenantId.trim()) {
           params.tenant_id = filterTenantId.trim();
@@ -208,12 +218,15 @@ export default function Sessions() {
   }
 
   // PUBLIC_INTERFACE
-  async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
+  async function load(page = 1, limit = meta.limit || 10, userName = "", sortKey, sortDir) {
     /**
-     * Load sessions with pagination, optional text search (qStr), and sorting.
+     * Load sessions with pagination, optional User_name filtering, and sorting.
      *
-     * NOTE: We use backend `q` for the User_name filter to ensure the filtering happens
-     * server-side and applies across ALL sessions (and across pagination).
+     * IMPORTANT:
+     * - To ensure ONLY that user's sessions are returned, we use backend `filter`
+     *   with { user_name: <value> }.
+     * - Using `q` would do a broad multi-field text search and is not strict enough
+     *   for "only this user" filtering.
      */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
@@ -227,10 +240,15 @@ export default function Sessions() {
         service_type: "service_type",
       };
 
-      const effectiveQ = qStr && String(qStr).trim() ? String(qStr).trim() : "";
+      const effectiveUserName =
+        userName && String(userName).trim() ? String(userName).trim() : "";
 
       const params = { page, limit };
-      if (effectiveQ) params.q = effectiveQ;
+
+      // Strict backend filter for username
+      if (effectiveUserName) {
+        params.filter = { user_name: effectiveUserName };
+      }
 
       if (filterTenantId && filterTenantId.trim()) {
         params.tenant_id = filterTenantId.trim();
