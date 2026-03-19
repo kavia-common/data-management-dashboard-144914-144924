@@ -207,19 +207,30 @@ function buildUrlWithParams(pathOrUrl, effParams) {
   if (!effParams || Object.keys(effParams).length === 0) {
     return buildUrl(pathOrUrl);
   }
+
+  /**
+   * Normalize query param values for known problematic keys.
+   * This is intentionally centralized here so all callers share one consistent request flow.
+   */
+  const normalizedParams = { ...(effParams || {}) };
+  if (typeof normalizedParams.q === 'string') {
+    // Collapse whitespace and trim to avoid accidental duplication like "Aditi S  Aditi S"
+    normalizedParams.q = normalizedParams.q.replace(/\s+/g, ' ').trim();
+  }
+
   // If pathOrUrl already has its own query, merge them
   if (typeof pathOrUrl === "string" && pathOrUrl.includes("?")) {
     const [base, existingQs] = pathOrUrl.split("?");
     const usp = new URLSearchParams(existingQs);
-    Object.entries(effParams).forEach(([k, v]) => {
+    Object.entries(normalizedParams).forEach(([k, v]) => {
       if (v === undefined || v === null || v === "") return;
-      // Overwrite existing key to ensure scoping param wins
+      // Overwrite existing key to ensure the single final value is used (no duplication).
       usp.set(k, String(v));
     });
     return buildUrl(`${base}?${usp.toString()}`);
   }
   // Normal path
-  return buildUrl(`${pathOrUrl}${toQuery(effParams)}`);
+  return buildUrl(`${pathOrUrl}${toQuery(normalizedParams)}`);
 }
 
 /**

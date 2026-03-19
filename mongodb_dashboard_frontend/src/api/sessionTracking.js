@@ -1,5 +1,4 @@
 import { getApiClient } from './baseClient';
-import { buildQueryString } from './util';
 
 /**
  * PUBLIC_INTERFACE
@@ -18,10 +17,12 @@ import { buildQueryString } from './util';
  * @returns {Promise<{ items: Array<any>, total: number, meta: any }>}
  */
 export async function fetchSessionTracking(params = {}) {
-  const {
-    page, limit, tenant_id, sort, q,
-    // ignore any deprecated params that callers might send
-  } = params || {};
+  /**
+   * Contract:
+   * - Always call the session-tracking list endpoint using the baseClient param-merging flow.
+   * - Never pre-build a URL querystring here, to avoid duplicate query composition across callers.
+   */
+  const { page, limit, tenant_id, sort, q } = params || {};
 
   const safeParams = {};
   if (page !== undefined) safeParams.page = page;
@@ -30,9 +31,7 @@ export async function fetchSessionTracking(params = {}) {
   if (sort !== undefined) safeParams.sort = sort;
   if (q !== undefined) safeParams.q = q;
 
-  const qs = buildQueryString(safeParams);
-  const url = `/api/session-tracking${qs}`;
-  const res = await getApiClient().get(url);
+  const res = await getApiClient().get('/api/session-tracking', { params: safeParams });
   const payload = res?.data ?? res;
 
   const items = Array.isArray(payload) ? payload : payload?.data ?? [];
