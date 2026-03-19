@@ -235,6 +235,33 @@ function buildUrlWithParams(pathOrUrl, effParams) {
     normalizedParams.q = normalizedParams.q.replace(/\s+/g, ' ').trim();
   }
 
+  /**
+   * Session-tracking analytics: treat T0000 as an all-tenants sentinel.
+   *
+   * Contract:
+   * - If caller passes tenant_id=T0000, we OMIT tenant_id from query so backend
+   *   does not accidentally scope by a literal tenant_id="T0000".
+   * - Backend analytics route independently treats T0000 as bypass anyway, but this keeps
+   *   behavior consistent even if future middleware enforces tenantId presence.
+   *
+   * Scope:
+   * - Only applies to /api/session-tracking/analytics/* endpoints.
+   */
+  try {
+    const pathStr = String(pathOrUrl || '');
+    const isSessionsAnalytics =
+      /\/api\/session-tracking\/analytics\//.test(pathStr);
+
+    if (isSessionsAnalytics && typeof normalizedParams.tenant_id === 'string') {
+      const t = normalizedParams.tenant_id.trim().toUpperCase();
+      if (t === 'T0000') {
+        delete normalizedParams.tenant_id;
+      }
+    }
+  } catch {
+    // ignore normalization failures
+  }
+
   // If pathOrUrl already has its own query, merge them
   if (typeof pathOrUrl === "string" && pathOrUrl.includes("?")) {
     const [base, existingQs] = pathOrUrl.split("?");
