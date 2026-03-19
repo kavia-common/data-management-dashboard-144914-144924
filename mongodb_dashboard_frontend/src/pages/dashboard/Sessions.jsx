@@ -192,7 +192,10 @@ export default function Sessions() {
   async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
     /**
      * Load sessions with pagination, optional text search (qStr), and sorting.
-     * User name filter is applied by appending to the backend `q` param (debounced).
+     *
+     * IMPORTANT:
+     * - qStr is treated as the fully-composed query string. Do NOT append user filter again here,
+     *   otherwise q duplicates (e.g. "Aditi S Aditi S").
      */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
@@ -210,12 +213,6 @@ export default function Sessions() {
 
       if (filterTenantId && filterTenantId.trim()) {
         params.tenant_id = filterTenantId.trim();
-      }
-
-      const userQ = (debouncedFilterUserName || "").trim();
-      if (userQ) {
-        const baseQ = (qStr || "").trim();
-        params.q = baseQ ? `${userQ} ${baseQ}` : userQ;
       }
 
       if (sortKey) {
@@ -260,28 +257,27 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
+  // Build ONE canonical q string used everywhere (table + aggregates + pagination)
+  const effectiveQ = useMemo(() => {
+    const baseQ = String(debouncedQuery || "").trim();
+    const userQ = String(debouncedFilterUserName || "").trim();
+    return userQ ? (baseQ ? `${userQ} ${baseQ}` : userQ) : baseQ;
+  }, [debouncedQuery, debouncedFilterUserName]);
+
   // Debounced server-side search on query change and user-name filter change
   useEffect(() => {
-    const baseQ = (debouncedQuery || "").trim();
-    const userQ = (debouncedFilterUserName || "").trim();
-    const combinedQ = userQ ? (baseQ ? `${userQ} ${baseQ}` : userQ) : baseQ;
-
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, combinedQ, key, dir);
-    loadAggregates(combinedQ);
+    load(1, meta.limit || 10, effectiveQ, key, dir);
+    loadAggregates(effectiveQ);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, debouncedFilterUserName]);
+  }, [effectiveQ]);
 
   // Immediate refetch when tenant filter changes
   useEffect(() => {
-    const baseQ = (query || "").trim();
-    const userQ = (debouncedFilterUserName || "").trim();
-    const combinedQ = userQ ? (baseQ ? `${userQ} ${baseQ}` : userQ) : baseQ;
-
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, combinedQ, key, dir);
+    load(1, meta.limit || 10, effectiveQ, key, dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterTenantId]);
+  }, [filterTenantId, effectiveQ]);
 
   // Toggle global dimming class while modal is open
   useEffect(() => {
@@ -437,7 +433,7 @@ export default function Sessions() {
             } else if (!lastSortRef.current) {
               lastSortRef.current = { key: "", dir: "asc" };
             }
-            await load(page, limit, (query || "").trim(), sortKey, sortDir);
+            await load(page, limit, effectiveQ, sortKey, sortDir);
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
