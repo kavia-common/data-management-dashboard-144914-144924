@@ -31,7 +31,10 @@ export async function fetchSessionTracking(params = {}) {
   if (sort !== undefined) safeParams.sort = sort;
   if (q !== undefined) safeParams.q = q;
 
-  const res = await getApiClient().get('/api/session-tracking', { params: safeParams });
+  // IMPORTANT:
+  // Use the table-specific endpoint so table filters/search do not couple to analytics endpoints.
+  // Backend behavior and response shapes remain the same as /api/session-tracking.
+  const res = await getApiClient().get('/api/session-tracking/table', { params: safeParams });
   const payload = res?.data ?? res;
 
   const items = Array.isArray(payload) ? payload : payload?.data ?? [];

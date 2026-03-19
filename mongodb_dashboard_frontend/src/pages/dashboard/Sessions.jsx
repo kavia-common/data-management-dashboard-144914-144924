@@ -230,27 +230,44 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
-  // Build ONE canonical q string used everywhere (table + aggregates + pagination)
-  const effectiveQ = useMemo(() => {
+  /**
+   * Query composition contract (non-patchy, explicit):
+   * - Analytics sections must NOT be affected by table-only filters (user/tenant dropdown).
+   * - Table can be filtered independently.
+   *
+   * We therefore maintain two q strings:
+   * - analyticsQ: derived from the (currently commented out) generic search box only
+   * - tableQ: derived from table-only user filter + generic search box (if enabled later)
+   */
+  const analyticsQ = useMemo(() => {
+    return String(debouncedQuery || "").trim();
+  }, [debouncedQuery]);
+
+  const tableQ = useMemo(() => {
     const baseQ = String(debouncedQuery || "").trim();
     const userQ = String(debouncedFilterUserName || "").trim();
     return userQ ? (baseQ ? `${userQ} ${baseQ}` : userQ) : baseQ;
   }, [debouncedQuery, debouncedFilterUserName]);
 
-  // Debounced server-side search on query change and user-name filter change
+  // Table reload when table filters/search change (debounced)
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, effectiveQ, key, dir);
-    loadAggregates(effectiveQ);
+    load(1, meta.limit || 10, tableQ, key, dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveQ]);
+  }, [tableQ]);
 
-  // Immediate refetch when tenant filter changes
+  // Analytics reload only when analytics search changes (NOT table filters)
+  useEffect(() => {
+    loadAggregates(analyticsQ);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analyticsQ]);
+
+  // Immediate table refetch when tenant filter changes (still table-only)
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, effectiveQ, key, dir);
+    load(1, meta.limit || 10, tableQ, key, dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterTenantId, effectiveQ]);
+  }, [filterTenantId, tableQ]);
 
   // Toggle global dimming class while modal is open
   useEffect(() => {
@@ -406,7 +423,7 @@ export default function Sessions() {
             } else if (!lastSortRef.current) {
               lastSortRef.current = { key: "", dir: "asc" };
             }
-            await load(page, limit, effectiveQ, sortKey, sortDir);
+            await load(page, limit, tableQ, sortKey, sortDir);
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
