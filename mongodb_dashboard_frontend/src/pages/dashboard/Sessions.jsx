@@ -12,9 +12,14 @@ export default function Sessions() {
   /**
    * Sessions page with server-side search and pagination.
    * - Debounced search across dataset via backend query param `q`.
-   * - "Filter by User name" is a plain text input (no dropdown).
    * - Tenant filter remains a dropdown based on discovered tenant ids.
    * - Pagination uses server-provided meta.total and page/limit.
+   *
+   * Contract:
+   * - Inputs: UI state (tenant_id dropdown, optional `query` string).
+   * - Output: Table rows + chart aggregates fetched from /api/session-tracking.
+   * - Errors: surfaced via `error` / `aggError` blocks.
+   * - Side effects: updates browser URL query param `tenant_id`.
    */
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -23,7 +28,6 @@ export default function Sessions() {
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   // UI filters
-  const [filterUserName, setFilterUserName] = useState("");
   const [filterTenantId, setFilterTenantId] = useState("");
 
   // Tenant dropdown options
@@ -32,26 +36,21 @@ export default function Sessions() {
   // Keep URL query params in sync (so back/forward works)
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
-    if (filterUserName) usp.set("user_name", filterUserName);
-    else usp.delete("user_name");
     if (filterTenantId) usp.set("tenant_id", filterTenantId);
     else usp.delete("tenant_id");
     const next = `${window.location.pathname}?${usp.toString()}`;
     window.history.replaceState({}, "", next);
-  }, [filterUserName, filterTenantId]);
+  }, [filterTenantId]);
 
   // Initialize filter selections from URL on first mount
   useEffect(() => {
     const usp = new URLSearchParams(window.location.search);
-    const initialUser = usp.get("user_name") || "";
     const initialTenant = usp.get("tenant_id") || "";
-    if (initialUser) setFilterUserName(initialUser);
     if (initialTenant) setFilterTenantId(initialTenant);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Debounced filters/search to avoid request spam while typing
-  const debouncedFilterUserName = useDebouncedValue(filterUserName, 250);
+  // Debounced search to avoid request spam while typing
   const debouncedQuery = useDebouncedValue(query, 250);
 
   // Details modal state
@@ -176,7 +175,9 @@ export default function Sessions() {
         const t = String(it?.tenant_id ?? "").trim();
         if (t) tenantIds.add(t);
       });
-      setTenantIdOptions(Array.from(tenantIds).sort((a, b) => a.localeCompare(b)));
+      setTenantIdOptions(
+        Array.from(tenantIds).sort((a, b) => a.localeCompare(b))
+      );
     } catch (e) {
       setByOrg([]);
       setByType([]);
@@ -192,7 +193,15 @@ export default function Sessions() {
   async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
     /**
      * Load sessions with pagination, optional text search (qStr), and sorting.
-     * User name filter is applied by appending to the backend `q` param (debounced).
+     *
+     * Contract:
+     * - Inputs:
+     *   - page/limit: integers
+     *   - qStr: string (server-side text search)
+     *   - sortKey/sortDir: optional DataTable sort inputs
+     * - Output: updates state (items/meta/columns)
+     * - Errors: sets `error` string
+     * - Side effects: HTTP GET to /api/session-tracking
      */
     const requestId = ++activeRequestRef.current;
     setLoading(true);
@@ -210,12 +219,6 @@ export default function Sessions() {
 
       if (filterTenantId && filterTenantId.trim()) {
         params.tenant_id = filterTenantId.trim();
-      }
-
-      const userQ = (debouncedFilterUserName || "").trim();
-      if (userQ) {
-        const baseQ = (qStr || "").trim();
-        params.q = baseQ ? `${userQ} ${baseQ}` : userQ;
       }
 
       if (sortKey) {
@@ -260,26 +263,20 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
-  // Debounced server-side search on query change and user-name filter change
+  // Debounced server-side search on query change
   useEffect(() => {
-    const baseQ = (debouncedQuery || "").trim();
-    const userQ = (debouncedFilterUserName || "").trim();
-    const combinedQ = userQ ? (baseQ ? `${userQ} ${baseQ}` : userQ) : baseQ;
-
+    const qStr = (debouncedQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, combinedQ, key, dir);
-    loadAggregates(combinedQ);
+    load(1, meta.limit || 10, qStr, key, dir);
+    loadAggregates(qStr);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery, debouncedFilterUserName]);
+  }, [debouncedQuery]);
 
   // Immediate refetch when tenant filter changes
   useEffect(() => {
-    const baseQ = (query || "").trim();
-    const userQ = (debouncedFilterUserName || "").trim();
-    const combinedQ = userQ ? (baseQ ? `${userQ} ${baseQ}` : userQ) : baseQ;
-
+    const qStr = (query || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, combinedQ, key, dir);
+    load(1, meta.limit || 10, qStr, key, dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterTenantId]);
 
@@ -381,19 +378,6 @@ export default function Sessions() {
             onChange={(e) => setQuery(e.target.value)}
             style={{ minWidth: 280 }}
           /> */}
-
-          <label htmlFor="filter-user" className="sr-only">
-            Filter by User name
-          </label>
-          <input
-            id="filter-user"
-            className="input-filter"
-            aria-label="Filter by User name"
-            value={filterUserName}
-            onChange={(e) => setFilterUserName(e.target.value)}
-            placeholder="Filter by User name"
-            style={{ minWidth: 220 }}
-          />
 
           <label htmlFor="filter-tenant" className="sr-only">
             Filter by Tenant ID
