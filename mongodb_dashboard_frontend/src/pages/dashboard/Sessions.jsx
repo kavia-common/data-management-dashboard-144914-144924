@@ -5,8 +5,8 @@ import {
   getMostLeastUsedServices,
   getSessionsByOrganization,
   getSessionsByType,
-  listSessions,
 } from "../../api";
+import { fetchSessionTracking } from "../../api/sessionTracking";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
@@ -193,8 +193,8 @@ export default function Sessions() {
         params.sort = sortDir === "desc" ? `-${backendField}` : backendField;
       }
 
-      const res = await listSessions(params);
-      const arr = res?.items ?? (Array.isArray(res) ? res : []);
+      const res = await fetchSessionTracking(params);
+      const arr = res?.items ?? [];
       if (requestId !== activeRequestRef.current) return;
 
       setItems(Array.isArray(arr) ? arr : []);
@@ -244,30 +244,31 @@ export default function Sessions() {
   }, [debouncedQuery]);
 
   const tableQ = useMemo(() => {
-    const baseQ = String(debouncedQuery || "").trim();
-    const userQ = String(debouncedFilterUserName || "").trim();
-    return userQ ? (baseQ ? `${userQ} ${baseQ}` : userQ) : baseQ;
-  }, [debouncedQuery, debouncedFilterUserName]);
+    /**
+     * Table search contract:
+     * - q must exactly match what the user typed in the Session Tracking table's search input
+     *   (the "Filter by User name" textbox), after trimming.
+     * - Do not auto-compose q with other strings (prevents semantic duplication like "Aditi S Aditi S").
+     */
+    return String(debouncedFilterUserName || "").trim();
+  }, [debouncedFilterUserName]);
 
-  // Table reload when table filters/search change (debounced)
+  /**
+   * Single canonical table reload flow:
+   * - Exactly one request per debounce tick and/or tenant change.
+   * - Avoid overlapping effects that cause duplicate requests.
+   */
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, tableQ, key, dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableQ]);
+  }, [tableQ, filterTenantId]);
 
   // Analytics reload only when analytics search changes (NOT table filters)
   useEffect(() => {
     loadAggregates(analyticsQ);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [analyticsQ]);
-
-  // Immediate table refetch when tenant filter changes (still table-only)
-  useEffect(() => {
-    const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, tableQ, key, dir);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterTenantId, tableQ]);
 
   // Toggle global dimming class while modal is open
   useEffect(() => {
@@ -348,7 +349,10 @@ export default function Sessions() {
       </div>
 
       {/* Table */}
-      <Card title="Session Tracking" subtitle="Search and filter sessions without page reloads">
+      <Card
+        title="Session Tracking"
+        subtitle="Filter by user name (server-side, debounced) and tenant without page reloads"
+      >
         <div
           className="toolbar"
           aria-label="Sessions toolbar"
