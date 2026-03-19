@@ -24,7 +24,10 @@ export default function Sessions() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // Kept for backward compatibility (currently not shown in UI).
   const [query, setQuery] = useState("");
+  // New: dedicated user-name search (matches Users module UX pattern).
+  const [userNameQuery, setUserNameQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   // UI filters
@@ -52,6 +55,7 @@ export default function Sessions() {
 
   // Debounced search to avoid request spam while typing
   const debouncedQuery = useDebouncedValue(query, 250);
+  const debouncedUserNameQuery = useDebouncedValue(userNameQuery, 250);
 
   // Details modal state
   const [selectedSession, setSelectedSession] = useState(null);
@@ -112,7 +116,7 @@ export default function Sessions() {
   const [byOrg, setByOrg] = useState([]); // [{ organization_name, session_count }]
   const [byType, setByType] = useState([]); // [{ session_type, session_count }]
 
-  async function loadAggregates(qStr = "") {
+  async function loadAggregates(qStr = "", userNameStr = "") {
     /**
      * Fetch sessions across multiple pages (capped) and build client-side aggregates
      * for charts: by organization_name and by session_type.
@@ -127,6 +131,7 @@ export default function Sessions() {
 
       while (page <= maxPages) {
         const params = { page, limit, q: qStr };
+        if (userNameStr && userNameStr.trim()) params.user_name = userNameStr.trim();
         if (filterTenantId && filterTenantId.trim()) {
           params.tenant_id = filterTenantId.trim();
         }
@@ -190,14 +195,23 @@ export default function Sessions() {
   }
 
   // PUBLIC_INTERFACE
-  async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
+  async function load(
+    page = 1,
+    limit = meta.limit || 10,
+    qStr = "",
+    userNameStr = "",
+    sortKey,
+    sortDir
+  ) {
     /**
-     * Load sessions with pagination, optional text search (qStr), and sorting.
+     * Load sessions with pagination, optional text search (qStr), optional user-name filter,
+     * and sorting.
      *
      * Contract:
      * - Inputs:
      *   - page/limit: integers
      *   - qStr: string (server-side text search)
+     *   - userNameStr: string (server-side user_name match)
      *   - sortKey/sortDir: optional DataTable sort inputs
      * - Output: updates state (items/meta/columns)
      * - Errors: sets `error` string
@@ -216,6 +230,7 @@ export default function Sessions() {
       };
 
       const params = { page, limit, q: qStr };
+      if (userNameStr && userNameStr.trim()) params.user_name = userNameStr.trim();
 
       if (filterTenantId && filterTenantId.trim()) {
         params.tenant_id = filterTenantId.trim();
@@ -258,25 +273,27 @@ export default function Sessions() {
   // Initial load
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, "", key, dir);
-    loadAggregates("");
+    load(1, meta.limit || 10, "", "", key, dir);
+    loadAggregates("", "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
-  // Debounced server-side search on query change
+  // Debounced server-side search on query change (now includes dedicated user-name search)
   useEffect(() => {
     const qStr = (debouncedQuery || "").trim();
+    const uStr = (debouncedUserNameQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, qStr, key, dir);
-    loadAggregates(qStr);
+    load(1, meta.limit || 10, qStr, uStr, key, dir);
+    loadAggregates(qStr, uStr);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery]);
+  }, [debouncedQuery, debouncedUserNameQuery]);
 
   // Immediate refetch when tenant filter changes
   useEffect(() => {
     const qStr = (query || "").trim();
+    const uStr = (userNameQuery || "").trim();
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-    load(1, meta.limit || 10, qStr, key, dir);
+    load(1, meta.limit || 10, qStr, uStr, key, dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterTenantId]);
 
@@ -370,7 +387,17 @@ export default function Sessions() {
             alignItems: "center",
           }}
         >
-          {/* <input
+          <input
+            className="input-search"
+            placeholder="Search users..."
+            aria-label="Search users"
+            value={userNameQuery}
+            onChange={(e) => setUserNameQuery(e.target.value)}
+            style={{ minWidth: 240 }}
+          />
+
+          {/* Optional (kept for future) general search:
+          <input
             className="input-search"
             placeholder="Search sessions (user, org, service, status, etc.)..."
             aria-label="Search sessions"
@@ -421,7 +448,14 @@ export default function Sessions() {
             } else if (!lastSortRef.current) {
               lastSortRef.current = { key: "", dir: "asc" };
             }
-            await load(page, limit, (query || "").trim(), sortKey, sortDir);
+            await load(
+              page,
+              limit,
+              (query || "").trim(),
+              (userNameQuery || "").trim(),
+              sortKey,
+              sortDir
+            );
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
