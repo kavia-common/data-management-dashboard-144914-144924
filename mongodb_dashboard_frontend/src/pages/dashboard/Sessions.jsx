@@ -12,12 +12,13 @@ export default function Sessions() {
   /**
    * Sessions page with server-side search and pagination.
    * - Debounced search across dataset via backend query param `q`.
+   * - Dedicated user-name search via backend query param `user_name`.
    * - Tenant filter remains a dropdown based on discovered tenant ids.
    * - Pagination uses server-provided meta.total and page/limit.
    *
    * Contract:
-   * - Inputs: UI state (tenant_id dropdown, optional `query` string).
-   * - Output: Table rows + chart aggregates fetched from /api/session-tracking.
+   * - Inputs: UI state (tenant_id dropdown, `userNameQuery` string).
+   * - Output: Table rows + chart aggregates fetched from GET /api/session-tracking.
    * - Errors: surfaced via `error` / `aggError` blocks.
    * - Side effects: updates browser URL query param `tenant_id`.
    */
@@ -26,7 +27,7 @@ export default function Sessions() {
   const [error, setError] = useState("");
   // Kept for backward compatibility (currently not shown in UI).
   const [query, setQuery] = useState("");
-  // New: dedicated user-name search (matches Users module UX pattern).
+  // Dedicated user-name search used by the "Search users..." input.
   const [userNameQuery, setUserNameQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
@@ -131,6 +132,7 @@ export default function Sessions() {
 
       while (page <= maxPages) {
         const params = { page, limit, q: qStr };
+        // This MUST be sent for the "Search users..." input to affect results server-side.
         if (userNameStr && userNameStr.trim()) params.user_name = userNameStr.trim();
         if (filterTenantId && filterTenantId.trim()) {
           params.tenant_id = filterTenantId.trim();

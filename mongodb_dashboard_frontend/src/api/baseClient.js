@@ -91,8 +91,9 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
      * - q (general text search)
      * - user_name (dedicated user-name search used by the "Search users..." UI)
      *
-     * We must NOT strip `user_name` here, otherwise the UI will always receive
-     * unfiltered results.
+     * Invariants:
+     * - DO NOT strip `user_name` here. If it is removed, the UI input changes
+     *   will never affect the backend query and backend logs won't trigger as expected.
      *
      * We still strip organization_id and filter because:
      * - tenant scoping uses tenant_id for this endpoint
