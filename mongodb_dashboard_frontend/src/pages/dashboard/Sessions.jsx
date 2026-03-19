@@ -133,7 +133,8 @@ export default function Sessions() {
       while (page <= maxPages) {
         const params = { page, limit, q: qStr };
         // This MUST be sent for the "Search users..." input to affect results server-side.
-        if (userNameStr && userNameStr.trim()) params.user_name = userNameStr.trim();
+        // Backend expects exact match on canonical field name `User_name`.
+        if (userNameStr && userNameStr.trim()) params.User_name = userNameStr.trim();
         if (filterTenantId && filterTenantId.trim()) {
           params.tenant_id = filterTenantId.trim();
         }
@@ -232,7 +233,8 @@ export default function Sessions() {
       };
 
       const params = { page, limit, q: qStr };
-      if (userNameStr && userNameStr.trim()) params.user_name = userNameStr.trim();
+      // Backend expects exact match on canonical field name `User_name`.
+      if (userNameStr && userNameStr.trim()) params.User_name = userNameStr.trim();
 
       if (filterTenantId && filterTenantId.trim()) {
         params.tenant_id = filterTenantId.trim();

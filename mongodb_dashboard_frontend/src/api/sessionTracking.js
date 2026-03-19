@@ -25,6 +25,7 @@ export async function fetchSessionTracking(params = {}) {
     sort,
     q,
     user_name,
+    User_name,
     // ignore any deprecated params that callers might send
   } = params || {};
 
@@ -34,7 +35,9 @@ export async function fetchSessionTracking(params = {}) {
   if (tenant_id !== undefined) safeParams.tenant_id = tenant_id;
   if (sort !== undefined) safeParams.sort = sort;
   if (q !== undefined) safeParams.q = q;
-  if (user_name !== undefined) safeParams.user_name = user_name;
+  // Prefer canonical `User_name` when provided; keep user_name for backwards compat.
+  if (User_name !== undefined) safeParams.User_name = User_name;
+  else if (user_name !== undefined) safeParams.user_name = user_name;
 
   const qs = buildQueryString(safeParams);
   const url = `/api/session-tracking${qs}`;
