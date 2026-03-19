@@ -451,8 +451,8 @@ export default function Sessions() {
             await load(
               page,
               limit,
-              (query || "").trim(),
-              (userNameQuery || "").trim(),
+              (debouncedQuery || "").trim(),
+              (debouncedUserNameQuery || "").trim(),
               sortKey,
               sortDir
             );

@@ -85,7 +85,19 @@ function sanitizeEndpointParams(pathOrUrl, params = {}) {
   }
 
   if (isSessionTrackingRoot(pathOrUrl)) {
-    // Remove any organization_id remnants and 'filter' for session-tracking as backend ignores it now.
+    /**
+     * Session Tracking list supports:
+     * - page/limit/sort
+     * - q (general text search)
+     * - user_name (dedicated user-name search used by the "Search users..." UI)
+     *
+     * We must NOT strip `user_name` here, otherwise the UI will always receive
+     * unfiltered results.
+     *
+     * We still strip organization_id and filter because:
+     * - tenant scoping uses tenant_id for this endpoint
+     * - filter is ignored by the backend session-tracking route
+     */
     const { organization_id, filter, ...rest } = params || {};
     return rest || {};
   }
