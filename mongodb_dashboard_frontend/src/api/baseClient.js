@@ -56,11 +56,28 @@ function toQuery(params = {}) {
 }
 
 /**
- * Determine if the requested path is the session-tracking collection root.
+ * Determine if the requested path is a session-tracking *list* endpoint.
+ *
+ * Why this exists:
+ * - We apply endpoint-specific scoping/sanitization rules for list fetches.
+ * - The Sessions page uses `/api/session-tracking/table`, which is a stable alias of the list route.
+ *
+ * Contract:
+ * - Return true for:
+ *   - `/api/session-tracking`
+ *   - `/api/session-tracking/table`
+ * - Return false for:
+ *   - detail routes like `/api/session-tracking/:id`
+ *   - analytics routes like `/api/session-tracking/analytics/...`
  */
 function isSessionTrackingRoot(pathOrUrl) {
+  if (typeof pathOrUrl !== "string") return false;
+
+  // Treat table alias as list root.
+  if (/\/api\/session-tracking\/table(?:$|[?&#/])/.test(pathOrUrl)) return true;
+
+  // Default root list endpoint, excluding detail/child routes.
   return (
-    typeof pathOrUrl === "string" &&
     /\/api\/session-tracking(?:$|[?&#/])/.test(pathOrUrl) &&
     !/\/api\/session-tracking\/[A-Za-z0-9_-]/.test(pathOrUrl)
   );
