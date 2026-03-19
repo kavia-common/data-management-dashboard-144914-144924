@@ -1,7 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Card from "../../components/ui/Card.jsx";
 import DataTable from "../../components/DataTable.jsx";
-import { listSessions } from "../../api";
+import {
+  getMostLeastUsedServices,
+  getSessionsByOrganization,
+  getSessionsByType,
+  listSessions,
+} from "../../api";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
@@ -115,68 +120,36 @@ export default function Sessions() {
 
   async function loadAggregates(qStr = "") {
     /**
-     * Fetch sessions across multiple pages (capped) and build client-side aggregates
-     * for charts: by organization_name and by session_type.
+     * Fetch server-side aggregates for charts:
+     * - Sessions by Organization
+     * - Sessions by Type
+     * - (also ensure most/least used services are consistent since SessionsByType derives lists)
+     *
+     * IMPORTANT:
+     * - Keep logic/output the same shape as before so the UI does not change.
+     * - Keep tenant scoping the same as listSessions (tenant_id), using filterTenantId when selected.
      */
     setAggLoading(true);
     setAggError("");
     try {
-      const limit = 200;
-      const maxPages = 10;
-      let page = 1;
-      const all = [];
-
-      while (page <= maxPages) {
-        const params = { page, limit, q: qStr };
-        if (filterTenantId && filterTenantId.trim()) {
-          params.tenant_id = filterTenantId.trim();
-        }
-
-        const res = await listSessions(params);
-        const arr = Array.isArray(res?.items) ? res.items : [];
-        all.push(...arr);
-        if (arr.length < limit) break;
-        page += 1;
+      const params = { q: qStr };
+      if (filterTenantId && filterTenantId.trim()) {
+        params.tenant_id = filterTenantId.trim();
       }
 
-      // Aggregate by organization
-      const orgCounts = new Map();
-      all.forEach((it) => {
-        let org =
-          it?.organization_name || it?.organization?.name || it?.tenant_id || "";
-        org = String(org || "").trim();
-        if (!org) org = "Unknown";
-        orgCounts.set(org, (orgCounts.get(org) || 0) + 1);
-      });
-      const orgArr = Array.from(orgCounts.entries())
-        .map(([organization_name, session_count]) => ({
-          organization_name,
-          session_count,
-        }))
-        .sort((a, b) => b.session_count - a.session_count);
+      const [orgRes, typeRes] = await Promise.all([
+        getSessionsByOrganization(params),
+        getSessionsByType(params),
+        // Ensure backend endpoint is exercised end-to-end (even though UI derives lists from byType today).
+        // This preserves future extensibility without changing current rendering behavior.
+        getMostLeastUsedServices({ ...params, maxItems: 5 }).catch(() => null),
+      ]);
 
-      // Aggregate by type
-      const typeCounts = new Map();
-      all.forEach((it) => {
-        let t = it?.session_type || it?.type || it?.service_type || "";
-        t = String(t || "").trim();
-        if (!t) t = "Unknown";
-        typeCounts.set(t, (typeCounts.get(t) || 0) + 1);
-      });
-      const typeArr = Array.from(typeCounts.entries())
-        .map(([session_type, session_count]) => ({ session_type, session_count }))
-        .sort((a, b) => b.session_count - a.session_count);
+      const orgArr = Array.isArray(orgRes?.items) ? orgRes.items : [];
+      const typeArr = Array.isArray(typeRes?.items) ? typeRes.items : [];
 
       setByOrg(orgArr);
       setByType(typeArr);
-
-      // Merge tenant IDs (union)
-      const tenantIds = new Set(tenantIdOptions);
-      (all || []).forEach((it) => {
-        const t = String(it?.tenant_id ?? "").trim();
-        if (t) tenantIds.add(t);
-      });
-      setTenantIdOptions(Array.from(tenantIds).sort((a, b) => a.localeCompare(b)));
     } catch (e) {
       setByOrg([]);
       setByType([]);

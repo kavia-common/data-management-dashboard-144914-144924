@@ -357,6 +357,15 @@ export async function listUsers(params = {}) {
   return normalizeListPayload(res.data);
 }
 
+/**
+ * Normalize backend {success,data,meta} (or raw array) into a consistent shape.
+ */
+function normalizeDataEnvelope(payload) {
+  const data = Array.isArray(payload) ? payload : payload?.data;
+  const meta = payload?.meta ?? null;
+  return { data: Array.isArray(data) ? data : [], meta };
+}
+
 // PUBLIC_INTERFACE
 export async function listSessions(params = {}) {
   /** Lists session tracking records normalized to { items, total, meta }.
@@ -364,6 +373,51 @@ export async function listSessions(params = {}) {
    */
   const res = await httpGet("/api/session-tracking", { params });
   return normalizeListPayload(res.data);
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getSessionsByOrganization
+ * Fetch aggregated sessions by organization_name.
+ *
+ * @param {object} params
+ * @param {string} [params.q] Optional text search (same semantics as /api/session-tracking?q=)
+ * @param {string} [params.tenant_id] Optional tenant scope override (otherwise baseClient adds from storage)
+ * @returns {Promise<{ items: Array<{organization_name:string, session_count:number}>, meta: any }>}
+ */
+export async function getSessionsByOrganization(params = {}) {
+  const res = await httpGet("/api/session-tracking/analytics/by-organization", { params });
+  const { data, meta } = normalizeDataEnvelope(res.data);
+  return { items: data, meta };
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getSessionsByType
+ * Fetch aggregated sessions by type (service type).
+ *
+ * @returns {Promise<{ items: Array<{session_type:string, session_count:number}>, meta: any }>}
+ */
+export async function getSessionsByType(params = {}) {
+  const res = await httpGet("/api/session-tracking/analytics/by-type", { params });
+  const { data, meta } = normalizeDataEnvelope(res.data);
+  return { items: data, meta };
+}
+
+/**
+ * PUBLIC_INTERFACE
+ * getMostLeastUsedServices
+ * Fetch most/least used services lists computed server-side.
+ *
+ * @param {object} params
+ * @param {number} [params.maxItems] Default 5
+ * @returns {Promise<{ mostUsed: Array, leastUsed: Array, meta: any }>}
+ */
+export async function getMostLeastUsedServices(params = {}) {
+  const res = await httpGet("/api/session-tracking/analytics/most-least-used", { params });
+  const payload = res.data;
+  const data = payload?.data && typeof payload.data === "object" ? payload.data : { mostUsed: [], leastUsed: [] };
+  return { ...data, meta: payload?.meta ?? null };
 }
 
 /**
