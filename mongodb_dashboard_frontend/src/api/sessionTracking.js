@@ -6,7 +6,7 @@ import { getApiClient } from './baseClient';
  * Fetch session tracking records with pagination, sorting, and optional text search.
  * Note: Backend no longer accepts or applies a 'filter' parameter or date-range compound filters.
  * Tenant scoping is enforced via tenant_id only (handled by baseClient).
- * Supports lightweight text search via ?q which includes service_type field on backend.
+ * Supports text search via ?q which matches ONLY the `User_name` field on the backend for the table endpoint.
  *
  * @param {Object} params
  * @param {number} [params.page]
