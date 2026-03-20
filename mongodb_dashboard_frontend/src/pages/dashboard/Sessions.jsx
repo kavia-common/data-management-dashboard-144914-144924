@@ -8,6 +8,7 @@ import {
 } from "../../api";
 import { fetchSessionTracking } from "../../api/sessionTracking";
 import { fetchTenantsForDropdown } from "../../api/tenants";
+import { fetchSessionTrackingTenantIds } from "../../api/sessionTrackingTenants";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
@@ -20,7 +21,7 @@ export default function Sessions() {
    * Sessions page with server-side search and pagination.
    * - Debounced search across dataset via backend query param `q`.
    * - "Filter by User name" is a plain text input (no dropdown).
-   * - Tenant filter remains a dropdown based on discovered tenant ids.
+   * - Tenant filter is a dropdown based on dataset-derived distinct tenant ids.
    * - Pagination uses server-provided meta.total and page/limit.
    */
   const [items, setItems] = useState([]);
@@ -35,13 +36,15 @@ export default function Sessions() {
 
   /**
    * Tenant dropdown options (canonical flow):
-   * - Primary source: GET /api/session/tenants via fetchTenantsForDropdown()
-   * - Display requirement: show all tenants and display them as tenant_id
+   * - Primary source: GET /api/session-tracking/tenants/distinct via fetchSessionTrackingTenantIds()
+   *   (dataset-derived; includes all distinct tenant_id values present in session_tracking)
+   * - Fallback source: GET /api/session/tenants via fetchTenantsForDropdown()
+   *   (RBAC-derived; may be limited to the authenticated user's authorized tenants)
    *
    * Contract:
    * - Each option is { id: string, name?: string }, but we intentionally render label=id.
-   * - We keep a Set merge fallback from table data in case the backend returns tenants not in the
-   *   session list (rare), without changing the canonical source.
+   * - We keep a Set merge fallback from table data in case a tenant appears in the list payload
+   *   that was not present in the distinct list at initial load (rare with eventual consistency).
    */
   const [tenantOptions, setTenantOptions] = useState([]); // Array<{id: string, name: string}>
 
@@ -218,7 +221,11 @@ export default function Sessions() {
 
       // Merge-in tenant IDs seen on this page as well (id-only), without changing the canonical flow.
       // This ensures the dropdown always contains all tenant_id values that appear in the table.
-      const currentIds = new Set((tenantOptions || []).map((t) => String(t?.id || "").trim()).filter(Boolean));
+      const currentIds = new Set(
+        (tenantOptions || [])
+          .map((t) => String(t?.id || "").trim())
+          .filter(Boolean)
+      );
       let mutated = false;
 
       (arr || []).forEach((it) => {
@@ -250,6 +257,14 @@ export default function Sessions() {
     /**
      * Load tenant dropdown options.
      *
+     * Canonical flow (dataset-derived):
+     * - Primary source: GET /api/session-tracking/tenants/distinct
+     *   Returns all distinct tenant_id values present in session_tracking.
+     *
+     * Fallback flow (RBAC-derived):
+     * - Secondary source: GET /api/session/tenants
+     *   This may be limited to the authenticated user's authorized tenants.
+     *
      * Inputs:
      * - signal: AbortSignal to cancel in-flight request on unmount.
      *
@@ -258,8 +273,24 @@ export default function Sessions() {
      *
      * Errors:
      * - Swallows AbortError (benign).
-     * - Surfaces other errors by logging in dev and falling back to empty list.
+     * - For other failures: logs in dev and uses fallback; if fallback also fails => [].
      */
+    try {
+      const list = await fetchSessionTrackingTenantIds({ signal });
+      setTenantOptions(Array.isArray(list) ? list : []);
+      return;
+    } catch (e) {
+      if (e?.name === "AbortError") return;
+      if (process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.warn(
+          "[Sessions] Failed to load dataset-derived tenant ids; falling back to /api/session/tenants:",
+          e
+        );
+      }
+    }
+
+    // Fallback: authorized tenants (may be smaller than dataset)
     try {
       const list = await fetchTenantsForDropdown({ signal });
       setTenantOptions(Array.isArray(list) ? list : []);
@@ -267,7 +298,7 @@ export default function Sessions() {
       if (e?.name === "AbortError") return;
       if (process.env.NODE_ENV !== "production") {
         // eslint-disable-next-line no-console
-        console.warn("[Sessions] Failed to load tenant dropdown options:", e);
+        console.warn("[Sessions] Failed to load tenant dropdown options (fallback):", e);
       }
       setTenantOptions([]);
     }
