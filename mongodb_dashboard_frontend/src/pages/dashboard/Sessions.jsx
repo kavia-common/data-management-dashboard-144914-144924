@@ -216,25 +216,10 @@ export default function Sessions() {
       });
       setColumns(buildRestrictedColumns(arr));
 
-      // Merge-in tenant IDs seen on this page as well (id-only), without changing the canonical flow.
-      // This ensures the dropdown always contains all tenant_id values that appear in the table.
-      const currentIds = new Set((tenantOptions || []).map((t) => String(t?.id || "").trim()).filter(Boolean));
-      let mutated = false;
-
-      (arr || []).forEach((it) => {
-        const id = String(it?.tenant_id ?? "").trim();
-        if (id && !currentIds.has(id)) {
-          currentIds.add(id);
-          mutated = true;
-        }
-      });
-
-      if (mutated) {
-        const merged = Array.from(currentIds)
-          .sort((a, b) => a.localeCompare(b))
-          .map((id) => ({ id, name: id }));
-        setTenantOptions(merged);
-      }
+      // IMPORTANT:
+      // Tenant dropdown is sourced from GET /api/session-tracking/tenants/distinct (all tenants),
+      // and must not be derived from paginated table data (which would bias to page 1).
+      // Therefore, do not merge page-derived tenant_ids into tenantOptions here.
     } catch (e) {
       if (requestId !== activeRequestRef.current) return;
       setItems([]);
