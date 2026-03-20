@@ -256,31 +256,38 @@ export default function Sessions() {
     return evaluateUsernameSearchInput(debouncedFilterUserName);
   }, [debouncedFilterUserName]);
 
-  const tableQ = tableSearch.normalized;
+  // const tableQ = tableSearch.normalized;
+  const tableQ = debouncedFilterUserName;
 
   /**
    * Single canonical table reload flow:
    * - Exactly one request per debounce tick and/or tenant change.
    * - Avoid overlapping effects that cause duplicate requests.
    */
+  // useEffect(() => {
+  //   const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+
+  //   // Only call the backend when the user has entered a full username (not partial typing).
+  //   if (!tableSearch.shouldSearch && tableQ) {
+  //     // User is typing a partial name; do not query the backend.
+  //     // Clear visible results so the UI doesn't appear to show unrelated data.
+  //     setItems([]);
+  //     setMeta((m) => ({ ...m, page: 1, total: 0 }));
+  //     setColumns(buildRestrictedColumns([]));
+  //     setError("");
+  //     return;
+  //   }
+
+  //   // Empty input -> show default table (unfiltered), consistent with prior behavior.
+  //   load(1, meta.limit || 10, tableSearch.shouldSearch ? tableQ : "", key, dir);
+  //   // eslint-disable-next-line react-hooks/exhaustive-deps
+  // }, [tableSearch.shouldSearch, tableQ, filterTenantId]);
+
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
 
-    // Only call the backend when the user has entered a full username (not partial typing).
-    if (!tableSearch.shouldSearch && tableQ) {
-      // User is typing a partial name; do not query the backend.
-      // Clear visible results so the UI doesn't appear to show unrelated data.
-      setItems([]);
-      setMeta((m) => ({ ...m, page: 1, total: 0 }));
-      setColumns(buildRestrictedColumns([]));
-      setError("");
-      return;
-    }
-
-    // Empty input -> show default table (unfiltered), consistent with prior behavior.
-    load(1, meta.limit || 10, tableSearch.shouldSearch ? tableQ : "", key, dir);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableSearch.shouldSearch, tableQ, filterTenantId]);
+    load(1, meta.limit || 10, tableQ, key, dir);
+  }, [tableQ, filterTenantId]);
 
   // Analytics reload only when analytics search changes (NOT table filters)
   useEffect(() => {
