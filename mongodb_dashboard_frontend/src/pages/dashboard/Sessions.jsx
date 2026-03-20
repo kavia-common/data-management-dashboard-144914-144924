@@ -7,7 +7,6 @@ import {
   getSessionsByType,
 } from "../../api";
 import { fetchSessionTracking } from "../../api/sessionTracking";
-import { fetchSessionTrackingTenantIds } from "../../api/sessionTrackingTenants";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
@@ -18,32 +17,19 @@ import { evaluateUsernameSearchInput } from "../../utils/usernameSearchGate";
 export default function Sessions() {
   /**
    * Sessions page with server-side search and pagination.
-   * - Debounced search across dataset via backend query param `q`.
-   * - "Filter by User name" is a plain text input (no dropdown).
-   * - Tenant filter remains a dropdown based on discovered tenant ids.
-   * - Pagination uses server-provided meta.total and page/limit.
+   * - Table supports server-side username search via ?q (debounced, gated for partial typing).
+   * - Tenant filter remains supported via tenant_id state, but tenant dropdown options are NOT
+   *   populated from /api/session-tracking/tenants/distinct anymore (per task requirement).
+   * - Analytics (charts) are unaffected by table-only filters except tenant_id (when selected).
    */
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
   const [meta, setMeta] = useState({ page: 1, limit: 10, total: 0 });
 
   // UI filters
   const [filterUserName, setFilterUserName] = useState("");
   const [filterTenantId, setFilterTenantId] = useState("");
-
-  /**
-   * Tenant dropdown options (canonical flow):
-   * - Primary source: GET /api/session/tenants via fetchTenantsForDropdown()
-   * - Display requirement: show all tenants and display them as tenant_id
-   *
-   * Contract:
-   * - Each option is { id: string, name?: string }, but we intentionally render label=id.
-   * - We keep a Set merge fallback from table data in case the backend returns tenants not in the
-   *   session list (rare), without changing the canonical source.
-   */
-  const [tenantOptions, setTenantOptions] = useState([]); // Array<{id: string, name: string}>
 
   // Keep URL query params in sync (so back/forward works)
   useEffect(() => {
@@ -68,7 +54,6 @@ export default function Sessions() {
 
   // Debounced filters/search to avoid request spam while typing
   const debouncedFilterUserName = useDebouncedValue(filterUserName, 250);
-  const debouncedQuery = useDebouncedValue(query, 250);
 
   // Details modal state
   const [selectedSession, setSelectedSession] = useState(null);
@@ -134,11 +119,10 @@ export default function Sessions() {
      * Fetch server-side aggregates for charts:
      * - Sessions by Organization
      * - Sessions by Type
-     * - (also ensure most/least used services are consistent since SessionsByType derives lists)
      *
      * IMPORTANT:
      * - Keep logic/output the same shape as before so the UI does not change.
-     * - Keep tenant scoping the same as listSessions (tenant_id), using filterTenantId when selected.
+     * - Keep tenant scoping aligned with list call (tenant_id), using filterTenantId when selected.
      */
     setAggLoading(true);
     setAggError("");
@@ -151,16 +135,12 @@ export default function Sessions() {
       const [orgRes, typeRes] = await Promise.all([
         getSessionsByOrganization(params),
         getSessionsByType(params),
-        // Ensure backend endpoint is exercised end-to-end (even though UI derives lists from byType today).
-        // This preserves future extensibility without changing current rendering behavior.
+        // Preserve endpoint exercise without changing rendering behavior.
         getMostLeastUsedServices({ ...params, maxItems: 5 }).catch(() => null),
       ]);
 
-      const orgArr = Array.isArray(orgRes?.items) ? orgRes.items : [];
-      const typeArr = Array.isArray(typeRes?.items) ? typeRes.items : [];
-
-      setByOrg(orgArr);
-      setByType(typeArr);
+      setByOrg(Array.isArray(orgRes?.items) ? orgRes.items : []);
+      setByType(Array.isArray(typeRes?.items) ? typeRes.items : []);
     } catch (e) {
       setByOrg([]);
       setByType([]);
@@ -215,11 +195,6 @@ export default function Sessions() {
         total: res?.meta?.total ?? (Array.isArray(arr) ? arr.length : 0),
       });
       setColumns(buildRestrictedColumns(arr));
-
-      // IMPORTANT:
-      // Tenant dropdown is sourced from GET /api/session-tracking/tenants/distinct (all tenants),
-      // and must not be derived from paginated table data (which would bias to page 1).
-      // Therefore, do not merge page-derived tenant_ids into tenantOptions here.
     } catch (e) {
       if (requestId !== activeRequestRef.current) return;
       setItems([]);
@@ -230,65 +205,13 @@ export default function Sessions() {
     }
   }
 
-  // PUBLIC_INTERFACE
-  async function loadTenantDropdownOptions(signal) {
-    /**
-     * Load tenant dropdown options.
-     *
-     * Canonical source for this dropdown (per requirements):
-     * - GET /api/session-tracking/tenants/distinct
-     *   (all distinct tenant_id values from the session_tracking collection)
-     *
-     * Inputs:
-     * - signal: AbortSignal to cancel in-flight request on unmount.
-     *
-     * Outputs:
-     * - Updates tenantOptions with normalized [{id,name}] list, where name===id
-     *   because the UI must display tenant_id.
-     *
-     * Errors:
-     * - Swallows AbortError (benign).
-     * - Surfaces other errors by logging in dev and falling back to empty list.
-     */
-    try {
-      const list = await fetchSessionTrackingTenantIds({ signal });
-      setTenantOptions(Array.isArray(list) ? list : []);
-    } catch (e) {
-      if (e?.name === "AbortError") return;
-      if (process.env.NODE_ENV !== "production") {
-        // eslint-disable-next-line no-console
-        console.warn("[Sessions] Failed to load session_tracking tenant ids:", e);
-      }
-      setTenantOptions([]);
-    }
-  }
-
   // Initial load
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
-
-    const ac = new AbortController();
-    loadTenantDropdownOptions(ac.signal);
-
     load(1, meta.limit || 10, "", key, dir);
     loadAggregates("");
-
-    return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
-
-  /**
-   * Query composition contract (non-patchy, explicit):
-   * - Analytics sections must NOT be affected by table-only filters (user/tenant dropdown).
-   * - Table can be filtered independently.
-   *
-   * We therefore maintain two q strings:
-   * - analyticsQ: derived from the (currently commented out) generic search box only
-   * - tableQ: derived from table-only user filter + generic search box (if enabled later)
-   */
-  const analyticsQ = useMemo(() => {
-    return String(debouncedQuery || "").trim();
-  }, [debouncedQuery]);
 
   const tableSearch = useMemo(() => {
     /**
@@ -296,8 +219,6 @@ export default function Sessions() {
      * - The "Filter by User name" input is meant to search by *full username*.
      * - To avoid backend calls for partial input (e.g. while typing), we only search when the
      *   value looks "complete enough" per evaluateUsernameSearchInput().
-     *
-     * This makes the request flow deterministic and prevents confusing empty results while typing.
      */
     return evaluateUsernameSearchInput(debouncedFilterUserName);
   }, [debouncedFilterUserName]);
@@ -307,15 +228,12 @@ export default function Sessions() {
   /**
    * Single canonical table reload flow:
    * - Exactly one request per debounce tick and/or tenant change.
-   * - Avoid overlapping effects that cause duplicate requests.
    */
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
 
     // Only call the backend when the user has entered a full username (not partial typing).
     if (!tableSearch.shouldSearch && tableQ) {
-      // User is typing a partial name; do not query the backend.
-      // Clear visible results so the UI doesn't appear to show unrelated data.
       setItems([]);
       setMeta((m) => ({ ...m, page: 1, total: 0 }));
       setColumns(buildRestrictedColumns([]));
@@ -328,11 +246,11 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableSearch.shouldSearch, tableQ, filterTenantId]);
 
-  // Analytics reload only when analytics search changes (NOT table filters)
+  // Analytics reload when tenant changes (NOT affected by username table filter)
   useEffect(() => {
-    loadAggregates(analyticsQ);
+    loadAggregates("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [analyticsQ]);
+  }, [filterTenantId]);
 
   // Toggle global dimming class while modal is open
   useEffect(() => {
@@ -396,18 +314,9 @@ export default function Sessions() {
           </div>
         </Card>
 
-        <Card
-          className="chart-card"
-          title="Sessions by Type"
-          subtitle="Count of sessions per type"
-        >
+        <Card className="chart-card" title="Sessions by Type" subtitle="Count of sessions per type">
           <div className="chart-wrapper" style={{ minHeight: 320 }}>
-            <SessionsByType
-              data={byType}
-              loading={aggLoading}
-              error={aggError}
-              maxItems={5}
-            />
+            <SessionsByType data={byType} loading={aggLoading} error={aggError} maxItems={5} />
           </div>
         </Card>
       </div>
@@ -427,15 +336,6 @@ export default function Sessions() {
             alignItems: "center",
           }}
         >
-          {/* <input
-            className="input-search"
-            placeholder="Search sessions (user, org, service, status, etc.)..."
-            aria-label="Search sessions"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            style={{ minWidth: 280 }}
-          /> */}
-
           <label htmlFor="filter-user" className="sr-only">
             Filter by User name
           </label>
@@ -461,15 +361,6 @@ export default function Sessions() {
             style={{ minWidth: 180 }}
           >
             <option value="">All tenants</option>
-            {(tenantOptions || []).map((t) => {
-              const id = String(t?.id || "").trim();
-              if (!id) return null;
-              return (
-                <option key={id} value={id}>
-                  {id}
-                </option>
-              );
-            })}
           </select>
 
           <div style={{ width: 8 }} />
