@@ -7,6 +7,7 @@ import {
   getSessionsByType,
 } from "../../api";
 import { fetchSessionTracking } from "../../api/sessionTracking";
+import { fetchSessionTrackingDistinctTenantIds } from "../../api/sessionTrackingTenants";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
@@ -30,6 +31,10 @@ export default function Sessions() {
   // UI filters
   const [filterUserName, setFilterUserName] = useState("");
   const [filterTenantId, setFilterTenantId] = useState("");
+
+  // Tenant dropdown options (distinct tenant_id from session_tracking; NOT pagination-derived)
+  const [tenantOptions, setTenantOptions] = useState([]);
+  const [tenantOptionsError, setTenantOptionsError] = useState("");
 
   // Keep URL query params in sync (so back/forward works)
   useEffect(() => {
@@ -210,6 +215,21 @@ export default function Sessions() {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
     load(1, meta.limit || 10, "", key, dir);
     loadAggregates("");
+
+    // Load all distinct tenant ids for dropdown (not pagination-limited)
+    (async () => {
+      try {
+        setTenantOptionsError("");
+        const ids = await fetchSessionTrackingDistinctTenantIds();
+        setTenantOptions(Array.isArray(ids) ? ids : []);
+      } catch (e) {
+        setTenantOptions([]);
+        setTenantOptionsError(
+          e?.response?.data?.message || e?.message || "Failed to load tenant options."
+        );
+      }
+    })();
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
@@ -361,11 +381,26 @@ export default function Sessions() {
             style={{ minWidth: 180 }}
           >
             <option value="">All tenants</option>
+            {tenantOptions.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
           </select>
 
           <div style={{ width: 8 }} />
           <div className="spacer" style={{ flex: 1 }} />
         </div>
+
+        {tenantOptionsError && (
+          <div
+            className="error"
+            role="status"
+            style={{ marginBottom: 8, opacity: 0.9 }}
+          >
+            {tenantOptionsError}
+          </div>
+        )}
 
         {error && (
           <div className="error" role="alert" style={{ marginBottom: 8 }}>
