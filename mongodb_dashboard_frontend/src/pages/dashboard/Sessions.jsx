@@ -7,6 +7,7 @@ import {
   getSessionsByType,
 } from "../../api";
 import { fetchSessionTracking } from "../../api/sessionTracking";
+import { fetchTenantsForDropdown } from "../../api/tenants";
 import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
@@ -32,8 +33,17 @@ export default function Sessions() {
   const [filterUserName, setFilterUserName] = useState("");
   const [filterTenantId, setFilterTenantId] = useState("");
 
-  // Tenant dropdown options
-  const [tenantIdOptions, setTenantIdOptions] = useState([]);
+  /**
+   * Tenant dropdown options (canonical flow):
+   * - Primary source: GET /api/session/tenants via fetchTenantsForDropdown()
+   * - Display requirement: show all tenants and display them as tenant_id
+   *
+   * Contract:
+   * - Each option is { id: string, name?: string }, but we intentionally render label=id.
+   * - We keep a Set merge fallback from table data in case the backend returns tenants not in the
+   *   session list (rare), without changing the canonical source.
+   */
+  const [tenantOptions, setTenantOptions] = useState([]); // Array<{id: string, name: string}>
 
   // Keep URL query params in sync (so back/forward works)
   useEffect(() => {
@@ -206,13 +216,25 @@ export default function Sessions() {
       });
       setColumns(buildRestrictedColumns(arr));
 
-      // Merge-in tenant IDs seen on this page as well
-      const tenants = new Set(tenantIdOptions);
+      // Merge-in tenant IDs seen on this page as well (id-only), without changing the canonical flow.
+      // This ensures the dropdown always contains all tenant_id values that appear in the table.
+      const currentIds = new Set((tenantOptions || []).map((t) => String(t?.id || "").trim()).filter(Boolean));
+      let mutated = false;
+
       (arr || []).forEach((it) => {
-        const t = String(it?.tenant_id ?? "").trim();
-        if (t) tenants.add(t);
+        const id = String(it?.tenant_id ?? "").trim();
+        if (id && !currentIds.has(id)) {
+          currentIds.add(id);
+          mutated = true;
+        }
       });
-      setTenantIdOptions(Array.from(tenants).sort((a, b) => a.localeCompare(b)));
+
+      if (mutated) {
+        const merged = Array.from(currentIds)
+          .sort((a, b) => a.localeCompare(b))
+          .map((id) => ({ id, name: id }));
+        setTenantOptions(merged);
+      }
     } catch (e) {
       if (requestId !== activeRequestRef.current) return;
       setItems([]);
@@ -223,11 +245,45 @@ export default function Sessions() {
     }
   }
 
+  // PUBLIC_INTERFACE
+  async function loadTenantDropdownOptions(signal) {
+    /**
+     * Load tenant dropdown options.
+     *
+     * Inputs:
+     * - signal: AbortSignal to cancel in-flight request on unmount.
+     *
+     * Outputs:
+     * - Updates tenantOptions with normalized [{id,name}] list.
+     *
+     * Errors:
+     * - Swallows AbortError (benign).
+     * - Surfaces other errors by logging in dev and falling back to empty list.
+     */
+    try {
+      const list = await fetchTenantsForDropdown({ signal });
+      setTenantOptions(Array.isArray(list) ? list : []);
+    } catch (e) {
+      if (e?.name === "AbortError") return;
+      if (process.env.NODE_ENV !== "production") {
+        // eslint-disable-next-line no-console
+        console.warn("[Sessions] Failed to load tenant dropdown options:", e);
+      }
+      setTenantOptions([]);
+    }
+  }
+
   // Initial load
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
+
+    const ac = new AbortController();
+    loadTenantDropdownOptions(ac.signal);
+
     load(1, meta.limit || 10, "", key, dir);
     loadAggregates("");
+
+    return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // initial mount only
 
@@ -415,11 +471,15 @@ export default function Sessions() {
             style={{ minWidth: 180 }}
           >
             <option value="">All tenants</option>
-            {tenantIdOptions.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
+            {(tenantOptions || []).map((t) => {
+              const id = String(t?.id || "").trim();
+              if (!id) return null;
+              return (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              );
+            })}
           </select>
 
           <div style={{ width: 8 }} />
