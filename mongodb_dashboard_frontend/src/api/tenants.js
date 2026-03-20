@@ -52,17 +52,20 @@ export async function fetchTenantsForDropdown(options = {}) {
 
   const mapped = list
     .map((t) => {
+      /**
+       * Dropdown requirement for Session Tracking:
+       * - Display all tenants as `tenant_id` (no friendly-name substitution).
+       */
       const id = normalizeTenantId(t);
       if (!id) return null;
-      const name = t?.tenant_name || t?.name || id;
-      return { id: String(id), name: String(name) };
+      return { id: String(id), name: String(id) };
     })
     .filter(Boolean);
 
-  // De-dupe and sort for stable UX.
+  // De-dupe and sort for stable UX (by tenant_id).
   const uniqueMap = new Map();
   mapped.forEach((t) => uniqueMap.set(t.id, t));
-  return Array.from(uniqueMap.values()).sort((a, b) => a.name.localeCompare(b.name));
+  return Array.from(uniqueMap.values()).sort((a, b) => a.id.localeCompare(b.id));
 }
 
 export default { fetchTenantsForDropdown };

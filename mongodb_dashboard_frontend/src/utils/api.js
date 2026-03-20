@@ -56,13 +56,25 @@ function joinUrl(base, path) {
 }
 
 function ensureOrgIdInUrl(url, explicitOrgId) {
+  /**
+   * IMPORTANT:
+   * Some endpoints are session-scoped and must NOT be decorated with org/tenant query params.
+   * Example: GET /api/session/tenants returns authorized tenants for the current authenticated user
+   * and requires cookie/JWT auth; adding organization_id here can cause backend scope mismatch and
+   * lead to 401/empty results, which then empties tenant dropdowns.
+   */
+  const safeUrl = String(url || "");
+  if (/\/api\/session\/tenants(?:$|[?#])/.test(safeUrl)) {
+    return url;
+  }
+
   const orgId = explicitOrgId || getOrganizationId();
   if (!orgId) return url;
   if (/[?&](organization_id|tenant_id)=/.test(url)) {
     // do not duplicate if either alias is already present
     return url;
   }
-  const sep = url.includes('?') ? '&' : '?';
+  const sep = url.includes("?") ? "&" : "?";
   return `${url}${sep}organization_id=${encodeURIComponent(orgId)}`;
 }
 
