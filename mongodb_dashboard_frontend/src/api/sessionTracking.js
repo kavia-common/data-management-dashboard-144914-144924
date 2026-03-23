@@ -34,12 +34,19 @@ export async function fetchSessionTracking(params = {}) {
   // IMPORTANT:
   // Use the table-specific endpoint so table filters/search do not couple to analytics endpoints.
   // Backend behavior and response shapes remain the same as /api/session-tracking.
-  const res = await getApiClient().get('/api/session-tracking/table', { params: safeParams });
-  const payload = res?.data ?? res;
+  const res = await getApiClient().get("/api/session-tracking/table", { params: safeParams });
+
+  /**
+   * baseClient.get() returns an axios-like shape: { data: <payload> }.
+   * For session-tracking table, backend payload is either:
+   *  - Array<row>  (non-paginated)
+   *  - { success: boolean, data: Array<row>, meta: {...} } (paginated/envelope)
+   */
+  const payload = res?.data;
 
   const items = Array.isArray(payload) ? payload : payload?.data ?? [];
   const total =
-    (payload && payload.meta && typeof payload.meta.total === 'number' && payload.meta.total) ||
+    (payload && payload.meta && typeof payload.meta.total === "number" && payload.meta.total) ||
     (Array.isArray(items) ? items.length : 0);
   const meta = payload?.meta ?? null;
 
