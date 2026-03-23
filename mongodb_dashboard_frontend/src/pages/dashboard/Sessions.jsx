@@ -12,7 +12,6 @@ import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
-import { evaluateUsernameSearchInput } from "../../utils/usernameSearchGate";
 
 // PUBLIC_INTERFACE
 export default function Sessions() {
@@ -235,12 +234,25 @@ export default function Sessions() {
 
   const tableSearch = useMemo(() => {
     /**
-     * Table search contract (request gate):
-     * - The "Filter by User name" input is meant to search by *full username*.
-     * - To avoid backend calls for partial input (e.g. while typing), we only search when the
-     *   value looks "complete enough" per evaluateUsernameSearchInput().
+     * Table search contract (no gate):
+     * - The "Filter by User name" input is treated as a general server-side text search input.
+     * - Whatever the user provides (including short/partial strings) is sent to the backend via ?q.
+     *
+     * Inputs:
+     * - debouncedFilterUserName: string (may contain extra whitespace)
+     *
+     * Output:
+     * - { normalized: string }
+     *
+     * Invariants:
+     * - normalized is always a trimmed string with collapsed whitespace.
+     * - Empty normalized string means "no search" (default/unfiltered table).
      */
-    return evaluateUsernameSearchInput(debouncedFilterUserName);
+    return {
+      normalized: String(debouncedFilterUserName ?? "")
+        .replace(/\s+/g, " ")
+        .trim(),
+    };
   }, [debouncedFilterUserName]);
 
   const tableQ = tableSearch.normalized;
@@ -248,23 +260,16 @@ export default function Sessions() {
   /**
    * Single canonical table reload flow:
    * - Exactly one request per debounce tick and/or tenant change.
+   * - No client-side gating; backend decides how partial queries behave.
    */
   useEffect(() => {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
 
-    // Only call the backend when the user has entered a full username (not partial typing).
-    if (!tableSearch.shouldSearch && tableQ) {
-      setItems([]);
-      setMeta((m) => ({ ...m, page: 1, total: 0 }));
-      setColumns(buildRestrictedColumns([]));
-      setError("");
-      return;
-    }
-
     // Empty input -> show default table (unfiltered), consistent with prior behavior.
-    load(1, meta.limit || 10, tableSearch.shouldSearch ? tableQ : "", key, dir);
+    // Non-empty input (including short/partial) -> always query backend.
+    load(1, meta.limit || 10, tableQ, key, dir);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableSearch.shouldSearch, tableQ, filterTenantId]);
+  }, [tableQ, filterTenantId]);
 
   // Analytics reload when tenant changes (NOT affected by username table filter)
   useEffect(() => {
