@@ -21,6 +21,18 @@ export async function fetchSessionTracking(params = {}) {
    * Contract:
    * - Always call the session-tracking list endpoint using the baseClient param-merging flow.
    * - Never pre-build a URL querystring here, to avoid duplicate query composition across callers.
+   *
+   * Inputs:
+   * - params: { page?, limit?, tenant_id?, sort?, q? }
+   *
+   * Outputs:
+   * - { items: Array<object>, total: number, meta: object|null }
+   *
+   * Errors:
+   * - Throws on non-2xx responses (from baseClient).
+   *
+   * Side effects:
+   * - Performs one network GET request.
    */
   const { page, limit, tenant_id, sort, q } = params || {};
 
@@ -33,22 +45,55 @@ export async function fetchSessionTracking(params = {}) {
 
   // IMPORTANT:
   // Use the table-specific endpoint so table filters/search do not couple to analytics endpoints.
-  // Backend behavior and response shapes remain the same as /api/session-tracking.
+  // Backend behavior and response shapes remain compatible with /api/session-tracking.
   const res = await getApiClient().get("/api/session-tracking/table", { params: safeParams });
 
   /**
-   * baseClient.get() returns an axios-like shape: { data: <payload> }.
-   * For session-tracking table, backend payload is either:
-   *  - Array<row>  (non-paginated)
-   *  - { success: boolean, data: Array<row>, meta: {...} } (paginated/envelope)
+   * Normalize all known backend response shapes into a consistent list payload.
+   *
+   * Known shapes:
+   * 1) Raw array:
+   *    - [ ...rows ]
+   *
+   * 2) Standard envelope:
+   *    - { success: true, data: [ ...rows ], meta: { page, limit, total } }
+   *
+   * 3) Nested envelope (observed in some middleware/controller stacks):
+   *    - { success: true, data: { data: [ ...rows ], meta: {...} }, meta?: {...} }
+   *
+   * Invariant:
+   * - items is ALWAYS an array.
    */
   const payload = res?.data;
 
-  const items = Array.isArray(payload) ? payload : payload?.data ?? [];
+  let items = [];
+  let meta = null;
+
+  if (Array.isArray(payload)) {
+    items = payload;
+  } else if (payload && typeof payload === "object") {
+    // Standard envelope: payload.data is array
+    if (Array.isArray(payload.data)) {
+      items = payload.data;
+      meta = payload.meta ?? null;
+    } else if (payload.data && typeof payload.data === "object") {
+      // Nested envelope: payload.data.data is array
+      if (Array.isArray(payload.data.data)) {
+        items = payload.data.data;
+        // Prefer inner meta, but fall back to outer meta if present.
+        meta = payload.data.meta ?? payload.meta ?? null;
+      } else {
+        items = [];
+        meta = payload.meta ?? null;
+      }
+    } else {
+      items = [];
+      meta = payload.meta ?? null;
+    }
+  }
+
   const total =
-    (payload && payload.meta && typeof payload.meta.total === "number" && payload.meta.total) ||
-    (Array.isArray(items) ? items.length : 0);
-  const meta = payload?.meta ?? null;
+    (meta && typeof meta.total === "number" && meta.total) || (Array.isArray(items) ? items.length : 0);
 
   return { items, total, meta };
 }
