@@ -69,7 +69,8 @@ export default function Sessions() {
 
   // Allowed and ordered fields (column visibility)
   const allowedOrdered = useMemo(
-    () => ["User_name", "tenant_id", "organization_name", "service_type"],
+    // Use canonical backend keys (snake_case). Labels are handled separately.
+    () => ["user_name", "tenant_id", "organization_name", "service_type"],
     []
   );
 
@@ -85,13 +86,13 @@ export default function Sessions() {
   function buildRestrictedColumns(rows = []) {
     /** Build DataTable columns strictly from the allowed list, preserving order. */
     return allowedOrdered.map((k) => {
-      const label = k === "User_name" ? "User name" : toLabel(k);
+      const label = k === "user_name" ? "User name" : toLabel(k);
 
       const render = (v, row) => {
-        if (k === "User_name") {
+        if (k === "user_name") {
           const val =
-            row?.User_name ??
             row?.user_name ??
+            row?.User_name ?? // tolerate legacy/mismatched casing
             row?.user?.name ??
             row?.username ??
             row?.email ??
@@ -171,7 +172,7 @@ export default function Sessions() {
 
     try {
       const sortFieldMap = {
-        User_name: "user_name",
+        user_name: "user_name",
         tenant_id: "tenant_id",
         organization_name: "organization_name",
         service_type: "service_type",
