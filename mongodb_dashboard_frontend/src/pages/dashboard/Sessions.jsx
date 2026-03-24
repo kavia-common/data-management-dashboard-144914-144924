@@ -253,13 +253,13 @@ export default function Sessions() {
     const { key, dir } = lastSortRef.current || { key: "", dir: "asc" };
 
     // Only call the backend when the user has entered a full username (not partial typing).
-    if (!tableSearch.shouldSearch && tableQ) {
-      setItems([]);
-      setMeta((m) => ({ ...m, page: 1, total: 0 }));
-      setColumns(buildRestrictedColumns([]));
-      setError("");
-      return;
-    }
+    // if (!tableSearch.shouldSearch && tableQ) {
+    //   setItems([]);
+    //   setMeta((m) => ({ ...m, page: 1, total: 0 }));
+    //   setColumns(buildRestrictedColumns([]));
+    //   setError("");
+    //   return;
+    // }
 
     // Empty input -> show default table (unfiltered), consistent with prior behavior.
     load(1, meta.limit || 10, tableSearch.shouldSearch ? tableQ : "", key, dir);
