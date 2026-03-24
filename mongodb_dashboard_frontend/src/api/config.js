@@ -9,8 +9,8 @@
 //
 const apiBase = 
 //  `https://kavia-dashboard-kavia-dev.cloud.kavia.ai/api`;
-// 'https://vscode-internal-15833-beta.beta01.cloud.kavia.ai:3001/api';
-`https://kavia-dashboard-kavia-beta.cloud.kavia.ai/api`
+'https://vscode-internal-26065-beta.beta01.cloud.kavia.ai:3001/api';
+// `https://kavia-dashboard-kavia-beta.cloud.kavia.ai/api`
 
 /**
  * PUBLIC_INTERFACE
