@@ -190,7 +190,8 @@ export default function Sessions() {
       }
 
       const res = await fetchSessionTracking(params);
-      const arr = res?.items ?? [];
+      // const arr = res?.items ?? [];
+      const arr = res?.data ?? res?.items ?? [];
       if (requestId !== activeRequestRef.current) return;
 
       setItems(Array.isArray(arr) ? arr : []);
