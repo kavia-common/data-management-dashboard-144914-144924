@@ -407,18 +407,17 @@ export default function Sessions() {
           data={Array.isArray(items) ? items : []}
           loading={!!loading}
           pageSize={meta.limit || 10}
+          // initialPage={meta.page || 1}
           currentPage={meta.page || 1}
           serverTotal={meta.total}
           fetchPage={async (page, limit, sortKey, sortDir) => {
+            console.log('FETCH PAGE:', page); // 👈 DEBUG
+
             if (sortKey) {
               lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
             }
 
-            // Keep pagination consistent with the same search gating used by the main effect:
-            // - if search is not allowed yet (partial typing), DO NOT send q
-            const effectiveQ = tableSearch.shouldSearch ? tableQ : "";
-
-            await load(page, limit, effectiveQ, sortKey, sortDir);
+            await load(page, limit, tableQ, sortKey, sortDir);
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}

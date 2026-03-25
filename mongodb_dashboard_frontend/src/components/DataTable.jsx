@@ -33,7 +33,7 @@ export default function DataTable({
   pageSize = 10,
   initialPage = 1,
   // PUBLIC_INTERFACE
-  currentPage, // optional: controlled page (primarily for server-mode tables)
+  currentPage: controlledCurrentPage, // optional: controlled page (primarily for server-mode tables)
   onPageChange,
   autoWidth = true,
   minColWidth = 56,
@@ -57,7 +57,6 @@ export default function DataTable({
    * - Ensures horizontal scroll is always available when columns exceed wrapper width or when forceHorizontalScroll is true.
    * - Pagination area is outside of the scrollable body and remains visible regardless of scroll position.
    * - Slight visual affordances (shadow) appear on the header when the body content is scrolled.
-
    */
   const [sortKey, setSortKey] = useState("");
   const [sortDir, setSortDir] = useState("asc");
@@ -79,10 +78,10 @@ export default function DataTable({
    * - We still keep internal state so client-mode remains unchanged.
    */
   useEffect(() => {
-    if (typeof currentPage !== "number") return;
-    const next = Math.max(1, currentPage || 1);
+    if (typeof controlledCurrentPage !== "number") return;
+    const next = Math.max(1, controlledCurrentPage || 1);
     setPage(next);
-  }, [currentPage]);
+  }, [controlledCurrentPage]);
 
   function getValue(row, path) {
     if (!row || !path) return undefined;
@@ -122,10 +121,12 @@ export default function DataTable({
   const total = isServerMode ? Math.max(0, serverTotal ?? clientTotal) : clientTotal;
 
   const totalPages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
-  const currentPage = Math.min(Math.max(1, page), totalPages);
+  // Internal derived page (clamped to [1,totalPages]) used for display and controls.
+  // NOTE: This must not share a name with the `currentPage` prop to avoid duplicate identifier build errors.
+  const displayPage = Math.min(Math.max(1, page), totalPages);
 
   // In client mode slice locally; in server mode assume data already corresponds to current page (and is globally sorted by server)
-  const start = (currentPage - 1) * Math.max(1, pageSize);
+  const start = (displayPage - 1) * Math.max(1, pageSize);
   const end = start + Math.max(1, pageSize);
   const pageRows = isServerMode ? (data || []) : sorted.slice(start, end);
 
@@ -187,12 +188,12 @@ export default function DataTable({
 
   function PaginationControls() {
     if (totalPages <= 1) return null;
-    const canPrev = currentPage > 1;
-    const canNext = currentPage < totalPages;
+    const canPrev = displayPage > 1;
+    const canNext = displayPage < totalPages;
 
     const pages = [];
     const maxButtons = 5;
-    let startPage = Math.max(1, currentPage - 2);
+    let startPage = Math.max(1, displayPage - 2);
     let endPage = Math.min(totalPages, startPage + maxButtons - 1);
     if (endPage - startPage + 1 < maxButtons) {
       startPage = Math.max(1, endPage - maxButtons + 1);
@@ -219,7 +220,7 @@ export default function DataTable({
           </button>
           <button
             className="btn btn-secondary"
-            onClick={() => setPageAndNotify(currentPage - 1)}
+            onClick={() => setPageAndNotify(displayPage - 1)}
             disabled={!canPrev}
             aria-label="Previous page"
             title="Previous page"
@@ -239,14 +240,13 @@ export default function DataTable({
           {pages.map((p) => (
             <button
               key={p}
-              className={`btn ${p === currentPage ? "btn-primary" : "btn-ghost"}`}
+              className={`btn ${p === displayPage ? "btn-primary" : "btn-ghost"}`}
               onClick={() => setPageAndNotify(p)}
-              aria-current={p === currentPage ? "page" : undefined}
+              aria-current={p === displayPage ? "page" : undefined}
               aria-label={`Page ${p}`}
             >
               {p}
             </button>
-
           ))}
           {endPage < totalPages && (
             <button
@@ -260,7 +260,7 @@ export default function DataTable({
           )}
           <button
             className="btn btn-secondary"
-            onClick={() => setPageAndNotify(currentPage + 1)}
+            onClick={() => setPageAndNotify(displayPage + 1)}
             disabled={!canNext}
             aria-label="Next page"
             title="Next page"
@@ -283,7 +283,7 @@ export default function DataTable({
               type="number"
               min={1}
               max={totalPages}
-              defaultValue={currentPage}
+              defaultValue={displayPage}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   const val = parseInt(e.currentTarget.value, 10);
@@ -344,7 +344,9 @@ export default function DataTable({
   }, [columns, pageRows, autoWidth, minColWidth, maxColWidth, actionColIncluded]);
 
   // If forced, set a minWidth on tables to ensure horizontal scrollbar appears even with a few columns.
-  const forcedMinWidth = forceHorizontalScroll ? Math.max(960, (safeColumns.length || 1) * 160 + (actionColIncluded ? 160 : 0)) : undefined;
+  const forcedMinWidth = forceHorizontalScroll
+    ? Math.max(960, (safeColumns.length || 1) * 160 + (actionColIncluded ? 160 : 0))
+    : undefined;
 
   return (
     <div className="table-wrapper" role="region" aria-label="Data table">
