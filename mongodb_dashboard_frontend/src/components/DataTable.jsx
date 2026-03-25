@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import Skeleton from "./ui/Skeleton.jsx";
 
 /**
@@ -32,6 +32,8 @@ export default function DataTable({
   onRowClick,
   pageSize = 10,
   initialPage = 1,
+  // PUBLIC_INTERFACE
+  currentPage, // optional: controlled page (primarily for server-mode tables)
   onPageChange,
   autoWidth = true,
   minColWidth = 56,
@@ -66,6 +68,21 @@ export default function DataTable({
 
   // Determine server mode up-front so we can control sorting and pagination behavior consistently.
   const isServerMode = typeof fetchPage === "function" && typeof serverTotal === "number";
+
+  /**
+   * Controlled-page sync (server mode):
+   * - Parent components often reset the page to 1 when filters/search change.
+   * - Without syncing, the table can remain on a stale page number and keep requesting wrong pages.
+   *
+   * Contract:
+   * - If `currentPage` is provided, it becomes the source of truth for the visible page.
+   * - We still keep internal state so client-mode remains unchanged.
+   */
+  useEffect(() => {
+    if (typeof currentPage !== "number") return;
+    const next = Math.max(1, currentPage || 1);
+    setPage(next);
+  }, [currentPage]);
 
   function getValue(row, path) {
     if (!row || !path) return undefined;
