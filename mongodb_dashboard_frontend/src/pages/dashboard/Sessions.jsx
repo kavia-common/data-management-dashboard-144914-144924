@@ -159,13 +159,7 @@ export default function Sessions() {
 
   // PUBLIC_INTERFACE
   async function load(page = 1, limit = meta.limit || 10, qStr = "", sortKey, sortDir) {
-    /**
-     * Load sessions with pagination, optional text search (qStr), and sorting.
-     *
-     * IMPORTANT:
-     * - qStr is treated as the fully-composed query string. Do NOT append user filter again here,
-     *   otherwise q duplicates (e.g. "Aditi S Aditi S").
-     */
+  
     const requestId = ++activeRequestRef.current;
     setLoading(true);
     setError("");
@@ -413,14 +407,16 @@ export default function Sessions() {
           data={Array.isArray(items) ? items : []}
           loading={!!loading}
           pageSize={meta.limit || 10}
-          initialPage={meta.page || 1}
+          // initialPage={meta.page || 1}
+          currentPage={meta.page || 1}
           serverTotal={meta.total}
           fetchPage={async (page, limit, sortKey, sortDir) => {
+            console.log('FETCH PAGE:', page); // 👈 DEBUG
+
             if (sortKey) {
               lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
-            } else if (!lastSortRef.current) {
-              lastSortRef.current = { key: "", dir: "asc" };
             }
+
             await load(page, limit, tableQ, sortKey, sortDir);
           }}
           paginationTitle="Sessions pages"
