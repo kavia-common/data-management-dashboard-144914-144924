@@ -1,2 +1,2 @@
-{ "working_directory": "/home/kavia/workspace/code-generation",
+{ "working_directory": "/home/kavia/workspace/code-generation/data-management-dashboard-144914-144924/mongodb_dashboard_frontend",
  "command": "npm install && npx tsc --noEmit && npm test -- --ci" }
