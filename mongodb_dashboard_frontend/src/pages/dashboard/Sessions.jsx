@@ -411,13 +411,15 @@ export default function Sessions() {
           currentPage={meta.page || 1}
           serverTotal={meta.total}
           fetchPage={async (page, limit, sortKey, sortDir) => {
-            console.log('FETCH PAGE:', page); // 👈 DEBUG
-
             if (sortKey) {
               lastSortRef.current = { key: sortKey, dir: sortDir || "asc" };
             }
 
-            await load(page, limit, tableQ, sortKey, sortDir);
+            // Pagination must use the same effective, gated query as the search effect.
+            // Otherwise, the table can show unfiltered rows while `meta.total` is filtered.
+            const effectiveQ = tableSearch.shouldSearch ? tableQ : "";
+
+            await load(page, limit, effectiveQ, sortKey, sortDir);
           }}
           paginationTitle="Sessions pages"
           onRowClick={handleRowClick}
