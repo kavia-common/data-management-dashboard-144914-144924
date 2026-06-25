@@ -284,7 +284,15 @@ export default function TabbedUserModal({
         // IMPORTANT:
         // In Super Admin (T0000), scope to the selected user's tenant if available.
         // Otherwise, normal tenants use currentOrgId.
-        const params = effectiveOrgId ? { organization_id: effectiveOrgId } : {};
+        const params = {
+          ...(effectiveOrgId ? { organization_id: effectiveOrgId } : {}),
+          ...(from ? { from } : {}),
+          ...(to ? { to } : {}),
+          // Reference query includes User_name; send best-effort value to support mixed schemas.
+          ...(user?.name || user?.full_name
+            ? { user_name: String(user?.name || user?.full_name) }
+            : {}),
+        };
         const data = await getUserSessionDetails(userId, params);
         setSessionDetails(data || null);
       } catch (e) {
