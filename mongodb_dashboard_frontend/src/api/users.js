@@ -122,3 +122,43 @@ export async function getUserSessionDetails(userId, params = {}) {
   );
   return data;
 }
+
+/**
+ * PUBLIC_INTERFACE
+ * getSessionStatsByDomain
+ * Fetch per-user session statistics aggregated by email domain.
+ *
+ * Backend endpoint:
+ *   GET /api/users/session-stats-by-domain?domain=<domain>
+ *
+ * Response shape:
+ *   {
+ *     success: boolean,
+ *     domain: string,
+ *     count: number,
+ *     data: Array<{
+ *       userId: string,
+ *       email: string,
+ *       totalSessionDuration: number,
+ *       sessionBreakdown: Array<{
+ *         sessionId: string,
+ *         duration: number,
+ *         status: string,
+ *         [key: string]: any
+ *       }>
+ *     }>
+ *   }
+ *
+ * @param {string} domain  Email domain, e.g. "davinci.com"
+ * @param {object} [options]  Optional request options (signal, etc.)
+ * @returns {Promise<{ success: boolean, domain: string, count: number, data: Array }>}
+ */
+export async function getSessionStatsByDomain(domain, options = {}) {
+  if (!domain) throw new Error('domain is required');
+  const api = getApiClient();
+  const { data } = await api.get('/api/users/session-stats-by-domain', {
+    params: { domain },
+    signal: options?.signal,
+  });
+  return data;
+}

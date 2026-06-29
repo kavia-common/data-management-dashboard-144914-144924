@@ -13,6 +13,9 @@ const CostsUnderscore = lazy(() => import("../pages/CostsUnderscore"));
 
 const Login = lazy(() => import("../pages/Login"));
 
+// TATA super-admin section (visible only for tenant T0000)
+const TataPage = lazy(() => import("../pages/dashboard/tata/TataPage"));
+
 /**
  * PUBLIC_INTERFACE
  * Application route tree under a single root BrowserRouter (provided by index.js).
@@ -97,6 +100,18 @@ export default function AppRoutes() {
             <AppLayout>
               <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={280} /></div>}>
                 <CostsUnderscore />
+              </Suspense>
+            </AppLayout>
+          }
+        />
+
+        {/* TATA super-admin section — accessible at /dashboard/tata */}
+        <Route
+          path="/dashboard/tata"
+          element={
+            <AppLayout>
+              <Suspense fallback={<div style={{ padding: 24 }}><Skeleton width="100%" height={320} /></div>}>
+                <TataPage />
               </Suspense>
             </AppLayout>
           }

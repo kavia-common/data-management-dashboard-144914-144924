@@ -128,6 +128,25 @@ export default function Sidebar() {
               <span className="nav-label">Costs</span>
             </NavLink>
           ) : null}
+
+          {/* TATA section: visible only to super-admin (T0000) */}
+          {showCostsModule ? (
+            <>
+              <div
+                className="sidebar-section-divider"
+                aria-hidden="true"
+                style={{
+                  height: 1,
+                  margin: "10px 14px",
+                  background: "var(--color-border, #3C3532)",
+                  opacity: 0.6,
+                }}
+              />
+              <NavLink to="/dashboard/tata" className="nav-link">
+                <span className="nav-label">TATA</span>
+              </NavLink>
+            </>
+          ) : null}
         </nav>
       </div>
 
