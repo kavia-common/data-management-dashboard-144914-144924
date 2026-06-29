@@ -13,6 +13,7 @@ import Card from "../../../components/ui/Card.jsx";
 import DataTable from "../../../components/DataTable.jsx";
 import { getChartTheme } from "../../../components/charts/chartTheme.js";
 import { getSessionStatsByDomain } from "../../../api/users.js";
+import { exportRowsToCsvFlow } from "../../../utils/csvExport.js";
 
 /**
  * Credits configuration constant (frontend display).
@@ -450,7 +451,20 @@ function ExpandableUserRow({ user, theme }) {
             }}
             aria-hidden="true"
           >
-            ▶
+            {/* Standard chevron icon – rotates 90° when row is expanded */}
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={{ display: "block" }}
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
           </span>
         </td>
         {/* Email */}
@@ -798,6 +812,64 @@ export default function TataSessionsTab() {
           subtitle="Click a row to expand per-session details"
         >
           <div style={{ overflowX: "auto" }}>
+            {/* CSV Export button */}
+            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                title="Export table data as CSV"
+                aria-label="Export User Session Records as CSV"
+                onClick={() => {
+                  // Build flat rows for CSV: one row per user with aggregated fields
+                  const csvColumns = [
+                    { key: "email", label: "Email", getValue: (r) => r.email || "" },
+                    {
+                      key: "totalSessionDuration",
+                      label: "Total Duration (s)",
+                      getValue: (r) => r.totalSessionDuration != null ? r.totalSessionDuration : "",
+                    },
+                    {
+                      key: "totalCredits",
+                      label: "Credits",
+                      getValue: (r) => {
+                        if (r.totalCredits != null) return Number(r.totalCredits);
+                        if (r.totalCost != null) return Math.round(Number(r.totalCost) * CREDIT_MULTIPLIER);
+                        return "";
+                      },
+                    },
+                    {
+                      key: "totalCost",
+                      label: "Total Cost (USD)",
+                      getValue: (r) => r.totalCost != null ? Number(r.totalCost) : "",
+                    },
+                    {
+                      key: "_sessionCount",
+                      label: "Session Count",
+                      getValue: (r) => Array.isArray(r.sessionBreakdown) ? r.sessionBreakdown.length : 0,
+                    },
+                    { key: "userId", label: "User ID", getValue: (r) => r.userId || "" },
+                  ];
+                  const safeFilename = `sessions-${activeDomain}-${new Date().toISOString().slice(0, 10)}.csv`;
+                  try {
+                    exportRowsToCsvFlow({ filename: safeFilename, columns: csvColumns, rows: chartData });
+                  } catch (e) {
+                    // eslint-disable-next-line no-console
+                    console.error("CSV export failed:", e);
+                  }
+                }}
+                style={{
+                  fontSize: 12,
+                  padding: "5px 14px",
+                  borderRadius: 6,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 5,
+                }}
+              >
+                <span aria-hidden="true">⬇</span> Export CSV
+              </button>
+            </div>
             <table
               style={{
                 width: "100%",
