@@ -1,6 +1,7 @@
 import React from 'react';
 import { render } from '@testing-library/react';
 import { CREDITS_PER_USD, usdToCredits, formatCredits, renderCreditsWithUsd } from './currency';
+import { formatCreditsFixedDecimals } from '../components/utils/creditsUtils';
 
 describe('currency credits utils', () => {
   test('usdToCredits converts with configured factor', () => {
@@ -21,5 +22,14 @@ describe('currency credits utils', () => {
     const { getByText } = render(<div>{renderCreditsWithUsd(1.2345)}</div>);
     // Primary content text contains 'credits'
     expect(getByText(/credits/)).toBeInTheDocument();
+  });
+
+  test('Credits Consumed formatting matches expected 4-decimal output for derived credits', () => {
+    // Example from bug report:
+    // total_cost = 3238.6598151099997
+    // credits = total_cost * 20000 = 64773196.3022 (expected, 4 decimals)
+    const totalCost = 3238.6598151099997;
+    const credits = totalCost * 20000;
+    expect(formatCreditsFixedDecimals(credits, 4)).toBe('64,773,196.3022');
   });
 });

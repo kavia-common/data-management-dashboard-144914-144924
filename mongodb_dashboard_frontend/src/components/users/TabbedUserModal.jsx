@@ -8,13 +8,14 @@ import Modal from '../ui/Modal.jsx';
 import DataTable from '../DataTable.jsx';
 
 import { listSessions } from '../../api/baseClient';
-import { getUserSessionDetails } from '../../api/users';
+import { getUserCostsSummaryByUserName, getUserSessionDetails } from '../../api/users';
 import { fetchLlmCostsUnderscore } from '../../api/llmCostsUnderscore';
 import useCurrentOrgId from '../../hooks/useCurrentOrgId';
 import { formatUsdUpToSixDecimals } from '../../utils/formatCurrency';
 import { resolveEffectiveTenantForUser } from '../../utils/resolveEffectiveTenantForUser';
 import UsersAnalyticsPanelModal from './UsersAnalyticsPanelModal.jsx';
 import ProjectDetails from './ProjectDetails.jsx';
+import { formatCreditsFixedDecimals } from '../utils/creditsUtils.js';
 
 /**
  * Internal presentational view for user details
@@ -271,6 +272,7 @@ export default function TabbedUserModal({
   // Session Details Tab
   function SessionDetailsTab({ userId, effectiveOrgId }) {
     const [sessionDetails, setSessionDetails] = useState(null);
+    const [costsSummary, setCostsSummary] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
@@ -293,10 +295,20 @@ export default function TabbedUserModal({
             ? { user_name: String(user?.name || user?.full_name) }
             : {}),
         };
-        const data = await getUserSessionDetails(userId, params);
-        setSessionDetails(data || null);
+
+        const userNameForAgg = String(user?.name || user?.full_name || '').trim();
+        const [details, summary] = await Promise.all([
+          getUserSessionDetails(userId, params),
+          userNameForAgg
+            ? getUserCostsSummaryByUserName(userNameForAgg, { organization_id: effectiveOrgId })
+            : Promise.resolve(null),
+        ]);
+
+        setSessionDetails(details || null);
+        setCostsSummary(summary && summary.success ? summary : null);
       } catch (e) {
         setSessionDetails(null);
+        setCostsSummary(null);
         setError(e?.message || 'Failed to load session details.');
       } finally {
         setLoading(false);
@@ -411,6 +423,7 @@ export default function TabbedUserModal({
       );
 
       const totalCost =
+        costsSummary?.total_cost_spent ??
         sessionDetails?.total_cost ??
         sessionDetails?.totalCost ??
         sessionDetails?.cost_total ??
@@ -510,11 +523,8 @@ export default function TabbedUserModal({
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
-    // Tenant-aware: indicate whether the effective tenant has ANY costs at all (any user).
-    const [tenantHasAnyCosts, setTenantHasAnyCosts] = useState(false);
-
-    // Per-user: only show the current user's total cost inside the effective tenant.
-    const [currentUserTotalCostUsd, setCurrentUserTotalCostUsd] = useState(0);
+    // Per-user: credits are sourced from DB aggregation endpoint (source of truth).
+    const [currentUserCredits, setCurrentUserCredits] = useState(null);
 
     // Fetch on tab activation; avoid refetch loops while tab remains active.
     // Include both tenant (org) and user in the cache key so switching users re-fetches.
@@ -528,40 +538,21 @@ export default function TabbedUserModal({
       setError('');
 
       try {
-        // Per requirement/attachment: call /api/llm_costs?page=1&limit=10 when tab opens.
-        // IMPORTANT:
-        // In Super Admin (T0000), scope to the selected user's tenant if available.
-        const data = await fetchLlmCostsUnderscore({
-          page: 1,
-          limit: 10,
-          organizationId: effectiveOrgId || undefined,
+        const userNameForAgg = String(user?.name || user?.full_name || '').trim();
+        if (!userNameForAgg) {
+          setCurrentUserCredits(null);
+          return;
+        }
+
+        const summary = await getUserCostsSummaryByUserName(userNameForAgg, {
+          organization_id: effectiveOrgId,
         });
-
-        const arr = Array.isArray(data?.data) ? data.data : [];
-
-        // Response is expected to contain per-user rows such as:
-        // { user_id, user_cost } (field names may vary slightly depending on backend).
-        // We consider the tenant to "have costs" if any row has a positive numeric user_cost.
-        const tenantHasCosts = arr.some((r) => {
-          const n = Number(r?.user_cost ?? r?.userCost ?? 0);
-          return Number.isFinite(n) && n > 0;
-        });
-
-        // Compute ONLY the current user's total cost by matching user_id.
-        const normalizedCurrentUserId = String(userId || '');
-        const currentUserCost = arr.reduce((acc, r) => {
-          const rowUserId = String(r?.user_id ?? r?.userId ?? '');
-          if (!rowUserId || rowUserId !== normalizedCurrentUserId) return acc;
-
-          const n = Number(r?.user_cost ?? r?.userCost ?? 0);
-          return acc + (Number.isFinite(n) ? n : 0);
-        }, 0);
-
-        setTenantHasAnyCosts(tenantHasCosts);
-        setCurrentUserTotalCostUsd(currentUserCost);
+        const creditsUsed = summary?.credits_used ?? null;
+        setCurrentUserCredits(
+          creditsUsed != null && Number.isFinite(Number(creditsUsed)) ? Number(creditsUsed) : null
+        );
       } catch (e) {
-        setTenantHasAnyCosts(false);
-        setCurrentUserTotalCostUsd(0);
+        setCurrentUserCredits(null);
         setError(e?.message || 'Failed to load credits consumed.');
       } finally {
         setLoading(false);
@@ -628,25 +619,10 @@ export default function TabbedUserModal({
             </div>
           ) : !currentOrgId ? (
             <div className="table-empty">No organization selected.</div>
-          ) : !tenantHasAnyCosts ? (
-            // Requirement: if selected tenant has no users with costs, show strike/empty state.
-            <div
-              className="table-empty"
-              style={{
-                textDecoration: 'line-through',
-                textDecorationThickness: '2px',
-                textDecorationColor: 'rgba(239,68,68,0.9)',
-                color: 'var(--text-secondary, #64748B)',
-                fontWeight: 700,
-              }}
-              aria-label="No costs found for this tenant"
-            >
-              No costs found for this tenant
-            </div>
           ) : (
-            // Requirement: render only the individual user's total (not org-wide).
+            // Requested: credits_used from DB aggregation (credits = total_cost_spent * 20000).
             <div style={valueStyle}>
-              {formatUsdUpToSixDecimals(currentUserTotalCostUsd)}
+              {formatCreditsFixedDecimals(currentUserCredits, 4)}
             </div>
           )}
         </div>

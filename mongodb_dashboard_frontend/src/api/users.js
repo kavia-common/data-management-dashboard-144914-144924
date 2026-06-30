@@ -122,3 +122,35 @@ export async function getUserSessionDetails(userId, params = {}) {
   );
   return data;
 }
+
+/**
+ * PUBLIC_INTERFACE
+ * getUserCostsSummaryByUserName
+ * Fetch total_cost_spent and credits_used for a given User_name aggregated directly in MongoDB.
+ *
+ * Backend endpoint:
+ *  POST /api/users/costs-summary
+ *
+ * @param {string} userName
+ * @param {Object} [options]
+ * @param {string} [options.organization_id]
+ * @param {string} [options.tenant_id]
+ * @returns {Promise<{success:boolean, User_name:string, total_cost_spent:number, credits_used:number}>}
+ */
+export async function getUserCostsSummaryByUserName(userName, options = {}) {
+  const name = userName ? String(userName).trim() : '';
+  if (!name) throw new Error('userName is required');
+
+  const api = getApiClient();
+  const params = {
+    ...(options?.organization_id ? { organization_id: options.organization_id } : {}),
+    ...(options?.tenant_id ? { tenant_id: options.tenant_id } : {}),
+  };
+
+  const { data } = await api.post(
+    '/api/users/costs-summary',
+    { User_name: name },
+    { params }
+  );
+  return data;
+}

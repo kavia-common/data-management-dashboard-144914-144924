@@ -37,3 +37,35 @@ export function formatCredits(value, locale = undefined) {
     return '—';
   }
 }
+
+/**
+ * PUBLIC_INTERFACE
+ * Format credits derived from USD costs (credits = total_cost * creditsPerUsd) with fixed precision.
+ *
+ * Why this exists:
+ * - Multiplying floats (e.g., total_cost coming from JSON) can produce tiny binary rounding errors.
+ * - The UI for "Credits Consumed" expects a stable decimal output (e.g., 64773196.3022).
+ *
+ * Behavior:
+ * - Rounds to exactly `decimals` using decimal-safe scaling.
+ * - Always renders exactly `decimals` fraction digits (default 4).
+ */
+export function formatCreditsFixedDecimals(value, decimals = 4, locale = undefined) {
+  if (value === null || value === undefined) return '—';
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '—';
+
+  const d = Number.isInteger(decimals) && decimals >= 0 ? decimals : 4;
+  const factor = 10 ** d;
+  const rounded = Math.round(num * factor) / factor;
+
+  try {
+    return rounded.toLocaleString(locale, {
+      minimumFractionDigits: d,
+      maximumFractionDigits: d,
+    });
+  } catch {
+    // Fallback: non-locale fixed decimals
+    return rounded.toFixed(d);
+  }
+}
