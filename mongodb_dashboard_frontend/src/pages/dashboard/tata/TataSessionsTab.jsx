@@ -26,6 +26,26 @@ import { exportRowsToCsvFlow } from "../../../utils/csvExport.js";
 // NOTE: Edit CREDIT_MULTIPLIER in mongodb_dashboard_backend/src/config/creditsConfig.js to change the multiplier
 const CREDIT_MULTIPLIER = 20000;
 
+// ─── Date Range Presets ────────────────────────────────────────────────────────
+
+/**
+ * Available date range presets sent to the backend as the `range` query param.
+ * Each item has:
+ *   id      – the value sent to the backend API
+ *   label   – the human-readable label shown in the UI
+ *   isCustom – true for the "Custom" option which shows date pickers
+ */
+const DATE_RANGE_PRESETS = [
+  { id: "last7", label: "Last 7 Days" },
+  { id: "last14", label: "Last 14 Days" },
+  { id: "lastMonth", label: "Last Month" },
+  { id: "custom", label: "Custom Range", isCustom: true },
+  { id: "all", label: "All Data" },
+];
+
+/** Default selected range when the component first mounts */
+const DEFAULT_RANGE = "last7";
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 /**
@@ -72,6 +92,55 @@ function formatCredits(credits) {
 function truncateLabel(str, maxLen = 14) {
   if (!str || str.length <= maxLen) return str || "";
   return str.slice(0, maxLen - 1) + "…";
+}
+
+/**
+ * Format a Date object to YYYY-MM-DD for use with date input elements.
+ * @param {Date} date
+ * @returns {string}
+ */
+function formatDateForInput(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return "";
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(d.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Get the default startDate for the custom range picker:
+ * 30 days ago in YYYY-MM-DD format.
+ * @returns {string}
+ */
+function getDefaultCustomStart() {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - 30);
+  return formatDateForInput(d);
+}
+
+/**
+ * Get today's date in YYYY-MM-DD format (for the endDate default).
+ * @returns {string}
+ */
+function getDefaultCustomEnd() {
+  return formatDateForInput(new Date());
+}
+
+/**
+ * Build a human-readable label describing the active date range.
+ * Used in the chart/table card subtitles.
+ * @param {string} rangeId
+ * @param {string|null} startDate
+ * @param {string|null} endDate
+ * @returns {string}
+ */
+function buildRangeLabel(rangeId, startDate, endDate) {
+  if (rangeId === "custom" && startDate && endDate) {
+    return `${startDate} → ${endDate}`;
+  }
+  const preset = DATE_RANGE_PRESETS.find((p) => p.id === rangeId);
+  return preset ? preset.label : rangeId;
 }
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
@@ -266,15 +335,32 @@ function CustomBarTooltip({ active, payload, label }) {
   );
 }
 
-// ─── Table Column Definitions ──────────────────────────────────────────────────
+// ─── Table Column Definitions ─────────────────────────────────────────────────
 
-/** Column definitions for the per-user sessions data table */
+/**
+ * Column definitions for the per-user sessions data table.
+ * Includes the Organization column which shows aggregated organization IDs
+ * as a comma-separated string (added as an additive enhancement).
+ */
 const USER_TABLE_COLUMNS = [
   {
     key: "email",
     label: "Email",
     priority: 1,
     render: (v) => v || "—",
+  },
+  {
+    // organizationId: aggregated comma-separated organization IDs from the users collection.
+    // Single-org users display one value; multi-org users display all values separated by commas.
+    key: "organizationId",
+    label: "Organization",
+    priority: 1,
+    render: (v) =>
+      v ? (
+        <span title={v}>{v}</span>
+      ) : (
+        "—"
+      ),
   },
   {
     key: "totalSessionDuration",
@@ -336,7 +422,7 @@ const USER_TABLE_COLUMNS = [
   },
 ];
 
-// ─── Session Breakdown Sub-table ───────────────────────────────────────────────
+// ─── Session Breakdown Sub-table ──────────────────────────────────────────────
 
 /**
  * SessionBreakdownTable
@@ -421,6 +507,11 @@ function SessionBreakdownTable({ sessions }) {
  * ExpandableUserRow
  * Renders a DataTable-like row for each user with an expand toggle to show
  * their session breakdown.
+ *
+ * Columns (in order): expand toggle, Email, Organization, Total Duration,
+ * Credits, Sessions, User ID.
+ * The Organization column shows the aggregated organizationId field returned
+ * by the backend (comma-separated string when a user belongs to multiple orgs).
  */
 function ExpandableUserRow({ user, theme }) {
   const [expanded, setExpanded] = useState(false);
@@ -471,6 +562,18 @@ function ExpandableUserRow({ user, theme }) {
         <td style={{ padding: "8px 10px", fontWeight: 500, wordBreak: "break-word", maxWidth: 240 }}>
           {user.email || "—"}
         </td>
+        {/* Organization — aggregated organizationId from the backend */}
+        <td
+          style={{
+            padding: "8px 10px",
+            wordBreak: "break-word",
+            maxWidth: 200,
+            fontSize: 12,
+          }}
+          title={user.organizationId || ""}
+        >
+          {user.organizationId || "—"}
+        </td>
         {/* Total Duration */}
         <td style={{ padding: "8px 10px", whiteSpace: "nowrap" }}>
           {formatDuration(user.totalSessionDuration)}
@@ -516,11 +619,11 @@ function ExpandableUserRow({ user, theme }) {
             : "—"}
         </td>
       </tr>
-      {/* Expandable breakdown row */}
+      {/* Expandable breakdown row — colSpan updated to 7 to match new column count */}
       {expanded && (
         <tr>
           <td
-            colSpan={6}
+            colSpan={7}
             style={{
               background: "rgba(255,255,255,0.02)",
               padding: "8px 24px 16px 40px",
@@ -535,6 +638,148 @@ function ExpandableUserRow({ user, theme }) {
   );
 }
 
+// ─── Date Range Filter Control ────────────────────────────────────────────────
+
+/**
+ * DateRangeFilter
+ * Renders a row of preset buttons (Last 7 Days, Last 14 Days, etc.) and
+ * conditionally shows start/end date pickers when "Custom Range" is selected.
+ *
+ * Props:
+ *   selectedRange   – currently selected range id (string)
+ *   onRangeChange   – called with (rangeId) when a preset is clicked
+ *   customStart     – current custom start date (YYYY-MM-DD string)
+ *   customEnd       – current custom end date (YYYY-MM-DD string)
+ *   onCustomStart   – called with new start date string
+ *   onCustomEnd     – called with new end date string
+ *   onApply         – called when the "Apply" button is clicked (for custom range)
+ *   disabled        – when true, all controls are disabled
+ */
+function DateRangeFilter({
+  selectedRange,
+  onRangeChange,
+  customStart,
+  customEnd,
+  onCustomStart,
+  onCustomEnd,
+  onApply,
+  disabled = false,
+}) {
+  const isCustom = selectedRange === "custom";
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8,
+        alignItems: "center",
+        marginTop: 12,
+      }}
+      aria-label="Date range filter"
+      role="group"
+    >
+      {/* Label */}
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: 600,
+          opacity: 0.65,
+          whiteSpace: "nowrap",
+          marginRight: 4,
+        }}
+      >
+        Date range:
+      </span>
+
+      {/* Preset buttons */}
+      {DATE_RANGE_PRESETS.map((preset) => {
+        const isActive = selectedRange === preset.id;
+        return (
+          <button
+            key={preset.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onRangeChange(preset.id)}
+            aria-pressed={isActive}
+            style={{
+              padding: "4px 14px",
+              borderRadius: 20,
+              fontSize: 12,
+              fontWeight: isActive ? 700 : 500,
+              border: isActive
+                ? "1.5px solid var(--color-primary, #e65c00)"
+                : "1.5px solid rgba(255,255,255,0.18)",
+              background: isActive
+                ? "var(--color-primary-faint, rgba(230,92,0,0.13))"
+                : "transparent",
+              color: isActive
+                ? "var(--color-primary, #e65c00)"
+                : "var(--color-text-secondary, #B0A8A0)",
+              cursor: disabled ? "not-allowed" : "pointer",
+              transition: "all 0.15s",
+              whiteSpace: "nowrap",
+              opacity: disabled ? 0.5 : 1,
+            }}
+          >
+            {preset.label}
+          </button>
+        );
+      })}
+
+      {/* Custom date pickers — only shown when "Custom Range" is active */}
+      {isCustom && (
+        <>
+          <input
+            type="date"
+            value={customStart}
+            max={customEnd || undefined}
+            onChange={(e) => onCustomStart(e.target.value)}
+            disabled={disabled}
+            aria-label="Custom start date"
+            style={{
+              padding: "4px 10px",
+              borderRadius: 6,
+              border: "1px solid rgba(255,255,255,0.22)",
+              background: "rgba(255,255,255,0.05)",
+              color: "var(--color-text, #f0ece8)",
+              fontSize: 12,
+              cursor: disabled ? "not-allowed" : "pointer",
+            }}
+          />
+          <span style={{ opacity: 0.5, fontSize: 12 }}>→</span>
+          <input
+            type="date"
+            value={customEnd}
+            min={customStart || undefined}
+            onChange={(e) => onCustomEnd(e.target.value)}
+            disabled={disabled}
+            aria-label="Custom end date"
+            style={{
+              padding: "4px 10px",
+              borderRadius: 6,
+              border: "1px solid rgba(255,255,255,0.22)",
+              background: "rgba(255,255,255,0.05)",
+              color: "var(--color-text, #f0ece8)",
+              fontSize: 12,
+              cursor: disabled ? "not-allowed" : "pointer",
+            }}
+          />
+          <button
+            type="button"
+            disabled={disabled || !customStart || !customEnd}
+            onClick={onApply}
+            className="btn btn-primary"
+            style={{ fontSize: 12, padding: "4px 14px", borderRadius: 20 }}
+          >
+            Apply
+          </button>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Component ────────────────────────────────────────────────────────────
 
 /**
@@ -544,37 +789,54 @@ function ExpandableUserRow({ user, theme }) {
  *
  * Features:
  *  - Domain input (e.g. "davinci.com") to fetch user session statistics
+ *  - Date range filter: Last 7 Days (default), Last 14 Days, Last Month,
+ *    Custom Date Range, or All Data — applied to both graph and table
  *  - Bar chart: x = user email (abbreviated), y = totalSessionDuration (seconds)
  *  - Custom tooltip shows per-session breakdown on bar hover
  *  - Expandable table below the chart for detailed per-session view
+ *  - Organization column showing aggregated organizationId(s) per user
  *
- * Data source: GET /api/users/session-stats-by-domain?domain=<domain>
+ * Data source: GET /api/users/session-stats-by-domain?domain=<domain>&range=<range>
+ *              (also accepts startDate/endDate for custom range)
  *
  * @returns {JSX.Element}
  */
 export default function TataSessionsTab() {
   const theme = getChartTheme();
 
-  // ── Domain input state ──────────────────────────────────────────────────────
+  // ── Domain input state ────────────────────────────────────────────────────
   const [domainInput, setDomainInput] = useState("");
   const [activeDomain, setActiveDomain] = useState("");
 
-  // ── Fetch state ─────────────────────────────────────────────────────────────
+  // ── Date range filter state ───────────────────────────────────────────────
+  /** Currently selected range preset id */
+  const [selectedRange, setSelectedRange] = useState(DEFAULT_RANGE);
+  /** Applied range id (committed after fetch) */
+  const [appliedRange, setAppliedRange] = useState(DEFAULT_RANGE);
+  /** Custom range start (YYYY-MM-DD) */
+  const [customStart, setCustomStart] = useState(getDefaultCustomStart);
+  /** Custom range end (YYYY-MM-DD) */
+  const [customEnd, setCustomEnd] = useState(getDefaultCustomEnd);
+
+  // ── Fetch state ───────────────────────────────────────────────────────────
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [results, setResults] = useState(null);
 
-  // ── Chart active bar ─────────────────────────────────────────────────────────
+  // ── Chart active bar ──────────────────────────────────────────────────────
   const [activeBarIndex, setActiveBarIndex] = useState(null);
 
-  // ── AbortController ref for in-flight requests ──────────────────────────────
+  // ── AbortController ref for in-flight requests ────────────────────────────
   const abortRef = useRef(null);
 
   /**
-   * Trigger a fetch for the given domain.
+   * Trigger a fetch for the given domain and date range parameters.
    * Cancels any previous in-flight request.
+   *
+   * @param {string} domain - Email domain to query
+   * @param {object} rangeParams - { range, startDate, endDate }
    */
-  const fetchDomain = useCallback(async (domain) => {
+  const fetchDomain = useCallback(async (domain, rangeParams = {}) => {
     const cleaned = (domain || "").trim().toLowerCase().replace(/^@/, "");
     if (!cleaned) return;
 
@@ -589,14 +851,21 @@ export default function TataSessionsTab() {
     setResults(null);
     setActiveBarIndex(null);
     setActiveDomain(cleaned);
+    setAppliedRange(rangeParams.range || DEFAULT_RANGE);
 
     try {
-      const data = await getSessionStatsByDomain(cleaned, {
-        signal: abortRef.current.signal,
-      });
+      const data = await getSessionStatsByDomain(
+        cleaned,
+        {
+          range: rangeParams.range || DEFAULT_RANGE,
+          startDate: rangeParams.startDate || null,
+          endDate: rangeParams.endDate || null,
+        },
+        { signal: abortRef.current.signal }
+      );
       setResults(data);
     } catch (err) {
-      // Ignore abort errors (user typed another domain)
+      // Ignore abort errors (user typed another domain or changed filter)
       if (err?.name === "AbortError") return;
       const msg =
         err?.payload?.message ||
@@ -615,13 +884,57 @@ export default function TataSessionsTab() {
     };
   }, []);
 
+  /**
+   * Build the rangeParams object based on current filter state.
+   * For custom range, includes startDate/endDate.
+   * For presets, only includes range id.
+   */
+  const buildRangeParams = useCallback(
+    (range = selectedRange) => {
+      if (range === "custom") {
+        return { range: "custom", startDate: customStart, endDate: customEnd };
+      }
+      return { range };
+    },
+    [selectedRange, customStart, customEnd]
+  );
+
   /** Handle form submission (Enter key or button click) */
   const handleSubmit = (e) => {
     e && e.preventDefault();
-    fetchDomain(domainInput);
+    fetchDomain(domainInput, buildRangeParams());
   };
 
-  // ── Derived chart + table data ───────────────────────────────────────────────
+  /**
+   * Handle preset button clicks.
+   * If a domain is already active, immediately re-fetches with the new range.
+   * For "custom", just switches the UI to show the date pickers without fetching.
+   */
+  const handleRangeChange = (rangeId) => {
+    setSelectedRange(rangeId);
+    // If already showing results and it's not custom (requires explicit Apply),
+    // auto-refresh with the new range.
+    if (activeDomain && rangeId !== "custom") {
+      fetchDomain(activeDomain, { range: rangeId });
+    }
+  };
+
+  /**
+   * Handle the "Apply" button for custom date ranges.
+   * Validates the dates and re-fetches if a domain is already active.
+   */
+  const handleApplyCustomRange = () => {
+    if (!customStart || !customEnd) return;
+    if (activeDomain) {
+      fetchDomain(activeDomain, {
+        range: "custom",
+        startDate: customStart,
+        endDate: customEnd,
+      });
+    }
+  };
+
+  // ── Derived chart + table data ────────────────────────────────────────────
   const userRows = Array.isArray(results?.data) ? results.data : [];
 
   // Sort by totalSessionDuration descending for better visual hierarchy
@@ -629,13 +942,21 @@ export default function TataSessionsTab() {
     (a, b) => (b.totalSessionDuration || 0) - (a.totalSessionDuration || 0)
   );
 
+  /** Human-readable label for the active date range (shown in card subtitles) */
+  const rangeLabel = buildRangeLabel(
+    appliedRange,
+    results?.dateFilter?.startDate || customStart,
+    results?.dateFilter?.endDate || customEnd
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      {/* Domain Input Card */}
+      {/* Domain Input + Date Range Filter Card */}
       <Card
         title="Session Stats by Domain"
-        subtitle="Enter an email domain to load session duration data for all matching users"
+        subtitle="Enter an email domain and choose a date range to load session data"
       >
+        {/* Domain search form */}
         <form
           onSubmit={handleSubmit}
           style={{
@@ -672,7 +993,7 @@ export default function TataSessionsTab() {
           <button
             type="submit"
             className="btn btn-primary"
-            disabled={loading || !domainInput.trim()}
+            disabled={loading || !domainInput.trim() || (selectedRange === "custom" && (!customStart || !customEnd))}
             aria-label="Fetch session stats"
             style={{ minWidth: 100 }}
           >
@@ -692,9 +1013,23 @@ export default function TataSessionsTab() {
               {results.count ?? userRows.length} user
               {(results.count ?? userRows.length) !== 1 ? "s" : ""} for{" "}
               <strong>@{activeDomain}</strong>
+              {" "}·{" "}
+              <span style={{ opacity: 0.75 }}>{rangeLabel}</span>
             </span>
           )}
         </form>
+
+        {/* Date range filter controls */}
+        <DateRangeFilter
+          selectedRange={selectedRange}
+          onRangeChange={handleRangeChange}
+          customStart={customStart}
+          customEnd={customEnd}
+          onCustomStart={setCustomStart}
+          onCustomEnd={setCustomEnd}
+          onApply={handleApplyCustomRange}
+          disabled={loading}
+        />
 
         {/* Inline error */}
         {error && (
@@ -727,7 +1062,8 @@ export default function TataSessionsTab() {
               textAlign: "center",
             }}
           >
-            No users found for domain <strong>@{activeDomain}</strong>.
+            No users found for domain <strong>@{activeDomain}</strong>{" "}
+            within the selected date range ({rangeLabel}).
           </div>
         )}
       </Card>
@@ -736,7 +1072,7 @@ export default function TataSessionsTab() {
       {userRows.length > 0 && (
         <Card
           title={`Session Duration by User — @${activeDomain}`}
-          subtitle="Hover a bar to see per-session breakdown · Y-axis in seconds"
+          subtitle={`Hover a bar to see per-session breakdown · Y-axis in seconds · ${rangeLabel}`}
         >
           <div style={{ width: "100%", height: 340 }}>
             <ResponsiveContainer>
@@ -809,7 +1145,7 @@ export default function TataSessionsTab() {
       {userRows.length > 0 && (
         <Card
           title={`User Session Records — @${activeDomain}`}
-          subtitle="Click a row to expand per-session details"
+          subtitle={`Click a row to expand per-session details · ${rangeLabel}`}
         >
           <div style={{ overflowX: "auto" }}>
             {/* CSV Export button */}
@@ -820,9 +1156,17 @@ export default function TataSessionsTab() {
                 title="Export table data as CSV"
                 aria-label="Export User Session Records as CSV"
                 onClick={() => {
-                  // Build flat rows for CSV: one row per user with aggregated fields
+                  // Build flat rows for CSV: one row per user with aggregated fields.
+                  // The Organization column is included as a comma-separated string of
+                  // all organization IDs associated with the user.
                   const csvColumns = [
                     { key: "email", label: "Email", getValue: (r) => r.email || "" },
+                    {
+                      // organizationId: aggregated org IDs from backend, comma-separated
+                      key: "organizationId",
+                      label: "Organization",
+                      getValue: (r) => r.organizationId != null ? String(r.organizationId) : "",
+                    },
                     {
                       key: "totalSessionDuration",
                       label: "Total Duration (s)",
@@ -849,7 +1193,10 @@ export default function TataSessionsTab() {
                     },
                     { key: "userId", label: "User ID", getValue: (r) => r.userId || "" },
                   ];
-                  const safeFilename = `sessions-${activeDomain}-${new Date().toISOString().slice(0, 10)}.csv`;
+                  const rangeStr = appliedRange === "custom"
+                    ? `${customStart}-to-${customEnd}`
+                    : appliedRange;
+                  const safeFilename = `sessions-${activeDomain}-${rangeStr}-${new Date().toISOString().slice(0, 10)}.csv`;
                   try {
                     exportRowsToCsvFlow({ filename: safeFilename, columns: csvColumns, rows: chartData });
                   } catch (e) {
@@ -889,6 +1236,7 @@ export default function TataSessionsTab() {
                   <th style={{ width: 28, padding: "6px 10px" }} />
                   {[
                     "Email",
+                    "Organization",
                     "Total Duration",
                     "Credits",
                     "Sessions",
@@ -962,6 +1310,7 @@ export default function TataSessionsTab() {
               >
                 davinci.com
               </code>
+              &nbsp;· Default filter: <strong>Last 7 Days</strong>
             </div>
           </div>
         </Card>

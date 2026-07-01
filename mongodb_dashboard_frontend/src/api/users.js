@@ -136,6 +136,7 @@ export async function getUserSessionDetails(userId, params = {}) {
  *     success: boolean,
  *     domain: string,
  *     count: number,
+ *     dateFilter: { range: string, startDate: string|null, endDate: string|null },
  *     data: Array<{
  *       userId: string,
  *       email: string,
@@ -150,15 +151,26 @@ export async function getUserSessionDetails(userId, params = {}) {
  *   }
  *
  * @param {string} domain  Email domain, e.g. "davinci.com"
+ * @param {object} [params]  Optional date range parameters.
+ * @param {string} [params.range]  Preset range: 'last7' (default), 'last14', 'lastMonth', 'all'.
+ * @param {string|null} [params.startDate]  Custom start date (ISO or YYYY-MM-DD). Requires endDate.
+ * @param {string|null} [params.endDate]  Custom end date (ISO or YYYY-MM-DD). Requires startDate.
  * @param {object} [options]  Optional request options (signal, etc.)
  * @returns {Promise<{ success: boolean, domain: string, count: number, data: Array }>}
  */
-export async function getSessionStatsByDomain(domain, options = {}) {
+export async function getSessionStatsByDomain(domain, params = {}, options = {}) {
   if (!domain) throw new Error('domain is required');
   const api = getApiClient();
+
+  // Build query params: always include domain; conditionally include range filter params
+  const queryParams = { domain };
+  if (params.range) queryParams.range = params.range;
+  if (params.startDate) queryParams.startDate = params.startDate;
+  if (params.endDate) queryParams.endDate = params.endDate;
+
   const { data } = await api.get('/api/users/session-stats-by-domain', {
-    params: { domain },
-    signal: options?.signal,
+    params: queryParams,
+    signal: params?.signal ?? options?.signal,
   });
   return data;
 }
