@@ -8,7 +8,6 @@ import {
 } from "../../api";
 import { fetchSessionTracking } from "../../api/sessionTracking";
 import { fetchSessionTrackingDistinctTenantIds } from "../../api/sessionTrackingTenants";
-import SessionDetailsModal from "../../components/sessions/SessionDetailsModal";
 import SessionsByOrganization from "../../components/charts/SessionsByOrganization.jsx";
 import SessionsByType from "../../components/charts/SessionsByType.jsx";
 import useDebouncedValue from "../../hooks/useDebouncedValue";
@@ -59,10 +58,6 @@ export default function Sessions() {
 
   // Debounced filters/search to avoid request spam while typing
   const debouncedFilterUserName = useDebouncedValue(filterUserName, 250);
-
-  // Details modal state
-  const [selectedSession, setSelectedSession] = useState(null);
-  const [detailsOpen, setDetailsOpen] = useState(false);
 
   // Concurrency + sort memory
   const activeRequestRef = useRef(0);
@@ -266,46 +261,8 @@ export default function Sessions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterTenantId]);
 
-  // Toggle global dimming class while modal is open
-  useEffect(() => {
-    if (detailsOpen) {
-      document.body.classList.add("modal-open");
-    } else {
-      document.body.classList.remove("modal-open");
-    }
-    return () => document.body.classList.remove("modal-open");
-  }, [detailsOpen]);
-
-  // Row click -> open modal
-  const handleRowClick = (row) => {
-    if (process.env.NODE_ENV !== "production") {
-      try {
-        const keys = Object.keys(row || {});
-        // eslint-disable-next-line no-console
-        console.debug(
-          "[Sessions] Row clicked (tenant_id scoped) -> opening details modal with keys:",
-          keys
-        );
-      } catch {
-        // ignore logging errors
-      }
-    }
-    setSelectedSession(row);
-    setDetailsOpen(true);
-  };
-
   return (
     <div>
-      {/* Details Modal */}
-      <SessionDetailsModal
-        open={detailsOpen}
-        onClose={() => {
-          setDetailsOpen(false);
-          setTimeout(() => setSelectedSession(null), 0);
-        }}
-        session={selectedSession}
-      />
-
       {/* Charts */}
       <div
         className="sessions-charts"
@@ -420,7 +377,6 @@ export default function Sessions() {
             await load(page, limit, tableQ, sortKey, sortDir);
           }}
           paginationTitle="Sessions pages"
-          onRowClick={handleRowClick}
         />
       </Card>
     </div>
